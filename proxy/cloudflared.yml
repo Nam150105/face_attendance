@@ -1,0 +1,11 @@
+tunnel: 94e92a9f-fc13-43aa-8dae-043fa8af9366
+credentials-file: /etc/cloudflared/credentials.json
+
+# Cloudflare terminates TLS at the edge and forwards to Caddy on the internal
+# Docker network, so nothing has to be published on the host for the public site.
+ingress:
+  - hostname: namnangno.click
+    service: http://proxy:80
+  - hostname: www.namnangno.click
+    service: http://proxy:80
+  - service: http_status:404

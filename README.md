@@ -28,8 +28,13 @@ chỉ được API gọi nội bộ. Kiểm tra bằng:
 docker compose exec -T api python -c "import urllib.request; print(urllib.request.urlopen('http://face-ai:8001/ready').read().decode())"
 ```
 
-Tài khoản seed cho local: `manager@example.com` và `member@example.com`, mật khẩu
-`ChangeMe123!`. Chỉ dùng cho phát triển.
+Migration `002_seed_local_demo` tạo hai tài khoản demo `manager@example.com` và
+`member@example.com` với mật khẩu mặc định **chỉ dành cho máy local**. Bất kỳ
+deployment nào mở ra Internet đều **bắt buộc** đổi mật khẩu ngay sau khi migrate:
+
+```powershell
+docker compose exec -T postgres psql -U face_attendance -d face_attendance -c "UPDATE users SET password_hash = crypt('<mat-khau-moi>', gen_salt('bf')) WHERE email = 'member@example.com';"
+```
 
 Migration revision hiện tại: `007_face_enrollment_challenges`.
 
@@ -65,16 +70,10 @@ secure context, nên bắt buộc phải dùng HTTPS. Có hai đường:
    rồi bật tin cậy tại **Cài đặt → Cài đặt chung → Giới thiệu → Cài đặt tin cậy chứng chỉ**.
 5. Mở `https://192-168-1-37.sslip.io` trên Safari.
 
-### Cách 2 — Cloudflare tunnel (không cần cấu hình iPhone)
+### Cách 2 — Dùng thẳng bản deploy tại `https://namnangno.click`
 
-```powershell
-docker compose --profile tunnel up -d tunnel
-docker compose logs tunnel | Select-String "trycloudflare.com"
-```
-
-Cho ra một URL HTTPS công khai với chứng chỉ thật, dùng được ngay trên iPhone.
-**Lưu ý:** URL này ai có link cũng vào được — chỉ dùng để test ngắn, tắt bằng
-`docker compose stop tunnel` khi xong. Không dùng cho dữ liệu thật.
+Chứng chỉ thật của Cloudflare, không cần cài gì lên iPhone. Xem mục
+Deployment bên dưới.
 
 ## Các phase đã hoàn thành
 
@@ -196,6 +195,41 @@ SCRFD/ArcFace (`insightface-buffalo_l-arcface` / `w600k_r50`) bằng
 **`FACE_MATCH_THRESHOLD=0.35` là giá trị tạm (provisional).** Đây là mức thường dùng
 cho cosine similarity của `w600k_r50`, **chưa** được đánh giá FAR/FRR trên tập ảnh có
 đồng thuận. Phải đo lại trước khi đưa vào production.
+
+## Deployment
+
+Bản public chạy tại **https://namnangno.click**, phục vụ từ chính máy dev qua
+Cloudflare Tunnel — không mở port nào trên router.
+
+```text
+Internet -> Cloudflare edge (TLS that) -> tunnel container -> proxy (Caddy) -> frontend / api
+```
+
+- Service `tunnel` trong `docker-compose.yml` chạy named tunnel
+  `namnangno-tunnel`, ingress khai báo ở [proxy/cloudflared.yml](proxy/cloudflared.yml).
+- Credentials của tunnel nằm ngoài repo, đường dẫn khai báo qua
+  `CLOUDFLARED_CREDENTIALS_FILE` trong `.env`.
+- Cloudflare kết nối tới Caddy qua network Docker nội bộ; không service nào của
+  stack cần publish ra host để site chạy.
+- API, MinIO và Adminer chỉ bind `127.0.0.1`. Face AI không bind gì cả.
+
+Khởi động lại bản deploy:
+
+```powershell
+docker compose up -d
+docker compose logs tunnel --tail 20
+```
+
+Cấu hình tunnel trước đây (site tĩnh trong `D:\Projects\namnangno`) được lưu tại
+`config.yml.before-face-attendance` trong thư mục `.cloudflared` nếu cần khôi phục.
+
+### Bắt buộc trước khi cho người thật dùng
+
+- [ ] Bật **Cloudflare Access** cho `namnangno.click` để chỉ email được duyệt mới vào được.
+- [ ] Đổi toàn bộ secret trong `.env` (đã làm khi deploy lần đầu, phải lặp lại nếu clone sang máy khác).
+- [ ] Đổi mật khẩu tài khoản demo do migration `002` tạo ra.
+- [ ] Thêm rate limit cho `/auth/login` (Phase 9).
+- [ ] Thêm liveness/anti-spoofing (chưa có provider).
 
 ## Known issues
 

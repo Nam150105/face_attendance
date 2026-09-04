@@ -86,12 +86,13 @@ docker run --rm -v "${PWD}/api:/src:ro" -w /src face-attendance-api python -m un
 docker compose build frontend
 ```
 
-Tài khoản demo (chỉ dùng local): `manager@example.com` / `member@example.com`, mật khẩu `ChangeMe123!`.
+Tài khoản demo do migration `002_seed_local_demo` tạo ra chỉ dùng cho máy local. Mật khẩu trên môi trường public đã được đổi và **không được ghi vào repo** — hỏi người dùng nếu cần.
 
 ## 8. Trạng thái hiện tại
 
 - **Xong:** Phase 0–6 (hạ tầng, schema, auth/RBAC, membership, location/geofence, face enrollment, check-in/check-out) + nối model ArcFace thật + frontend thin slice (login/enroll/check-in).
 - **Tiếp theo:** Phase 7 — màn hình quản lý chấm công cho Manager.
+- **Đã deploy:** https://namnangno.click, chạy từ máy dev qua Cloudflare Tunnel (service `tunnel` trong compose).
 - **Nợ kỹ thuật đã biết:** xem mục "Known issues" trong [README.md](README.md).
 
 ## 9. Những thứ CHƯA có — đừng giả định là đã có

@@ -18,9 +18,11 @@ services:
 
   tunnel:
     image: cloudflare/cloudflared:latest
-    profiles:
-      - tunnel
-    command: ["tunnel", "--no-autoupdate", "--url", "http://proxy:80"]
+    restart: unless-stopped
+    command: ["tunnel", "--no-autoupdate", "--config", "/etc/cloudflared/config.yml", "run"]
+    volumes:
+      - ./proxy/cloudflared.yml:/etc/cloudflared/config.yml:ro
+      - ${CLOUDFLARED_CREDENTIALS_FILE}:/etc/cloudflared/credentials.json:ro
     depends_on:
       - proxy
     networks:
@@ -30,8 +32,6 @@ services:
     build: ./frontend
     environment:
       NEXT_PUBLIC_API_BASE_URL: ${NEXT_PUBLIC_API_BASE_URL:-/api/v1}
-    ports:
-      - "3000:3000"
     depends_on:
       api:
         condition: service_healthy
@@ -53,7 +53,7 @@ services:
       CORS_ALLOW_ORIGINS: ${CORS_ALLOW_ORIGINS}
       FACE_AI_URL: http://face-ai:8001
     ports:
-      - "8000:8000"
+      - "127.0.0.1:8000:8000"
     depends_on:
       postgres:
         condition: service_healthy
@@ -127,8 +127,8 @@ services:
       MINIO_ROOT_USER: ${MINIO_ROOT_USER}
       MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
     ports:
-      - "9000:9000"
-      - "9001:9001"
+      - "127.0.0.1:9000:9000"
+      - "127.0.0.1:9001:9001"
     volumes:
       - minio_data:/data
     healthcheck:
