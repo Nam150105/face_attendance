@@ -22,6 +22,7 @@ services:
       S3_BUCKET: ${S3_BUCKET}
       JWT_SECRET: ${JWT_SECRET}
       AUTH_DEBUG_RETURN_RESET_TOKEN: ${AUTH_DEBUG_RETURN_RESET_TOKEN}
+      FACE_AI_URL: http://face-ai:8001
     ports:
       - "8000:8000"
     depends_on:
@@ -46,6 +47,7 @@ services:
       FACE_MODEL_NAME: ${FACE_MODEL_NAME}
       FACE_MODEL_VERSION: ${FACE_MODEL_VERSION}
       FACE_MATCH_THRESHOLD: ${FACE_MATCH_THRESHOLD}
+      FACE_AI_ENABLE_EMBEDDINGS: ${FACE_AI_ENABLE_EMBEDDINGS}
     ports:
       - "8001:8001"
     healthcheck:

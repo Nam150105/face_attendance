@@ -18,9 +18,11 @@ Local migration seed credentials are `manager@example.com` and
 `member@example.com`, both using `ChangeMe123!`. They are for development
 only and must not be used in production.
 
-The Face AI container is intentionally a health-only skeleton until the model,
-embedding dimension, threshold evaluation, and liveness implementation are
-selected and verified in Phase 5.
+The Face AI service uses OpenCV CPU processing for image decoding, face-count
+detection, blur scoring, and brightness checks. Embedding generation and
+production liveness remain disabled until a model, license, threshold
+evaluation set, and anti-spoofing provider are selected. Face AI is called
+internally by the API through the Docker backend network.
 
 ## Phase 2 authentication checks
 
@@ -83,3 +85,20 @@ the configured minimum. Location access is restricted to its owning Manager or
 an active Member assignment.
 
 Expected migration revision: `006_location_ownership`.
+
+## Phase 5 face enrollment foundation
+
+Phase 5 adds:
+
+```text
+POST /api/v1/faces/enrollment/start
+POST /api/v1/faces/enrollment/verify
+```
+
+Enrollment challenges are short-lived, server-side, single-use records. The
+Face AI service rejects invalid images and reports `FACE_NOT_FOUND`,
+`MULTIPLE_FACES`, or `FACE_QUALITY_LOW` from the OpenCV pipeline. Until a real
+embedding model is configured, valid enrollment returns
+`FACE_MODEL_NOT_CONFIGURED`; the system never stores a fake embedding.
+
+Expected migration revision: `007_face_enrollment_challenges`.
