@@ -189,3 +189,17 @@ def evaluate_member_location(user_id: uuid.UUID, location_id: uuid.UUID, payload
         "accuracy_meters": decision.accuracy_meters,
         "location_id": location_id,
     }
+
+
+def list_member_locations(member_id: uuid.UUID) -> list[dict]:
+    with psycopg.connect(DATABASE_URL) as connection:
+        rows = connection.execute(
+            f"""
+            SELECT {LOCATION_JOIN_COLUMNS}, ml.is_default
+            FROM member_locations ml JOIN locations l ON l.id = ml.location_id
+            WHERE ml.member_id = %s AND l.is_active = true
+            ORDER BY ml.is_default DESC, l.name
+            """,
+            (member_id,),
+        ).fetchall()
+    return [{**_location(row), "is_default": row[11]} for row in rows]

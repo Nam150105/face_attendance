@@ -1,8 +1,35 @@
 services:
+  proxy:
+    image: caddy:2-alpine
+    environment:
+      HTTPS_HOSTS: ${HTTPS_HOSTS:-localhost}
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./proxy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      api:
+        condition: service_healthy
+    networks:
+      - edge
+
+  tunnel:
+    image: cloudflare/cloudflared:latest
+    profiles:
+      - tunnel
+    command: ["tunnel", "--no-autoupdate", "--url", "http://proxy:80"]
+    depends_on:
+      - proxy
+    networks:
+      - edge
+
   frontend:
     build: ./frontend
     environment:
-      NEXT_PUBLIC_API_BASE_URL: http://localhost:8000/api/v1
+      NEXT_PUBLIC_API_BASE_URL: ${NEXT_PUBLIC_API_BASE_URL:-/api/v1}
     ports:
       - "3000:3000"
     depends_on:
@@ -20,8 +47,10 @@ services:
       S3_ACCESS_KEY: ${S3_ACCESS_KEY}
       S3_SECRET_KEY: ${S3_SECRET_KEY}
       S3_BUCKET: ${S3_BUCKET}
+      S3_SERVER_SIDE_ENCRYPTION: ${S3_SERVER_SIDE_ENCRYPTION}
       JWT_SECRET: ${JWT_SECRET}
       AUTH_DEBUG_RETURN_RESET_TOKEN: ${AUTH_DEBUG_RETURN_RESET_TOKEN}
+      CORS_ALLOW_ORIGINS: ${CORS_ALLOW_ORIGINS}
       FACE_AI_URL: http://face-ai:8001
     ports:
       - "8000:8000"
@@ -53,8 +82,6 @@ services:
       FACE_EMBEDDING_DIMENSION: ${FACE_EMBEDDING_DIMENSION}
     volumes:
       - "D:/face-attendance-models:/models:ro"
-    ports:
-      - "8001:8001"
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8001/health')"]
       interval: 10s
@@ -127,6 +154,8 @@ volumes:
   postgres_data:
   redis_data:
   minio_data:
+  caddy_data:
+  caddy_config:
 
 networks:
   edge:

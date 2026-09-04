@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import uuid
 from datetime import datetime, timezone
 
@@ -20,12 +21,20 @@ def _face_ai_not_configured(response: dict) -> bool:
     return response.get("code") == "FACE_MODEL_NOT_CONFIGURED" or response.get("status") == "NOT_CONFIGURED"
 
 
-def _verify_face(image: bytes, member_id: uuid.UUID) -> dict:
+def _reference_embedding(connection: psycopg.Connection, member_id: uuid.UUID) -> list[float] | None:
+    row = connection.execute(
+        "SELECT embedding::text FROM face_embeddings WHERE member_id = %s AND revoked_at IS NULL ORDER BY created_at DESC LIMIT 1",
+        (member_id,),
+    ).fetchone()
+    return json.loads(row[0]) if row else None
+
+
+def _verify_face(image: bytes, member_id: uuid.UUID, reference_embedding: list[float] | None) -> dict:
     try:
         response = httpx.post(
             "http://face-ai:8001/v1/verify",
             files={"image": ("attendance.jpg", image, "image/jpeg")},
-            data={"member_id": str(member_id)},
+            data={"member_id": str(member_id), "reference_embedding": json.dumps(reference_embedding) if reference_embedding else ""},
             timeout=30,
         )
         response.raise_for_status()
@@ -103,21 +112,10 @@ def check_in(
             raise HTTPException(status_code=403, detail="OUTSIDE_ALLOWED_ZONE")
         if decision.status == GeofenceStatus.WARNING_REASON_REQUIRED and not reason:
             raise HTTPException(status_code=422, detail="WARNING_REASON_REQUIRED")
-        checkout_location = connection.execute(
-            "SELECT latitude, longitude, allow_radius_meters, warning_radius_meters FROM locations WHERE id = %s AND is_active = true",
-            (open_event[1],),
-        ).fetchone()
-        if checkout_location is None:
-            raise HTTPException(status_code=404, detail="Checkout location is inactive")
-        decision = evaluate_geofence(
-            latitude, longitude, gps_accuracy_meters, float(checkout_location[0]), float(checkout_location[1]),
-            GeofencePolicy(checkout_location[2], checkout_location[3], 100),
-        )
-        if decision.status == GeofenceStatus.GPS_ACCURACY_LOW:
-            raise HTTPException(status_code=422, detail="GPS_ACCURACY_LOW")
-        if decision.status == GeofenceStatus.BLOCK:
-            raise HTTPException(status_code=403, detail="OUTSIDE_ALLOWED_ZONE")
-        face_result = _verify_face(image, user.id)
+        reference_embedding = _reference_embedding(connection, user.id)
+        if reference_embedding is None:
+            raise HTTPException(status_code=409, detail="FACE_NOT_ENROLLED")
+        face_result = _verify_face(image, user.id, reference_embedding)
         if _face_ai_not_configured(face_result):
             raise HTTPException(status_code=503, detail="FACE_MODEL_NOT_CONFIGURED")
         if face_result.get("status") != "VERIFIED":
@@ -125,7 +123,6 @@ def check_in(
         object_key = f"attendance/{user.id}/{uuid.uuid4()}.jpg"
         PrivateObjectStorage().put_private(object_key, image, content_type)
         event_status = "WARNING_CONFIRMED" if decision.status == GeofenceStatus.WARNING_REASON_REQUIRED else "SUCCESS"
-        object_key = f"attendance/{user.id}/{uuid.uuid4()}.jpg"
         row = connection.execute(
             """
             INSERT INTO attendance_events (member_id, location_id, event_type, status, server_time, latitude, longitude, gps_accuracy_meters, distance_meters, face_match_score, liveness_score, image_object_key, reason, idempotency_key)
@@ -160,11 +157,30 @@ def check_out(
         open_event = _open_state(connection, user.id)
         if open_event is None:
             raise HTTPException(status_code=409, detail="CHECK_OUT_WITHOUT_CHECK_IN")
-        face_result = _verify_face(image, user.id)
+        checkout_location = connection.execute(
+            "SELECT latitude, longitude, allow_radius_meters, warning_radius_meters FROM locations WHERE id = %s AND is_active = true",
+            (open_event[1],),
+        ).fetchone()
+        if checkout_location is None:
+            raise HTTPException(status_code=404, detail="Checkout location is inactive")
+        decision = evaluate_geofence(
+            latitude, longitude, gps_accuracy_meters, float(checkout_location[0]), float(checkout_location[1]),
+            GeofencePolicy(checkout_location[2], checkout_location[3], 100),
+        )
+        if decision.status == GeofenceStatus.GPS_ACCURACY_LOW:
+            raise HTTPException(status_code=422, detail="GPS_ACCURACY_LOW")
+        if decision.status == GeofenceStatus.BLOCK:
+            raise HTTPException(status_code=403, detail="OUTSIDE_ALLOWED_ZONE")
+        reference_embedding = _reference_embedding(connection, user.id)
+        if reference_embedding is None:
+            raise HTTPException(status_code=409, detail="FACE_NOT_ENROLLED")
+        face_result = _verify_face(image, user.id, reference_embedding)
         if _face_ai_not_configured(face_result):
             raise HTTPException(status_code=503, detail="FACE_MODEL_NOT_CONFIGURED")
         if face_result.get("status") != "VERIFIED":
             raise HTTPException(status_code=403, detail=face_result.get("code", "FACE_NOT_MATCHED"))
+        object_key = f"attendance/{user.id}/{uuid.uuid4()}.jpg"
+        PrivateObjectStorage().put_private(object_key, image, content_type)
         row = connection.execute(
             """
             INSERT INTO attendance_events (member_id, location_id, event_type, status, server_time, latitude, longitude, gps_accuracy_meters, distance_meters, face_match_score, liveness_score, image_object_key, idempotency_key)
@@ -174,5 +190,54 @@ def check_out(
             (user.id, open_event[1], _utc_now(), latitude, longitude, gps_accuracy_meters, decision.distance_meters, face_result.get("face_match_score"), face_result.get("liveness_score"), object_key, idempotency_key),
         ).fetchone()
         connection.commit()
-    PrivateObjectStorage().put_private(object_key, image, content_type)
     return {"status": row[0], "event_id": row[1], "distance_meters": float(row[2]), "message": "Check-out successful"}
+
+
+def _event_dict(row: tuple) -> dict:
+    return {
+        "id": row[0],
+        "event_type": row[1],
+        "status": row[2],
+        "server_time": row[3],
+        "location_id": row[4],
+        "location_name": row[5],
+        "distance_meters": float(row[6]),
+        "gps_accuracy_meters": float(row[7]),
+        "face_match_score": float(row[8]) if row[8] is not None else None,
+        "reason": row[9],
+    }
+
+
+MY_EVENT_COLUMNS = """
+    e.id, e.event_type::text, e.status::text, e.server_time, e.location_id, l.name,
+    e.distance_meters, e.gps_accuracy_meters, e.face_match_score, e.reason
+"""
+
+
+def my_state(user: CurrentUser) -> dict:
+    with psycopg.connect(DATABASE_URL) as connection:
+        open_event = _open_state(connection, user.id)
+        enrolled = connection.execute(
+            "SELECT 1 FROM face_embeddings WHERE member_id = %s AND revoked_at IS NULL LIMIT 1", (user.id,)
+        ).fetchone()
+        last = connection.execute(
+            f"SELECT {MY_EVENT_COLUMNS} FROM attendance_events e JOIN locations l ON l.id = e.location_id WHERE e.member_id = %s ORDER BY e.server_time DESC LIMIT 1",
+            (user.id,),
+        ).fetchone()
+    return {
+        "state": "CHECKED_IN" if open_event is not None else "NOT_CHECKED_IN",
+        "face_enrolled": enrolled is not None,
+        "open_check_in_id": open_event[0] if open_event is not None else None,
+        "open_check_in_location_id": open_event[1] if open_event is not None else None,
+        "open_check_in_time": open_event[2] if open_event is not None else None,
+        "last_event": _event_dict(last) if last is not None else None,
+    }
+
+
+def my_history(user: CurrentUser, limit: int) -> list[dict]:
+    with psycopg.connect(DATABASE_URL) as connection:
+        rows = connection.execute(
+            f"SELECT {MY_EVENT_COLUMNS} FROM attendance_events e JOIN locations l ON l.id = e.location_id WHERE e.member_id = %s ORDER BY e.server_time DESC LIMIT %s",
+            (user.id, limit),
+        ).fetchall()
+    return [_event_dict(row) for row in rows]

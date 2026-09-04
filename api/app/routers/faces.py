@@ -1,13 +1,14 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import os
 import secrets
 import uuid
 
 import httpx
 import psycopg
-from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
+from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
 
 from app.auth import CurrentUser, DATABASE_URL, get_current_user
 
@@ -19,6 +20,18 @@ router = APIRouter(prefix="/faces", tags=["faces"])
 
 def _hash(value: str) -> str:
     return hashlib.sha256(value.encode("utf-8")).hexdigest()
+
+
+@router.get("/me")
+def my_enrollment(user: CurrentUser = Depends(get_current_user)) -> dict:
+    with psycopg.connect(DATABASE_URL) as connection:
+        row = connection.execute(
+            "SELECT id, model_name, model_version, created_at FROM face_embeddings WHERE member_id = %s AND revoked_at IS NULL ORDER BY created_at DESC LIMIT 1",
+            (user.id,),
+        ).fetchone()
+    if row is None:
+        return {"enrolled": False, "embedding_id": None, "model_name": None, "model_version": None, "enrolled_at": None}
+    return {"enrolled": True, "embedding_id": row[0], "model_name": row[1], "model_version": row[2], "enrolled_at": row[3]}
 
 
 @router.post("/enrollment/start", status_code=status.HTTP_201_CREATED)
@@ -42,8 +55,8 @@ def start_enrollment(user: CurrentUser = Depends(get_current_user)) -> dict:
 
 @router.post("/enrollment/verify")
 async def verify_enrollment(
-    challenge_id: uuid.UUID,
-    challenge: str,
+    challenge_id: uuid.UUID = Form(...),
+    challenge: str = Form(...),
     image: UploadFile = File(...),
     user: CurrentUser = Depends(get_current_user),
 ) -> dict:
@@ -63,9 +76,17 @@ async def verify_enrollment(
         response = await _face_ai_enroll(image_bytes, image.filename or "enrollment.jpg")
     except httpx.HTTPError as error:
         raise HTTPException(status_code=503, detail="Face AI service unavailable") from error
-    if response.get("status") != "READY_FOR_EMBEDDING":
+    if response.get("status") != "ENROLLED":
         return response
     with psycopg.connect(DATABASE_URL) as connection:
+        embedding = response.get("embedding")
+        if not isinstance(embedding, list) or len(embedding) != 512:
+            raise HTTPException(status_code=502, detail="Face AI returned an invalid embedding")
+        connection.execute("UPDATE face_embeddings SET revoked_at = now() WHERE member_id = %s AND revoked_at IS NULL", (user.id,))
+        connection.execute(
+            "INSERT INTO face_embeddings (id, member_id, embedding, model_name, model_version, quality_score) VALUES (%s, %s, %s::vector, %s, %s, %s)",
+            (uuid.uuid4(), user.id, json.dumps(embedding), response.get("model_name", "arcface"), response.get("model_version", "unknown"), response.get("blur_score")),
+        )
         connection.execute("UPDATE face_enrollment_challenges SET consumed_at = now() WHERE id = %s", (challenge_id,))
         connection.commit()
     return response
@@ -91,9 +112,9 @@ async def _face_ai_enroll(image_bytes: bytes, filename: str) -> dict:
         return response.json()
 
 
-async def _face_ai_verify(image_bytes: bytes, filename: str, member_id: str) -> dict:
+async def _face_ai_verify(image_bytes: bytes, filename: str, member_id: str, reference_embedding: list[float] | None = None) -> dict:
     files = {"image": (filename, image_bytes, "image/jpeg")}
-    data = {"member_id": member_id}
+    data = {"member_id": member_id, "reference_embedding": json.dumps(reference_embedding) if reference_embedding else ""}
     async with httpx.AsyncClient(timeout=30) as client:
         response = await client.post(f"{FACE_AI_URL}/v1/verify", files=files, data=data)
         response.raise_for_status()

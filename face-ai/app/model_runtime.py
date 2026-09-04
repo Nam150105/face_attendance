@@ -23,6 +23,8 @@ class ModelRuntime:
         self.detector_path = Path(os.environ.get("FACE_DETECTOR_MODEL_PATH", "/models/detector/face_detector.onnx"))
         self.embedding_path = Path(os.environ.get("FACE_EMBEDDING_MODEL_PATH", "/models/embedding/arcface.onnx"))
         self.embedding_dimension = int(os.environ.get("FACE_EMBEDDING_DIMENSION", "512"))
+        self.model_name = os.environ.get("FACE_MODEL_NAME", "arcface")
+        self.model_version = os.environ.get("FACE_MODEL_VERSION", "unknown")
         self.provider = "CPUExecutionProvider" if "CPUExecutionProvider" in ort.get_available_providers() else "none"
         self.detector_session = None
         self.embedding_session = None

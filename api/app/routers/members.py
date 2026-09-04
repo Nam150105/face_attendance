@@ -5,6 +5,7 @@ from fastapi import APIRouter, Depends
 from pydantic import BaseModel, Field
 
 from app.auth import CurrentUser, get_current_user
+from app.services.locations import list_member_locations
 from app.services.membership import get_member_profile, update_member_profile
 
 
@@ -28,3 +29,8 @@ def get_me(user: CurrentUser = Depends(get_current_user)) -> dict:
 @router.put("/me")
 def update_me(request: MemberProfileRequest, user: CurrentUser = Depends(get_current_user)) -> dict:
     return update_member_profile(user.id, request.model_dump())
+
+
+@router.get("/me/locations")
+def my_locations(user: CurrentUser = Depends(get_current_user)) -> list[dict]:
+    return list_member_locations(user.id)

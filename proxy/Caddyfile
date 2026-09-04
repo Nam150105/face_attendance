@@ -1,0 +1,27 @@
+{
+	auto_https disable_redirects
+}
+
+(app) {
+	handle /api/* {
+		reverse_proxy api:8000
+	}
+	handle /health {
+		reverse_proxy api:8000
+	}
+	handle {
+		reverse_proxy frontend:3000
+	}
+}
+
+# Plain HTTP is what the cloudflared tunnel connects to; the tunnel terminates TLS itself.
+:80 {
+	import app
+}
+
+# HTTPS_HOSTS must list every name/IP the browser uses, because Caddy issues one
+# internal certificate per listed subject. Example: "localhost, 192.168.1.37".
+{$HTTPS_HOSTS:localhost} {
+	tls internal
+	import app
+}

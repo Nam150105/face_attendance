@@ -1,72 +1,124 @@
 # Face Attendance
 
-This repository is implemented phase-by-phase from the specifications in
-[`face-attendance-docs`](face-attendance-docs/README.md).
+Hệ thống chấm công bằng nhận diện khuôn mặt và geofence GPS, được xây dựng theo từng
+phase từ spec trong [`face-attendance-docs`](face-attendance-docs/README.md).
+Quy ước làm việc trên repo nằm ở [CLAUDE.md](CLAUDE.md).
 
-## Local foundation
+## Chạy local
 
 ```powershell
 Copy-Item .env.example .env
-docker compose up --build
+docker compose up -d --build
 ```
 
-Phase 0 exposes the frontend at `http://localhost:3000`, API health at
-`http://localhost:8000/health`, MinIO at `http://localhost:9001`, and the
-Face AI health endpoint at `http://localhost:8001/health`.
+Mọi thứ đi qua reverse proxy Caddy trên một origin duy nhất:
 
-Local migration seed credentials are `manager@example.com` and
-`member@example.com`, both using `ChangeMe123!`. They are for development
-only and must not be used in production.
+| Địa chỉ | Nội dung |
+|---|---|
+| `http://localhost` | Frontend (dev, không có camera) |
+| `https://localhost` | Frontend qua HTTPS — camera và GPS hoạt động |
+| `http://localhost/api/v1` | API |
+| `http://localhost:9001` | MinIO console |
+| `http://127.0.0.1:8080` | Adminer |
 
-The Face AI service uses OpenCV CPU processing for image decoding, face-count
-detection, blur scoring, and brightness checks. Embedding generation and
-production liveness remain disabled until a model, license, threshold
-evaluation set, and anti-spoofing provider are selected. Face AI is called
-internally by the API through the Docker backend network.
-
-## Phase 2 authentication checks
-
-The API now supports register, login, current-user lookup, refresh-token
-rotation, logout revocation, and manager role protection. After the stack is
-running, check the API and migration:
+Face AI **không** expose ra host: nó chỉ nằm trên network `backend` (internal) và
+chỉ được API gọi nội bộ. Kiểm tra bằng:
 
 ```powershell
-Invoke-WebRequest http://localhost:8000/health -UseBasicParsing
+docker compose exec -T api python -c "import urllib.request; print(urllib.request.urlopen('http://face-ai:8001/ready').read().decode())"
+```
+
+Tài khoản seed cho local: `manager@example.com` và `member@example.com`, mật khẩu
+`ChangeMe123!`. Chỉ dùng cho phát triển.
+
+Migration revision hiện tại: `007_face_enrollment_challenges`.
+
+```powershell
 docker compose exec -T postgres psql -U face_attendance -d face_attendance -c "select version_num from alembic_version;"
 ```
 
-Expected migration revision: `005_password_reset_tokens`.
+## Test trên iPhone
 
-Use a valid email domain such as `example.com` for register testing. Domains
-such as `.local` are rejected by `email-validator`.
+Safari trên iOS **chỉ** cho phép `getUserMedia` và định vị chính xác trên
+secure context, nên bắt buộc phải dùng HTTPS. Có hai đường:
 
-## Phase 3 membership checks
+### Cách 1 — Caddy trên mạng LAN (không lộ ra Internet)
 
-Phase 3 adds member profile management and Manager-scoped membership APIs:
+1. Lấy IP LAN của máy: `ipconfig` → ví dụ `192.168.1.37`.
+2. Đặt vào `.env`, dùng hostname `sslip.io` để Safari gửi được SNI:
+
+   ```
+   HTTPS_HOSTS=localhost, 192-168-1-37.sslip.io
+   ```
+
+   `192-168-1-37.sslip.io` là DNS công khai trỏ về `192.168.1.37`; truy cập vẫn
+   đi thẳng trong LAN, không qua Internet.
+3. `docker compose up -d proxy`
+4. Cài root CA của Caddy lên iPhone (bắt buộc — iOS không cấp quyền camera cho
+   site có chứng chỉ không tin cậy):
+
+   ```powershell
+   docker compose cp proxy:/data/caddy/pki/authorities/local/root.crt .\caddy-root.crt
+   ```
+
+   Gửi file sang iPhone (AirDrop/email) → mở → **Cài đặt → Đã tải profile** → cài →
+   rồi bật tin cậy tại **Cài đặt → Cài đặt chung → Giới thiệu → Cài đặt tin cậy chứng chỉ**.
+5. Mở `https://192-168-1-37.sslip.io` trên Safari.
+
+### Cách 2 — Cloudflare tunnel (không cần cấu hình iPhone)
+
+```powershell
+docker compose --profile tunnel up -d tunnel
+docker compose logs tunnel | Select-String "trycloudflare.com"
+```
+
+Cho ra một URL HTTPS công khai với chứng chỉ thật, dùng được ngay trên iPhone.
+**Lưu ý:** URL này ai có link cũng vào được — chỉ dùng để test ngắn, tắt bằng
+`docker compose stop tunnel` khi xong. Không dùng cho dữ liệu thật.
+
+## Các phase đã hoàn thành
+
+### Phase 0 — Hạ tầng
+Docker Compose với frontend, API, Face AI, PostgreSQL (pgvector), Redis, MinIO,
+Adminer, Caddy. Healthcheck cho mọi service. `.env.example` không chứa secret thật.
+
+### Phase 1 — Database
+7 migration tạo 14 bảng, extension `citext`/`vector`/`pgcrypto`, index và seed demo.
+
+### Phase 2 — Auth và RBAC
 
 ```text
-GET  /api/v1/members/me
-PUT  /api/v1/members/me
-GET  /api/v1/manager/members
-POST /api/v1/manager/members/add-by-email
-GET  /api/v1/manager/members/{member_id}
-PUT  /api/v1/manager/members/{member_id}
+POST /api/v1/auth/register
+POST /api/v1/auth/login
+POST /api/v1/auth/refresh
+POST /api/v1/auth/logout
+POST /api/v1/auth/forgot-password
+POST /api/v1/auth/reset-password
+GET  /api/v1/auth/me
+```
+
+Refresh token có rotation và revoke. Member không gọi được API của Manager.
+Dùng tên miền hợp lệ như `example.com` khi test register — `email-validator`
+từ chối `.local`.
+
+### Phase 3 — Profile và membership
+
+```text
+GET    /api/v1/members/me
+PUT    /api/v1/members/me
+GET    /api/v1/members/me/locations
+GET    /api/v1/manager/members
+POST   /api/v1/manager/members/add-by-email
+GET    /api/v1/manager/members/{member_id}
+PUT    /api/v1/manager/members/{member_id}
 DELETE /api/v1/manager/members/{member_id}
 ```
 
-Expected behavior:
+Manager chỉ thêm được email đã đăng ký. Trùng membership trả `409`, không tồn tại
+trả `404`. Manager không truy cập được member ngoài phạm vi của mình. Mọi thay đổi
+membership đều ghi audit log.
 
-- A Member can read and update only their own profile.
-- A Manager can add only an already registered Member email.
-- Duplicate membership returns `409`.
-- Unknown email returns `404`.
-- A Manager cannot access a Member outside their membership scope.
-- Membership add, status changes, and removal create audit log entries.
-
-## Phase 4 location and geofence checks
-
-Phase 4 adds Manager-owned locations, member assignment, and server-side GPS
-evaluation:
+### Phase 4 — Location và geofence
 
 ```text
 GET    /api/v1/manager/locations
@@ -78,59 +130,81 @@ POST   /api/v1/manager/members/{member_id}/locations
 POST   /api/v1/locations/{location_id}/evaluate
 ```
 
-Expected geofence results are `ALLOW` within the configured allow radius,
-`WARNING_REASON_REQUIRED` between the allow and warning radii, `BLOCK` beyond
-the warning radius, and `GPS_ACCURACY_LOW` when the reported accuracy is above
-the configured minimum. Location access is restricted to its owning Manager or
-an active Member assignment.
+Kết quả geofence: `ALLOW` trong bán kính cho phép, `WARNING_REASON_REQUIRED` giữa
+bán kính cho phép và bán kính cảnh báo, `BLOCK` ngoài bán kính cảnh báo,
+`GPS_ACCURACY_LOW` khi sai số GPS vượt ngưỡng. Có unit test biên tại 99/100/100.1/150/200/200.1m.
 
-Expected migration revision: `006_location_ownership`.
-
-## Phase 5 face enrollment foundation
-
-Phase 5 adds:
+### Phase 5 — Face enrollment
 
 ```text
+GET  /api/v1/faces/me
 POST /api/v1/faces/enrollment/start
 POST /api/v1/faces/enrollment/verify
 ```
 
-Enrollment challenges are short-lived, server-side, single-use records. The
-Face AI service rejects invalid images and reports `FACE_NOT_FOUND`,
-`MULTIPLE_FACES`, or `FACE_QUALITY_LOW` from the OpenCV pipeline. Until a real
-embedding model is configured, valid enrollment returns
-`FACE_MODEL_NOT_CONFIGURED`; the system never stores a fake embedding.
+Challenge enrollment là bản ghi server-side, ngắn hạn, dùng một lần. Face AI từ chối
+ảnh không hợp lệ với các mã `IMAGE_INVALID`, `IMAGE_TOO_SMALL`, `FACE_NOT_FOUND`,
+`MULTIPLE_FACES`, `FACE_QUALITY_LOW`.
 
-Expected migration revision: `007_face_enrollment_challenges`.
+### Phase 6 — Check-in/check-out
 
-## Face AI model storage
+```text
+POST /api/v1/attendance/check-in
+POST /api/v1/attendance/check-out
+GET  /api/v1/attendance/me
+GET  /api/v1/attendance/me/state
+```
 
-Model files are intentionally kept outside Git and mounted read-only into the
-Face AI container:
+Request dùng `multipart/form-data` với ảnh, toạ độ GPS và idempotency key. API khoá
+row của member, kiểm tra trạng thái ca đang mở, tính lại geofence và sai số GPS ở
+server, verify qua Face AI, rồi lưu ảnh bằng chứng vào MinIO private trước khi ghi
+sự kiện.
+
+### Phase 6.5 — Nối model ArcFace thật
+
+Face AI dùng SCRFD để detect + 5-point alignment, ArcFace sinh embedding 512 chiều
+đã chuẩn hoá L2. Enrollment lưu embedding vào `face_embeddings` (thu hồi bản cũ);
+check-in/check-out so khớp cosine 1:1 với embedding tham chiếu của chính member đó.
+
+### Phase 6.9 — Frontend thin slice
+
+Next.js 15 + TypeScript strict, App Router, không dùng UI library ngoài.
+
+| Đường dẫn | Màn hình |
+|---|---|
+| `/login` | Đăng nhập / đăng ký |
+| `/` | Bảng điều khiển: trạng thái ca, dữ liệu khuôn mặt, địa điểm, lịch sử |
+| `/enroll` | Chụp và đăng ký khuôn mặt |
+| `/attendance` | Lấy GPS → xem trước geofence → chụp ảnh → check-in/check-out |
+
+Luồng cảnh báo 100–200m yêu cầu nhập lý do ngay trên giao diện trước khi gửi.
+
+## Face AI và model
+
+Model để ngoài Git, mount read-only vào container:
 
 ```text
 D:\face-attendance-models\detector\face_detector.onnx
 D:\face-attendance-models\embedding\arcface.onnx
 ```
 
-The current demo runs OpenCV and ONNX Runtime on CPU. With no model files and
-`FACE_AI_ENABLE_EMBEDDINGS=false`, Face AI reports `not_configured` and never
-creates a fake embedding. Enable embeddings only after the selected model's
-license, preprocessing, output dimension, and verification threshold have
-been validated.
+`.env.example` mặc định `FACE_AI_ENABLE_EMBEDDINGS=false`; không có model thì Face AI
+báo `not_configured` và không bao giờ sinh embedding giả. Máy local bật bộ
+SCRFD/ArcFace (`insightface-buffalo_l-arcface` / `w600k_r50`) bằng
+`FACE_AI_ENABLE_EMBEDDINGS=true`.
 
-## Phase 6 attendance foundation
+**`FACE_MATCH_THRESHOLD=0.35` là giá trị tạm (provisional).** Đây là mức thường dùng
+cho cosine similarity của `w600k_r50`, **chưa** được đánh giá FAR/FRR trên tập ảnh có
+đồng thuận. Phải đo lại trước khi đưa vào production.
 
-Phase 6 adds server-side attendance orchestration:
+## Known issues
 
-```text
-POST /api/v1/attendance/check-in
-POST /api/v1/attendance/check-out
-```
+Những mục dưới đây **chưa** được làm — đừng giả định là đã có:
 
-Requests use `multipart/form-data` with the image, GPS fields, and an
-idempotency key. The API locks the member row, enforces the open check-in
-state, evaluates geofence and GPS accuracy on the server, verifies through
-Face AI, and stores successful evidence in private MinIO storage. Until a
-real embedding model is loaded, attendance returns `FACE_MODEL_NOT_CONFIGURED`
-instead of creating a successful event.
+- **Không có liveness / anti-spoofing.** Chụp lại ảnh trên màn hình vẫn qua được
+  xác thực. Đang chờ chọn provider thương mại. `liveness_score` luôn `NULL`.
+- **Chưa rate-limit.** Redis đã chạy nhưng chưa dùng cho login/enrollment/verify.
+- **Attendance chưa ghi audit log** (mới có cho location và membership).
+- **Chưa có API cho Manager xem attendance** và xem ảnh bằng chứng (Phase 7).
+- **Test tự động mới chỉ phủ geofence** (`api/tests/test_geofence.py`).
+- `S3_SERVER_SIDE_ENCRYPTION=false` cho MinIO local; production phải bật lại.

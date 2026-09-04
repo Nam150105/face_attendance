@@ -12,6 +12,7 @@ class PrivateObjectStorage:
         self.access_key = os.environ["S3_ACCESS_KEY"]
         self.secret_key = os.environ["S3_SECRET_KEY"]
         self.bucket = os.environ["S3_BUCKET"]
+        self.server_side_encryption = os.environ.get("S3_SERVER_SIDE_ENCRYPTION", "false").lower() == "true"
         self.client = boto3.client(
             "s3",
             endpoint_url=self.endpoint,
@@ -31,11 +32,15 @@ class PrivateObjectStorage:
 
     def put_private(self, object_key: str, content: bytes, content_type: str) -> str:
         self.ensure_bucket()
+        put_options = {
+            "Bucket": self.bucket,
+            "Key": object_key,
+            "Body": content,
+            "ContentType": content_type,
+        }
+        if self.server_side_encryption:
+            put_options["ServerSideEncryption"] = "AES256"
         self.client.put_object(
-            Bucket=self.bucket,
-            Key=object_key,
-            Body=content,
-            ContentType=content_type,
-            ServerSideEncryption="AES256",
+            **put_options,
         )
         return object_key
