@@ -60,3 +60,26 @@ Expected behavior:
 - Unknown email returns `404`.
 - A Manager cannot access a Member outside their membership scope.
 - Membership add, status changes, and removal create audit log entries.
+
+## Phase 4 location and geofence checks
+
+Phase 4 adds Manager-owned locations, member assignment, and server-side GPS
+evaluation:
+
+```text
+GET    /api/v1/manager/locations
+POST   /api/v1/manager/locations
+GET    /api/v1/manager/locations/{location_id}
+PUT    /api/v1/manager/locations/{location_id}
+DELETE /api/v1/manager/locations/{location_id}
+POST   /api/v1/manager/members/{member_id}/locations
+POST   /api/v1/locations/{location_id}/evaluate
+```
+
+Expected geofence results are `ALLOW` within the configured allow radius,
+`WARNING_REASON_REQUIRED` between the allow and warning radii, `BLOCK` beyond
+the warning radius, and `GPS_ACCURACY_LOW` when the reported accuracy is above
+the configured minimum. Location access is restricted to its owning Manager or
+an active Member assignment.
+
+Expected migration revision: `006_location_ownership`.
