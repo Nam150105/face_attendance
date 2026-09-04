@@ -71,9 +71,30 @@ async def verify_enrollment(
     return response
 
 
+@router.post("/verify")
+async def verify_face(image: UploadFile = File(...), user: CurrentUser = Depends(get_current_user)) -> dict:
+    image_bytes = await image.read(MAX_IMAGE_BYTES + 1)
+    if len(image_bytes) > MAX_IMAGE_BYTES:
+        raise HTTPException(status_code=413, detail="Image exceeds 10 MB limit")
+    try:
+        response = await _face_ai_verify(image_bytes, image.filename or "attendance.jpg", str(user.id))
+    except httpx.HTTPError as error:
+        raise HTTPException(status_code=503, detail="Face AI service unavailable") from error
+    return response
+
+
 async def _face_ai_enroll(image_bytes: bytes, filename: str) -> dict:
     files = {"image": (filename, image_bytes, "image/jpeg")}
     async with httpx.AsyncClient(timeout=30) as client:
         response = await client.post(f"{FACE_AI_URL}/v1/enroll", files=files)
+        response.raise_for_status()
+        return response.json()
+
+
+async def _face_ai_verify(image_bytes: bytes, filename: str, member_id: str) -> dict:
+    files = {"image": (filename, image_bytes, "image/jpeg")}
+    data = {"member_id": member_id}
+    async with httpx.AsyncClient(timeout=30) as client:
+        response = await client.post(f"{FACE_AI_URL}/v1/verify", files=files, data=data)
         response.raise_for_status()
         return response.json()

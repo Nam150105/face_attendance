@@ -118,3 +118,19 @@ The current demo runs OpenCV and ONNX Runtime on CPU. With no model files and
 creates a fake embedding. Enable embeddings only after the selected model's
 license, preprocessing, output dimension, and verification threshold have
 been validated.
+
+## Phase 6 attendance foundation
+
+Phase 6 adds server-side attendance orchestration:
+
+```text
+POST /api/v1/attendance/check-in
+POST /api/v1/attendance/check-out
+```
+
+Requests use `multipart/form-data` with the image, GPS fields, and an
+idempotency key. The API locks the member row, enforces the open check-in
+state, evaluates geofence and GPS accuracy on the server, verifies through
+Face AI, and stores successful evidence in private MinIO storage. Until a
+real embedding model is loaded, attendance returns `FACE_MODEL_NOT_CONFIGURED`
+instead of creating a successful event.

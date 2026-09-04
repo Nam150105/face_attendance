@@ -55,3 +55,16 @@ async def enroll(image: UploadFile = File(...)) -> dict:
         "brightness_score": result.brightness_score,
         "model_status": "NOT_CONFIGURED",
     }
+
+
+@app.post("/v1/verify", tags=["face"])
+async def verify(image: UploadFile = File(...), member_id: str = "") -> dict:
+    if not model_runtime.ready:
+        return {"status": "NOT_CONFIGURED", "code": "FACE_MODEL_NOT_CONFIGURED"}
+    try:
+        result = pipeline.analyze(await image.read())
+    except FacePipelineError as error:
+        return {"status": "REJECTED", "code": str(error)}
+    if result.face_count != 1:
+        return {"status": "REJECTED", "code": "FACE_NOT_FOUND" if result.face_count == 0 else "MULTIPLE_FACES"}
+    return {"status": "NOT_CONFIGURED", "code": "FACE_MODEL_INFERENCE_NOT_IMPLEMENTED"}

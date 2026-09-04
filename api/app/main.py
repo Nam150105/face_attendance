@@ -1,6 +1,6 @@
 from fastapi import FastAPI
 
-from app.routers import auth, faces, locations, manager, members
+from app.routers import attendance, auth, faces, locations, manager, members
 
 
 app = FastAPI(title="Face Attendance API", version="0.1.0")
@@ -11,6 +11,7 @@ app.include_router(locations.router, prefix="/api/v1")
 app.include_router(locations.assignment_router, prefix="/api/v1")
 app.include_router(locations.member_router, prefix="/api/v1")
 app.include_router(faces.router, prefix="/api/v1")
+app.include_router(attendance.router, prefix="/api/v1")
 
 
 @app.get("/health", tags=["system"])
