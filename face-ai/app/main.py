@@ -1,10 +1,12 @@
 from fastapi import FastAPI, File, UploadFile
 
 from app.face_pipeline import FacePipeline, FacePipelineError
+from app.model_runtime import ModelRuntime
 
 
 app = FastAPI(title="Face Attendance Face AI", version="0.1.0")
 pipeline = FacePipeline()
+model_runtime = ModelRuntime()
 
 
 @app.get("/health", tags=["system"])
@@ -13,11 +15,12 @@ async def health() -> dict[str, str]:
 
 
 @app.get("/ready", tags=["system"])
-async def ready() -> dict[str, str]:
+async def ready() -> dict:
     return {
-        "status": "ready" if pipeline.embeddings_enabled else "not_configured",
+        "status": "ready" if model_runtime.ready else "not_configured",
         "service": "face-ai",
-        "embedding_model": "configured" if pipeline.embeddings_enabled else "not_configured",
+        "embedding_model": "configured" if model_runtime.ready else "not_configured",
+        "model_runtime": model_runtime.status().__dict__,
     }
 
 
@@ -43,6 +46,8 @@ async def enroll(image: UploadFile = File(...)) -> dict:
         result = pipeline.validate_enrollment(await image.read())
     except FacePipelineError as error:
         return {"status": "REJECTED", "code": str(error)}
+    if not model_runtime.ready:
+        return {"status": "REJECTED", "code": "FACE_MODEL_NOT_CONFIGURED", "model_runtime": model_runtime.status().__dict__}
     return {
         "status": "READY_FOR_EMBEDDING",
         "face_count": result.face_count,

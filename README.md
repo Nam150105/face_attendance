@@ -102,3 +102,19 @@ embedding model is configured, valid enrollment returns
 `FACE_MODEL_NOT_CONFIGURED`; the system never stores a fake embedding.
 
 Expected migration revision: `007_face_enrollment_challenges`.
+
+## Face AI model storage
+
+Model files are intentionally kept outside Git and mounted read-only into the
+Face AI container:
+
+```text
+D:\face-attendance-models\detector\face_detector.onnx
+D:\face-attendance-models\embedding\arcface.onnx
+```
+
+The current demo runs OpenCV and ONNX Runtime on CPU. With no model files and
+`FACE_AI_ENABLE_EMBEDDINGS=false`, Face AI reports `not_configured` and never
+creates a fake embedding. Enable embeddings only after the selected model's
+license, preprocessing, output dimension, and verification threshold have
+been validated.

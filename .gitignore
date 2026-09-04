@@ -12,3 +12,6 @@ coverage/
 dist/
 *.log
 .skills/
+*.onnx
+*.onnx.data
+face-ai/models/
