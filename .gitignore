@@ -15,3 +15,4 @@ dist/
 *.onnx
 *.onnx.data
 face-ai/models/
+caddy-root.crt
