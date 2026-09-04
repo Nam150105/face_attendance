@@ -1,6 +1,7 @@
 services:
   proxy:
     image: caddy:2-alpine
+    restart: unless-stopped
     environment:
       HTTPS_HOSTS: ${HTTPS_HOSTS:-localhost}
     ports:
@@ -30,6 +31,7 @@ services:
 
   frontend:
     build: ./frontend
+    restart: unless-stopped
     environment:
       NEXT_PUBLIC_API_BASE_URL: ${NEXT_PUBLIC_API_BASE_URL:-/api/v1}
     depends_on:
@@ -40,6 +42,7 @@ services:
 
   api:
     build: ./api
+    restart: unless-stopped
     environment:
       DATABASE_URL: ${DATABASE_URL}
       REDIS_URL: ${REDIS_URL}
@@ -72,6 +75,7 @@ services:
 
   face-ai:
     build: ./face-ai
+    restart: unless-stopped
     environment:
       FACE_MODEL_NAME: ${FACE_MODEL_NAME}
       FACE_MODEL_VERSION: ${FACE_MODEL_VERSION}
@@ -93,6 +97,7 @@ services:
 
   postgres:
     image: pgvector/pgvector:pg16
+    restart: unless-stopped
     environment:
       POSTGRES_DB: ${POSTGRES_DB}
       POSTGRES_USER: ${POSTGRES_USER}
@@ -109,6 +114,7 @@ services:
 
   redis:
     image: redis:7-alpine
+    restart: unless-stopped
     command: ["redis-server", "--appendonly", "yes"]
     volumes:
       - redis_data:/data
@@ -122,6 +128,7 @@ services:
 
   minio:
     image: minio/minio:latest
+    restart: unless-stopped
     command: ["server", "/data", "--console-address", ":9001"]
     environment:
       MINIO_ROOT_USER: ${MINIO_ROOT_USER}
@@ -141,6 +148,7 @@ services:
 
   adminer:
     image: adminer:latest
+    restart: unless-stopped
     ports:
       - "127.0.0.1:8080:8080"
     depends_on:
