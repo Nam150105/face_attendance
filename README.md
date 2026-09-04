@@ -33,7 +33,30 @@ Invoke-WebRequest http://localhost:8000/health -UseBasicParsing
 docker compose exec -T postgres psql -U face_attendance -d face_attendance -c "select version_num from alembic_version;"
 ```
 
-Expected migration revision: `003_refresh_sessions`.
+Expected migration revision: `005_password_reset_tokens`.
 
 Use a valid email domain such as `example.com` for register testing. Domains
 such as `.local` are rejected by `email-validator`.
+
+## Phase 3 membership checks
+
+Phase 3 adds member profile management and Manager-scoped membership APIs:
+
+```text
+GET  /api/v1/members/me
+PUT  /api/v1/members/me
+GET  /api/v1/manager/members
+POST /api/v1/manager/members/add-by-email
+GET  /api/v1/manager/members/{member_id}
+PUT  /api/v1/manager/members/{member_id}
+DELETE /api/v1/manager/members/{member_id}
+```
+
+Expected behavior:
+
+- A Member can read and update only their own profile.
+- A Manager can add only an already registered Member email.
+- Duplicate membership returns `409`.
+- Unknown email returns `404`.
+- A Manager cannot access a Member outside their membership scope.
+- Membership add, status changes, and removal create audit log entries.

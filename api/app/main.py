@@ -1,11 +1,12 @@
 from fastapi import FastAPI
 
-from app.routers import auth, manager
+from app.routers import auth, manager, members
 
 
 app = FastAPI(title="Face Attendance API", version="0.1.0")
 app.include_router(auth.router, prefix="/api/v1")
 app.include_router(manager.router, prefix="/api/v1")
+app.include_router(members.router, prefix="/api/v1")
 
 
 @app.get("/health", tags=["system"])
@@ -21,3 +22,8 @@ async def ready() -> dict[str, str]:
 @app.get("/api/v1", tags=["system"])
 async def api_root() -> dict[str, str]:
     return {"service": "face-attendance-api", "version": "v1"}
+
+
+@app.get("/api/v1/members/me", tags=["members"])
+async def me() -> dict[str, str]:
+    return {"user": "me", "role": "member"}
