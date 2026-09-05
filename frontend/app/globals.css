@@ -907,65 +907,94 @@ input[type="date"]::-webkit-calendar-picker-indicator {
   transform: scaleX(-1);
 }
 
-.camera__overlay {
+.camera__placeholder {
+  color: var(--text-muted);
+  font-size: var(--text-sm);
+  padding: var(--space-3);
+  text-align: center;
+}
+
+.camera__svg {
   position: absolute;
   inset: 0;
+  width: 100%;
+  height: 100%;
   pointer-events: none;
 }
 
 .camera__guide {
+  stroke: rgba(250, 250, 250, 0.55);
+  transition: stroke 260ms ease;
+}
+
+.camera__svg--idle .camera__guide {
+  animation: guide-breathe 3s ease-in-out infinite;
+}
+
+.camera__svg--working .camera__guide {
+  stroke: rgba(43, 127, 212, 0.35);
+}
+
+.camera__svg--done .camera__guide {
+  stroke: var(--color-success);
+}
+
+.camera__svg--failed .camera__guide {
+  stroke: var(--color-danger);
+}
+
+@keyframes guide-breathe {
+  0%,
+  100% {
+    stroke: rgba(250, 250, 250, 0.4);
+  }
+  50% {
+    stroke: rgba(250, 250, 250, 0.85);
+  }
+}
+
+/* A dash travelling along the ellipse path, so it never distorts the way a
+   rotated ellipse does. */
+.camera__tracer {
+  stroke: var(--color-primary);
+  animation: trace 1.5s linear infinite;
+}
+
+@keyframes trace {
+  from {
+    stroke-dashoffset: 0;
+  }
+  to {
+    stroke-dashoffset: calc(var(--perimeter) * -1px);
+  }
+}
+
+.camera__countdown {
   position: absolute;
   left: 50%;
   top: 47%;
-  width: 62%;
-  aspect-ratio: 3 / 4;
   transform: translate(-50%, -50%);
-  border: 2px solid rgba(250, 250, 250, 0.28);
-  border-radius: 50%;
-  transition: border-color 200ms ease, box-shadow 200ms ease;
+  font-size: 72px;
+  font-weight: 300;
+  font-variant-numeric: tabular-nums;
+  color: #fff;
+  text-shadow: 0 2px 20px rgba(0, 0, 0, 0.7);
+  animation: countdown-tick 1s ease-out forwards;
+  pointer-events: none;
 }
 
-.camera__guide--active {
-  border-color: var(--color-primary);
-  box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.45);
-}
-
-.camera__guide--verifying {
-  border-color: transparent;
-  border-top-color: var(--color-primary);
-  border-right-color: var(--color-primary);
-  animation: spin 1.1s linear infinite;
-  box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.55);
-}
-
-.camera__guide--pass {
-  border-color: var(--color-success);
-  box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.45), 0 0 24px rgba(16, 185, 129, 0.4);
-}
-
-.camera__guide--fail {
-  border-color: var(--color-danger);
-  box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.45);
-}
-
-.camera__scan {
-  position: absolute;
-  left: 19%;
-  right: 19%;
-  height: 2px;
-  background: linear-gradient(90deg, transparent, var(--color-primary), transparent);
-  animation: scan 2s ease-in-out infinite;
-}
-
-@keyframes scan {
-  0%,
-  100% {
-    top: 22%;
-    opacity: 0.2;
+@keyframes countdown-tick {
+  from {
+    opacity: 0;
+    transform: translate(-50%, -50%) scale(1.35);
   }
-  50% {
-    top: 72%;
-    opacity: 0.9;
+  20% {
+    opacity: 1;
+    transform: translate(-50%, -50%) scale(1);
+  }
+  to {
+    opacity: 0.35;
+    transform: translate(-50%, -50%) scale(0.94);
   }
 }
 
@@ -974,6 +1003,7 @@ input[type="date"]::-webkit-calendar-picker-indicator {
   left: 50%;
   bottom: 14px;
   transform: translateX(-50%);
+  margin: 0;
   display: flex;
   align-items: center;
   gap: 8px;
@@ -989,38 +1019,32 @@ input[type="date"]::-webkit-calendar-picker-indicator {
   text-overflow: ellipsis;
 }
 
-.camera__countdown {
-  position: absolute;
-  inset: 0;
+.camera__status--done {
+  border-color: rgba(16, 185, 129, 0.5);
+}
+
+.camera__status--failed {
+  border-color: rgba(239, 68, 68, 0.5);
+}
+
+.camera__mark {
   display: grid;
   place-items: center;
-  font-size: 84px;
-  font-weight: 600;
-  color: var(--text-on-primary);
-  text-shadow: 0 4px 24px rgba(0, 0, 0, 0.8);
-  animation: pulse 1s ease-out infinite;
+  width: 16px;
+  height: 16px;
+  flex: 0 0 auto;
+  border-radius: 50%;
+  font-size: 10px;
+  font-weight: 700;
+  color: #fff;
 }
 
-@keyframes pulse {
-  0% {
-    transform: scale(1.25);
-    opacity: 0.5;
-  }
-  60% {
-    transform: scale(1);
-    opacity: 1;
-  }
-  100% {
-    transform: scale(1);
-    opacity: 1;
-  }
+.camera__mark--done {
+  background: var(--color-success);
 }
 
-.camera__placeholder {
-  color: var(--text-muted);
-  font-size: var(--text-sm);
-  padding: var(--space-3);
-  text-align: center;
+.camera__mark--failed {
+  background: var(--color-danger);
 }
 
 .quality {
@@ -1501,116 +1525,4 @@ input[type="date"]::-webkit-calendar-picker-indicator {
 
 .meter--bad {
   color: var(--color-danger);
-}
-
-/* Camera polish ------------------------------------------------------------ */
-
-.camera__frame {
-  box-shadow: inset 0 0 90px rgba(0, 0, 0, 0.55);
-}
-
-.camera__corner {
-  position: absolute;
-  width: 26px;
-  height: 26px;
-  border: 2px solid rgba(250, 250, 250, 0.5);
-  transition: border-color 220ms ease;
-}
-
-.camera__corner--tl {
-  top: 14px;
-  left: 14px;
-  border-right: none;
-  border-bottom: none;
-  border-top-left-radius: 8px;
-}
-
-.camera__corner--tr {
-  top: 14px;
-  right: 14px;
-  border-left: none;
-  border-bottom: none;
-  border-top-right-radius: 8px;
-}
-
-.camera__corner--bl {
-  bottom: 14px;
-  left: 14px;
-  border-right: none;
-  border-top: none;
-  border-bottom-left-radius: 8px;
-}
-
-.camera__corner--br {
-  bottom: 14px;
-  right: 14px;
-  border-left: none;
-  border-top: none;
-  border-bottom-right-radius: 8px;
-}
-
-.camera__overlay--verifying .camera__corner {
-  border-color: var(--color-primary);
-}
-
-.camera__overlay--pass .camera__corner {
-  border-color: var(--color-success);
-}
-
-.camera__overlay--fail .camera__corner {
-  border-color: var(--color-danger);
-}
-
-.camera__guide {
-  border-width: 2px;
-  border-style: solid;
-}
-
-.camera__guide--active {
-  animation: breathe 2.6s ease-in-out infinite;
-}
-
-@keyframes breathe {
-  0%,
-  100% {
-    border-color: rgba(43, 127, 212, 0.45);
-  }
-  50% {
-    border-color: rgba(43, 127, 212, 0.95);
-  }
-}
-
-.camera__result {
-  position: absolute;
-  left: 50%;
-  top: 47%;
-  transform: translate(-50%, -50%);
-  width: 62px;
-  height: 62px;
-  border-radius: 50%;
-  display: grid;
-  place-items: center;
-  font-size: 30px;
-  font-weight: 700;
-  color: #fff;
-  animation: pop 320ms cubic-bezier(0.2, 1.4, 0.5, 1);
-}
-
-.camera__result--pass {
-  background: var(--color-success);
-}
-
-.camera__result--fail {
-  background: var(--color-danger);
-}
-
-@keyframes pop {
-  from {
-    transform: translate(-50%, -50%) scale(0.4);
-    opacity: 0;
-  }
-  to {
-    transform: translate(-50%, -50%) scale(1);
-    opacity: 1;
-  }
 }

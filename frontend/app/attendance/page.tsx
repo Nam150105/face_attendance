@@ -4,12 +4,20 @@ import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { AppShell } from "../../components/AppShell";
-import { CameraCapture, type CapturedImage, type VerifyPhase } from "../../components/CameraCapture";
+import { CameraCapture, type CapturePhase, type CapturedImage, type PhaseLabels } from "../../components/CameraCapture";
 import { Alert, Badge, Button, Card, DataList, SelectField, TextAreaField } from "../../components/ui";
 import { ApiError, api } from "../../lib/api";
 import { formatDistance, newIdempotencyKey, readPosition, type FixedPosition } from "../../lib/geo";
 import { GEOFENCE_MESSAGES, describeError } from "../../lib/messages";
 import type { AttendanceState, CurrentUser, GeofenceDecision, MemberLocation } from "../../lib/types";
+
+const VERIFY_LABELS: PhaseLabels = {
+  framing: "Đưa mặt vào khung",
+  holding: "Giữ yên",
+  working: "Đang đối chiếu với khuôn mặt đã đăng ký",
+  done: "Khuôn mặt khớp",
+  failed: "Không khớp",
+};
 
 export default function AttendancePage() {
   const router = useRouter();
@@ -22,7 +30,7 @@ export default function AttendancePage() {
   const [captured, setCaptured] = useState<CapturedImage | null>(null);
   const [reason, setReason] = useState("");
   const [locating, setLocating] = useState(false);
-  const [phase, setPhase] = useState<VerifyPhase>("idle");
+  const [phase, setPhase] = useState<CapturePhase>("idle");
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<string | null>(null);
 
@@ -98,13 +106,13 @@ export default function AttendancePage() {
     Boolean(position) &&
     !blocked &&
     (!reasonRequired || reason.trim().length > 0) &&
-    phase !== "verifying";
+    phase !== "working";
 
   async function submit() {
     if (!captured || !position) {
       return;
     }
-    setPhase("verifying");
+    setPhase("working");
     setError(null);
     setResult(null);
     try {
@@ -125,7 +133,7 @@ export default function AttendancePage() {
             reason: reasonRequired ? reason.trim() : undefined,
             image: captured.blob,
           });
-      setPhase("pass");
+      setPhase("done");
       setResult(`${response.message} · cách ${formatDistance(response.distance_meters)}`);
       setCaptured(null);
       setReason("");
@@ -133,7 +141,7 @@ export default function AttendancePage() {
       setPosition(null);
       setState(await api.attendanceState());
     } catch (cause) {
-      setPhase("fail");
+      setPhase("failed");
       setError(describeError(cause));
     }
   }
@@ -227,9 +235,10 @@ export default function AttendancePage() {
           <Card title="2 · Khuôn mặt">
             <CameraCapture
               captureLabel="Chụp"
+              labels={VERIFY_LABELS}
               onCaptured={onCaptured}
               phase={phase}
-              disabled={phase === "verifying"}
+              disabled={phase === "working"}
             />
           </Card>
 
@@ -240,7 +249,7 @@ export default function AttendancePage() {
               {error ? <Alert tone="danger">{error}</Alert> : null}
               {result ? <Alert tone="success">{result}</Alert> : null}
 
-              <Button onClick={() => void submit()} loading={phase === "verifying"} disabled={!canSubmit} block>
+              <Button onClick={() => void submit()} loading={phase === "working"} disabled={!canSubmit} block>
                 {checkedIn ? "Xác nhận check-out" : "Xác nhận check-in"}
               </Button>
               <Button variant="ghost" onClick={() => router.push("/")}>

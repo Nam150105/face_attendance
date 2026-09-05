@@ -4,19 +4,27 @@ import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 
 import { AppShell } from "../../components/AppShell";
-import { CameraCapture, type CapturedImage, type VerifyPhase } from "../../components/CameraCapture";
+import { CameraCapture, type CapturePhase, type CapturedImage, type PhaseLabels } from "../../components/CameraCapture";
 import { Alert, Badge, Button, Card, DataList } from "../../components/ui";
 import { ApiError, api } from "../../lib/api";
 import { formatDateTime } from "../../lib/geo";
 import { describeCode, describeError } from "../../lib/messages";
 import type { CurrentUser, EnrollmentResult, FaceEnrollmentStatus } from "../../lib/types";
 
+const ENROLL_LABELS: PhaseLabels = {
+  framing: "Đưa mặt vào khung",
+  holding: "Giữ yên",
+  working: "Đang phân tích ảnh",
+  done: "Đã lưu dữ liệu khuôn mặt",
+  failed: "Ảnh chưa đạt yêu cầu",
+};
+
 export default function EnrollPage() {
   const router = useRouter();
   const [user, setUser] = useState<CurrentUser | null>(null);
   const [face, setFace] = useState<FaceEnrollmentStatus | null>(null);
   const [captured, setCaptured] = useState<CapturedImage | null>(null);
-  const [phase, setPhase] = useState<VerifyPhase>("idle");
+  const [phase, setPhase] = useState<CapturePhase>("idle");
   const [message, setMessage] = useState<string | null>(null);
   const [tone, setTone] = useState<"danger" | "warning" | "success">("danger");
   const [quality, setQuality] = useState<EnrollmentResult | null>(null);
@@ -51,25 +59,25 @@ export default function EnrollPage() {
     if (!captured) {
       return;
     }
-    setPhase("verifying");
+    setPhase("working");
     setMessage(null);
     try {
       const challenge = await api.startEnrollment();
       const result = await api.verifyEnrollment(challenge, captured.blob);
       setQuality(result);
       if (result.status !== "ENROLLED") {
-        setPhase("fail");
+        setPhase("failed");
         setTone("warning");
         setMessage(describeCode(result.code ?? "UNKNOWN_ERROR"));
         return;
       }
-      setPhase("pass");
+      setPhase("done");
       setTone("success");
-      setMessage("Đã lưu dữ liệu khuôn mặt.");
+      setMessage("Đã ghi nhận khuôn mặt. Từ giờ hệ thống dùng dữ liệu này để đối chiếu khi bạn chấm công.");
       setDone(true);
       setFace(await api.faceStatus());
     } catch (cause) {
-      setPhase("fail");
+      setPhase("failed");
       setTone("danger");
       setMessage(describeError(cause));
     }
@@ -98,9 +106,10 @@ export default function EnrollPage() {
         <div className="stack">
           <CameraCapture
             captureLabel="Chụp"
+            labels={ENROLL_LABELS}
             onCaptured={onCaptured}
             phase={phase}
-            disabled={phase === "verifying"}
+            disabled={phase === "working"}
           />
 
           {quality ? (
@@ -134,7 +143,7 @@ export default function EnrollPage() {
           ) : (
             <Button
               onClick={() => void submit()}
-              loading={phase === "verifying"}
+              loading={phase === "working"}
               disabled={!captured}
               block
             >

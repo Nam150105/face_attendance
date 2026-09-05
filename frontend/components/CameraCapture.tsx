@@ -9,13 +9,23 @@ export interface CapturedImage {
   previewUrl: string;
 }
 
-export type VerifyPhase = "idle" | "verifying" | "pass" | "fail";
+/** Generic capture states. The wording is supplied by the caller because
+ *  enrollment records new data while attendance compares against it. */
+export type CapturePhase = "idle" | "working" | "done" | "failed";
+
+export interface PhaseLabels {
+  framing: string;
+  holding: string;
+  working: string;
+  done: string;
+  failed: string;
+}
 
 interface CameraCaptureProps {
   captureLabel: string;
+  labels: PhaseLabels;
   onCaptured: (image: CapturedImage | null) => void;
-  phase?: VerifyPhase;
-  statusText?: string | null;
+  phase?: CapturePhase;
   disabled?: boolean;
 }
 
@@ -30,13 +40,15 @@ const PERMISSION_MESSAGES: Record<string, string> = {
   OverconstrainedError: "Camera không đáp ứng cấu hình yêu cầu.",
 };
 
-export function CameraCapture({
-  captureLabel,
-  onCaptured,
-  phase = "idle",
-  statusText,
-  disabled,
-}: CameraCaptureProps) {
+const GUIDE = { cx: 150, cy: 190, rx: 96, ry: 126 };
+// Ramanujan approximation of the guide ellipse perimeter, used for the tracer dash.
+const PERIMETER = Math.round(
+  Math.PI *
+    (3 * (GUIDE.rx + GUIDE.ry) -
+      Math.sqrt((3 * GUIDE.rx + GUIDE.ry) * (GUIDE.rx + 3 * GUIDE.ry))),
+);
+
+export function CameraCapture({ captureLabel, labels, onCaptured, phase = "idle", disabled }: CameraCaptureProps) {
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const timerRef = useRef<number | null>(null);
@@ -159,29 +171,19 @@ export function CameraCapture({
     void start();
   }, [onCaptured, start]);
 
-  const guideClass = [
-    "camera__guide",
-    streaming && countdown === null ? "camera__guide--active" : "",
-    phase === "verifying" ? "camera__guide--verifying" : "",
-    phase === "pass" ? "camera__guide--pass" : "",
-    phase === "fail" ? "camera__guide--fail" : "",
-  ]
-    .filter(Boolean)
-    .join(" ");
-
+  const visible = streaming || preview !== null;
   const status =
-    statusText ??
-    (phase === "verifying"
-      ? "Đang xác minh khuôn mặt"
-      : phase === "pass"
-        ? "Khớp"
-        : phase === "fail"
-          ? "Không khớp"
+    phase === "working"
+      ? labels.working
+      : phase === "done"
+        ? labels.done
+        : phase === "failed"
+          ? labels.failed
           : countdown !== null
-            ? "Giữ yên"
+            ? labels.holding
             : streaming
-              ? "Đưa mặt vào khung"
-              : null);
+              ? labels.framing
+              : null;
 
   return (
     <div className="camera">
@@ -203,25 +205,65 @@ export function CameraCapture({
           </>
         )}
 
-        <div className={`camera__overlay camera__overlay--${phase}`} aria-hidden="true">
-          {streaming || preview ? (
-            <>
-              <span className="camera__corner camera__corner--tl" />
-              <span className="camera__corner camera__corner--tr" />
-              <span className="camera__corner camera__corner--bl" />
-              <span className="camera__corner camera__corner--br" />
-              <span className={guideClass} />
-            </>
-          ) : null}
-          {phase === "verifying" ? <span className="camera__scan" /> : null}
-          {phase === "pass" ? <span className="camera__result camera__result--pass">✓</span> : null}
-          {phase === "fail" ? <span className="camera__result camera__result--fail">✕</span> : null}
-          {countdown !== null ? <span className="camera__countdown">{countdown}</span> : null}
-        </div>
+        {visible ? (
+          <svg
+            className={`camera__svg camera__svg--${phase}`}
+            viewBox="0 0 300 400"
+            preserveAspectRatio="xMidYMid slice"
+            aria-hidden="true"
+          >
+            <defs>
+              <mask id="camera-cutout">
+                <rect width="300" height="400" fill="#fff" />
+                <ellipse cx={GUIDE.cx} cy={GUIDE.cy} rx={GUIDE.rx} ry={GUIDE.ry} fill="#000" />
+              </mask>
+            </defs>
+            <rect width="300" height="400" fill="rgba(9,9,11,0.55)" mask="url(#camera-cutout)" />
+            <ellipse
+              className="camera__guide"
+              cx={GUIDE.cx}
+              cy={GUIDE.cy}
+              rx={GUIDE.rx}
+              ry={GUIDE.ry}
+              fill="none"
+              strokeWidth="2"
+            />
+            {phase === "working" ? (
+              <ellipse
+                className="camera__tracer"
+                cx={GUIDE.cx}
+                cy={GUIDE.cy}
+                rx={GUIDE.rx}
+                ry={GUIDE.ry}
+                fill="none"
+                strokeWidth="3"
+                strokeLinecap="round"
+                strokeDasharray={`${Math.round(PERIMETER * 0.22)} ${PERIMETER}`}
+                style={{ ["--perimeter" as string]: `${PERIMETER}` }}
+              />
+            ) : null}
+          </svg>
+        ) : null}
+
+        {countdown !== null ? (
+          <span className="camera__countdown" key={countdown} aria-hidden="true">
+            {countdown}
+          </span>
+        ) : null}
 
         {status ? (
-          <p className="camera__status" role="status">
-            {phase === "verifying" ? <span className="spinner" aria-hidden="true" /> : null}
+          <p className={`camera__status camera__status--${phase}`} role="status">
+            {phase === "working" ? <span className="spinner" aria-hidden="true" /> : null}
+            {phase === "done" ? (
+              <span className="camera__mark camera__mark--done" aria-hidden="true">
+                ✓
+              </span>
+            ) : null}
+            {phase === "failed" ? (
+              <span className="camera__mark camera__mark--failed" aria-hidden="true">
+                !
+              </span>
+            ) : null}
             {status}
           </p>
         ) : null}
@@ -231,12 +273,12 @@ export function CameraCapture({
 
       <div className="row">
         {preview ? (
-          <Button variant="secondary" onClick={retake} disabled={disabled || phase === "verifying"} block>
+          <Button variant="secondary" onClick={retake} disabled={disabled || phase === "working"} block>
             Chụp lại
           </Button>
         ) : streaming ? (
           <Button onClick={beginCountdown} disabled={disabled || countdown !== null} block>
-            {countdown !== null ? `Chụp sau ${countdown}s` : captureLabel}
+            {countdown !== null ? `${countdown}…` : captureLabel}
           </Button>
         ) : (
           <Button onClick={() => void start()} loading={starting} disabled={disabled} block>
