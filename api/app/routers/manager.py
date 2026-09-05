@@ -1,11 +1,17 @@
 from uuid import UUID
 
 from fastapi import APIRouter, Depends
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel, EmailStr, Field
 
 from app.auth import CurrentUser, require_role
 from app.services.manager_attendance import manager_dashboard
-from app.services.membership import add_member_by_email, get_managed_member, list_manager_members, update_membership
+from app.services.membership import (
+    add_member_by_email,
+    bulk_add_members,
+    get_managed_member,
+    list_manager_members,
+    update_membership,
+)
 
 
 router = APIRouter(prefix="/manager", tags=["manager"])
@@ -20,6 +26,10 @@ class AddMemberRequest(BaseModel):
     email: EmailStr
 
 
+class BulkAddRequest(BaseModel):
+    emails: list[str] = Field(min_length=1, max_length=200)
+
+
 class MembershipUpdateRequest(BaseModel):
     status: str
 
@@ -32,6 +42,11 @@ def members(user: CurrentUser = Depends(require_role("MANAGER"))) -> list[dict]:
 @router.post("/members/add-by-email", status_code=201)
 def add_member(request: AddMemberRequest, user: CurrentUser = Depends(require_role("MANAGER"))) -> dict:
     return add_member_by_email(user.id, str(request.email))
+
+
+@router.post("/members/bulk-add", status_code=201)
+def add_members(request: BulkAddRequest, user: CurrentUser = Depends(require_role("MANAGER"))) -> dict:
+    return bulk_add_members(user.id, request.emails)
 
 
 @router.get("/members/{member_id}")

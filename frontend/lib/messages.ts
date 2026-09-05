@@ -41,6 +41,8 @@ const CODE_MESSAGES: Record<string, string> = {
   "Attendance event has no evidence image": "Bản ghi không có ảnh bằng chứng.",
   "Location is inactive": "Địa điểm đã bị tắt.",
   "Invalid membership status": "Trạng thái không hợp lệ.",
+  NO_EMAIL_PROVIDED: "Chưa nhập email nào.",
+  TOO_MANY_EMAILS: "Tối đa 200 email mỗi lần.",
   ADJUST_REASON_REQUIRED: "Cần nhập lý do điều chỉnh.",
   NOTHING_TO_ADJUST: "Chưa thay đổi gì so với hiện tại.",
   INVALID_ATTENDANCE_STATUS: "Trạng thái chấm công không hợp lệ.",
@@ -104,4 +106,12 @@ export const GEOFENCE_MESSAGES: Record<string, string> = {
   WARNING_REASON_REQUIRED: "Ngoài bán kính cho phép nhưng vẫn trong vùng cảnh báo — cần nhập lý do.",
   BLOCK: "Ngoài vùng cảnh báo — không thể chấm công tại đây.",
   GPS_ACCURACY_LOW: "Độ chính xác GPS quá thấp để xác định vị trí.",
+};
+
+export const BULK_STATUS_LABELS: Record<string, { label: string; tone: "success" | "info" | "warning" | "danger" }> = {
+  ADDED: { label: "Đã thêm", tone: "success" },
+  REACTIVATED: { label: "Kích hoạt lại", tone: "success" },
+  ALREADY_MANAGED: { label: "Đã có sẵn", tone: "info" },
+  NOT_REGISTERED: { label: "Chưa có tài khoản", tone: "warning" },
+  INVALID_EMAIL: { label: "Sai định dạng", tone: "danger" },
 };

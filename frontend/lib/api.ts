@@ -5,6 +5,7 @@ import type {
   AttendanceResult,
   AttendanceState,
   AuditLogEntry,
+  BulkAddResult,
   CurrentUser,
   EnrollmentChallenge,
   EnrollmentResult,
@@ -245,6 +246,9 @@ export const api = {
   },
   managerMembers() {
     return request<ManagedMember[]>("/manager/members");
+  },
+  bulkAddMembers(emails: string[]) {
+    return request<BulkAddResult>("/manager/members/bulk-add", { method: "POST", json: { emails } });
   },
   addMemberByEmail(email: string) {
     return request<ManagedMember>("/manager/members/add-by-email", { method: "POST", json: { email } });

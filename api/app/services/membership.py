@@ -197,3 +197,95 @@ def update_membership(manager_id: uuid.UUID, member_id: uuid.UUID, membership_st
         )
         connection.commit()
     return get_managed_member(manager_id, member_id) if membership_status != "REMOVED" else {"member_id": member_id, "membership_status": "REMOVED"}
+
+
+MAX_BULK_EMAILS = 200
+BULK_ADDED = "ADDED"
+BULK_REACTIVATED = "REACTIVATED"
+BULK_ALREADY = "ALREADY_MANAGED"
+BULK_NOT_REGISTERED = "NOT_REGISTERED"
+BULK_INVALID = "INVALID_EMAIL"
+
+
+def _normalise_emails(raw: list[str]) -> list[str]:
+    """Keep the order the manager pasted them in, drop blanks and duplicates."""
+    seen: set[str] = set()
+    ordered: list[str] = []
+    for item in raw:
+        email = item.strip().strip(",;").lower()
+        if not email or email in seen:
+            continue
+        seen.add(email)
+        ordered.append(email)
+    return ordered
+
+
+def _looks_like_email(email: str) -> bool:
+    if email.count("@") != 1:
+        return False
+    local, _, domain = email.partition("@")
+    return bool(local) and "." in domain and not domain.startswith(".") and not domain.endswith(".")
+
+
+def bulk_add_members(manager_id: uuid.UUID, raw_emails: list[str]) -> dict:
+    emails = _normalise_emails(raw_emails)
+    if not emails:
+        raise HTTPException(status_code=422, detail="NO_EMAIL_PROVIDED")
+    if len(emails) > MAX_BULK_EMAILS:
+        raise HTTPException(status_code=422, detail="TOO_MANY_EMAILS")
+
+    results: list[dict] = []
+    with psycopg.connect(DATABASE_URL) as connection:
+        for email in emails:
+            if not _looks_like_email(email):
+                results.append({"email": email, "status": BULK_INVALID})
+                continue
+            member = connection.execute(
+                "SELECT id FROM users WHERE email = %s AND role = 'MEMBER'", (email,)
+            ).fetchone()
+            if member is None:
+                results.append({"email": email, "status": BULK_NOT_REGISTERED})
+                continue
+            existing = connection.execute(
+                "SELECT id, status::text FROM manager_memberships WHERE manager_user_id = %s AND member_user_id = %s",
+                (manager_id, member[0]),
+            ).fetchone()
+            if existing is not None and existing[1] == "ACTIVE":
+                results.append({"email": email, "status": BULK_ALREADY})
+                continue
+            if existing is None:
+                connection.execute(
+                    "INSERT INTO manager_memberships (manager_user_id, member_user_id, status) VALUES (%s, %s, 'ACTIVE')",
+                    (manager_id, member[0]),
+                )
+                action, outcome, before_status = "MEMBER_ADDED", BULK_ADDED, None
+            else:
+                connection.execute(
+                    "UPDATE manager_memberships SET status = 'ACTIVE', updated_at = now() WHERE id = %s",
+                    (existing[0],),
+                )
+                action, outcome, before_status = "MEMBERSHIP_REACTIVATED", BULK_REACTIVATED, existing[1]
+            connection.execute(
+                """
+                INSERT INTO audit_logs (actor_user_id, action, entity_type, entity_id, before_json, after_json)
+                VALUES (%s, %s, 'manager_membership', %s, %s::jsonb, %s::jsonb)
+                """,
+                (
+                    manager_id,
+                    action,
+                    member[0],
+                    json.dumps({"status": before_status}) if before_status else None,
+                    json.dumps({"status": "ACTIVE", "email": email}),
+                ),
+            )
+            results.append({"email": email, "status": outcome})
+        connection.commit()
+
+    succeeded = sum(1 for item in results if item["status"] in {BULK_ADDED, BULK_REACTIVATED})
+    return {
+        "requested": len(results),
+        "succeeded": succeeded,
+        "already_managed": sum(1 for item in results if item["status"] == BULK_ALREADY),
+        "failed": sum(1 for item in results if item["status"] in {BULK_NOT_REGISTERED, BULK_INVALID}),
+        "results": results,
+    }

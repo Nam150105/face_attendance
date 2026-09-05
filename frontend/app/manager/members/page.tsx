@@ -4,19 +4,30 @@ import { useCallback, useEffect, useState } from "react";
 
 import { Dialog } from "../../../components/Dialog";
 import { ManagerShell } from "../../../components/ManagerShell";
-import { Alert, Badge, Button, Card, Checkbox, DataList, Empty, Field, LoadingRows, SelectField } from "../../../components/ui";
+import {
+  Alert,
+  Badge,
+  Button,
+  Card,
+  Checkbox,
+  DataList,
+  Empty,
+  LoadingRows,
+  SelectField,
+  TextAreaField,
+} from "../../../components/ui";
 import { api } from "../../../lib/api";
-import { describeError } from "../../../lib/messages";
-import type { ManagedMember, ManagerLocation } from "../../../lib/types";
+import { BULK_STATUS_LABELS, describeError } from "../../../lib/messages";
+import type { BulkAddResult, ManagedMember, ManagerLocation } from "../../../lib/types";
 
 export default function ManagerMembersPage() {
   const [members, setMembers] = useState<ManagedMember[] | null>(null);
   const [locations, setLocations] = useState<ManagerLocation[]>([]);
   const [error, setError] = useState<string | null>(null);
-  const [email, setEmail] = useState("");
+  const [emails, setEmails] = useState("");
   const [adding, setAdding] = useState(false);
   const [addError, setAddError] = useState<string | null>(null);
-  const [addNotice, setAddNotice] = useState<string | null>(null);
+  const [outcome, setOutcome] = useState<BulkAddResult | null>(null);
 
   const [selected, setSelected] = useState<ManagedMember | null>(null);
   const [assigned, setAssigned] = useState<ManagerLocation[] | null>(null);
@@ -40,15 +51,30 @@ export default function ManagerMembersPage() {
     void load();
   }, [load]);
 
-  async function addMember(event: React.FormEvent) {
+  const parsedEmails = emails
+    .split(/[\n,;]+/)
+    .map((item) => item.trim())
+    .filter(Boolean);
+
+  async function addMembers(event: React.FormEvent) {
     event.preventDefault();
     setAdding(true);
     setAddError(null);
-    setAddNotice(null);
+    setOutcome(null);
     try {
-      const member = await api.addMemberByEmail(email.trim());
-      setAddNotice(`Đã thêm ${member.email}.`);
-      setEmail("");
+      const result = await api.bulkAddMembers(parsedEmails);
+      setOutcome(result);
+      if (result.failed === 0) {
+        setEmails("");
+      } else {
+        // Keep only the lines that still need attention so they can be fixed in place.
+        setEmails(
+          result.results
+            .filter((item) => item.status === "NOT_REGISTERED" || item.status === "INVALID_EMAIL")
+            .map((item) => item.email)
+            .join("\n"),
+        );
+      }
       await load();
     } catch (cause) {
       setAddError(describeError(cause));
@@ -121,19 +147,47 @@ export default function ManagerMembersPage() {
       {error ? <Alert tone="danger">{error}</Alert> : null}
 
       <Card title="Thêm thành viên">
-        <form className="stack" onSubmit={addMember}>
-          <Field
+        <form className="stack" onSubmit={addMembers}>
+          <TextAreaField
             label="Email"
-            type="email"
-            inputMode="email"
+            hint="Mỗi email một dòng. Tối đa 200 email mỗi lần."
             required
-            value={email}
-            onChange={(event) => setEmail(event.target.value)}
+            rows={5}
+            placeholder={"an@example.com\nbinh@example.com\nchi@example.com"}
+            value={emails}
+            onChange={(event) => setEmails(event.target.value)}
           />
+
           {addError ? <Alert tone="danger">{addError}</Alert> : null}
-          {addNotice ? <Alert tone="success">{addNotice}</Alert> : null}
-          <Button type="submit" loading={adding}>
-            Thêm
+
+          {outcome ? (
+            <div className="stack stack--tight">
+              <Alert tone={outcome.failed === 0 ? "success" : "warning"}>
+                Đã thêm {outcome.succeeded}/{outcome.requested}
+                {outcome.already_managed > 0 ? ` · ${outcome.already_managed} đã có sẵn` : ""}
+                {outcome.failed > 0 ? ` · ${outcome.failed} chưa thêm được` : ""}
+              </Alert>
+              <ul className="outcome">
+                {outcome.results.map((item) => {
+                  const meta = BULK_STATUS_LABELS[item.status];
+                  return (
+                    <li className="outcome__row" key={item.email}>
+                      <span className="outcome__email">{item.email}</span>
+                      <Badge tone={meta.tone}>{meta.label}</Badge>
+                    </li>
+                  );
+                })}
+              </ul>
+              {outcome.failed > 0 ? (
+                <p className="field__hint">
+                  Các email chưa thêm được đã giữ lại trong ô trên. Người chưa có tài khoản cần tự đăng ký trước.
+                </p>
+              ) : null}
+            </div>
+          ) : null}
+
+          <Button type="submit" loading={adding} disabled={parsedEmails.length === 0}>
+            {parsedEmails.length > 1 ? `Thêm ${parsedEmails.length} email` : "Thêm"}
           </Button>
         </form>
       </Card>

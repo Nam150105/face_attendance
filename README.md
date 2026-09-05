@@ -108,13 +108,16 @@ PUT    /api/v1/members/me
 GET    /api/v1/members/me/locations
 GET    /api/v1/manager/members
 POST   /api/v1/manager/members/add-by-email
+POST   /api/v1/manager/members/bulk-add
 GET    /api/v1/manager/members/{member_id}
 PUT    /api/v1/manager/members/{member_id}
 DELETE /api/v1/manager/members/{member_id}
 ```
 
 Manager chỉ thêm được email đã đăng ký. Trùng membership trả `409`, không tồn tại
-trả `404`. Manager không truy cập được member ngoài phạm vi của mình. Mọi thay đổi
+trả `404`. `bulk-add` nhận tối đa 200 email một lần, bỏ dòng trống và email trùng,
+không dừng khi gặp lỗi mà trả kết quả từng dòng: `ADDED`, `REACTIVATED`,
+`ALREADY_MANAGED`, `NOT_REGISTERED`, `INVALID_EMAIL`. Manager không truy cập được member ngoài phạm vi của mình. Mọi thay đổi
 membership đều ghi audit log.
 
 ### Phase 4 — Location và geofence

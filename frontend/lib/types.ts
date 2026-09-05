@@ -223,3 +223,13 @@ export interface Paged<T> {
   total: number;
   items: T[];
 }
+
+export type BulkAddStatus = "ADDED" | "REACTIVATED" | "ALREADY_MANAGED" | "NOT_REGISTERED" | "INVALID_EMAIL";
+
+export interface BulkAddResult {
+  requested: number;
+  succeeded: number;
+  already_managed: number;
+  failed: number;
+  results: Array<{ email: string; status: BulkAddStatus }>;
+}
