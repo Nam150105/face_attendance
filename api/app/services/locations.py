@@ -203,3 +203,49 @@ def list_member_locations(member_id: uuid.UUID) -> list[dict]:
             (member_id,),
         ).fetchall()
     return [{**_location(row), "is_default": row[11]} for row in rows]
+
+
+def list_assigned_locations(manager_id: uuid.UUID, member_id: uuid.UUID) -> list[dict]:
+    with psycopg.connect(DATABASE_URL) as connection:
+        allowed = connection.execute(
+            "SELECT 1 FROM manager_memberships WHERE manager_user_id = %s AND member_user_id = %s AND status = 'ACTIVE'",
+            (manager_id, member_id),
+        ).fetchone()
+        if allowed is None:
+            raise HTTPException(status_code=404, detail="Member is outside manager scope")
+        rows = connection.execute(
+            f"""
+            SELECT {LOCATION_JOIN_COLUMNS}, ml.is_default
+            FROM member_locations ml JOIN locations l ON l.id = ml.location_id
+            WHERE ml.member_id = %s
+            ORDER BY ml.is_default DESC, l.name
+            """,
+            (member_id,),
+        ).fetchall()
+    return [{**_location(row), "is_default": row[11]} for row in rows]
+
+
+def unassign_location(manager_id: uuid.UUID, member_id: uuid.UUID, location_id: uuid.UUID) -> dict:
+    with psycopg.connect(DATABASE_URL) as connection:
+        allowed = connection.execute(
+            "SELECT 1 FROM manager_memberships WHERE manager_user_id = %s AND member_user_id = %s AND status = 'ACTIVE'",
+            (manager_id, member_id),
+        ).fetchone()
+        if allowed is None:
+            raise HTTPException(status_code=404, detail="Member is outside manager scope")
+        removed = connection.execute(
+            """
+            DELETE FROM member_locations ml USING locations l
+            WHERE ml.location_id = l.id AND ml.member_id = %s AND ml.location_id = %s AND l.manager_user_id = %s
+            RETURNING ml.id
+            """,
+            (member_id, location_id, manager_id),
+        ).fetchone()
+        if removed is None:
+            raise HTTPException(status_code=404, detail="Assignment not found in manager scope")
+        connection.execute(
+            "INSERT INTO audit_logs (actor_user_id, action, entity_type, entity_id, before_json) VALUES (%s, 'LOCATION_UNASSIGNED', 'member_location', %s, %s::jsonb)",
+            (manager_id, member_id, json.dumps({"location_id": str(location_id)})),
+        )
+        connection.commit()
+    return {"member_id": member_id, "location_id": location_id, "assigned": False}

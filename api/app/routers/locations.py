@@ -9,8 +9,10 @@ from app.services.locations import (
     create_location,
     evaluate_member_location,
     get_location,
+    list_assigned_locations,
     list_locations,
     remove_location,
+    unassign_location,
     update_location,
 )
 
@@ -79,3 +81,13 @@ member_router = APIRouter(prefix="/locations", tags=["locations"])
 @member_router.post("/{location_id}/evaluate")
 def evaluate(location_id: UUID, request: GeofenceRequest, user: CurrentUser = Depends(get_current_user)) -> dict:
     return evaluate_member_location(user.id, location_id, request.model_dump())
+
+
+@assignment_router.get("/{member_id}/locations")
+def assigned(member_id: UUID, user: CurrentUser = Depends(require_role("MANAGER"))) -> list[dict]:
+    return list_assigned_locations(user.id, member_id)
+
+
+@assignment_router.delete("/{member_id}/locations/{location_id}")
+def unassign(member_id: UUID, location_id: UUID, user: CurrentUser = Depends(require_role("MANAGER"))) -> dict:
+    return unassign_location(user.id, member_id, location_id)

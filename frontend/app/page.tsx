@@ -30,7 +30,7 @@ export default function DashboardPage() {
     try {
       const user = await api.me();
       if (user.role !== "MEMBER") {
-        setData({ user, state: null, face: null, locations: [], history: [] });
+        router.replace("/manager");
         return;
       }
       const [state, face, locations, history] = await Promise.all([
@@ -77,21 +77,6 @@ export default function DashboardPage() {
               Thử lại
             </Button>
           </div>
-        </Card>
-      </AppShell>
-    );
-  }
-
-  if (data.user.role !== "MEMBER") {
-    return (
-      <AppShell email={data.user.email}>
-        <h1 className="page-title">Tài khoản quản lý</h1>
-        <p className="page-lead">Giao diện quản lý (Phase 7) chưa được xây dựng.</p>
-        <Card title="Đang khả dụng qua API">
-          <Alert tone="info">
-            Tài khoản MANAGER hiện chỉ dùng được qua API: quản lý thành viên, địa điểm và gán địa điểm. Màn hình chấm
-            công chỉ dành cho tài khoản MEMBER.
-          </Alert>
         </Card>
       </AppShell>
     );

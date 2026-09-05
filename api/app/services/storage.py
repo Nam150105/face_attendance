@@ -44,3 +44,7 @@ class PrivateObjectStorage:
             **put_options,
         )
         return object_key
+
+    def get_private(self, object_key: str) -> tuple[bytes, str]:
+        response = self.client.get_object(Bucket=self.bucket, Key=object_key)
+        return response["Body"].read(), response.get("ContentType", "image/jpeg")

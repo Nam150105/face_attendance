@@ -178,6 +178,39 @@ Next.js 15 + TypeScript strict, App Router, không dùng UI library ngoài.
 
 Luồng cảnh báo 100–200m yêu cầu nhập lý do ngay trên giao diện trước khi gửi.
 
+### Phase 7 — Quản lý chấm công cho Manager
+
+```text
+GET  /api/v1/manager/dashboard
+GET  /api/v1/manager/attendance
+GET  /api/v1/manager/attendance/{event_id}
+GET  /api/v1/manager/attendance/{event_id}/image
+POST /api/v1/manager/attendance/{event_id}/manual-adjust
+GET  /api/v1/manager/members/{member_id}/attendance
+GET  /api/v1/manager/members/{member_id}/locations
+DELETE /api/v1/manager/members/{member_id}/locations/{location_id}
+GET  /api/v1/manager/audit-logs
+```
+
+Giao diện quản lý tại `/manager`:
+
+| Đường dẫn | Màn hình |
+|---|---|
+| `/manager` | Tổng quan: số thành viên, đang trong ca, sự kiện hôm nay |
+| `/manager/attendance` | Bảng chấm công, lọc theo thành viên/địa điểm/trạng thái/loại/khoảng ngày, xem ảnh bằng chứng, điều chỉnh thủ công |
+| `/manager/members` | Thêm member bằng email, đổi trạng thái, gán và gỡ địa điểm |
+| `/manager/locations` | CRUD địa điểm, có nút **Dùng vị trí hiện tại của tôi** để lấy thẳng toạ độ GPS |
+| `/manager/audit-logs` | Nhật ký thao tác, lọc theo loại đối tượng |
+
+Ảnh bằng chứng **không** dùng signed URL của MinIO mà đi qua API proxy
+(`GET /manager/attendance/{id}/image`) vì MinIO chỉ bind `127.0.0.1`. API kiểm tra
+phạm vi quản lý trước khi trả nội dung, kèm `Cache-Control: private, no-store`.
+
+Điều chỉnh thủ công bắt buộc nhập lý do tối thiểu 3 ký tự và luôn ghi
+`ATTENDANCE_MANUALLY_ADJUSTED` vào `audit_logs` kèm `before_json`/`after_json`.
+
+Bảng dữ liệu tự chuyển thành thẻ khi màn hình hẹp hơn 720px.
+
 ## Face AI và model
 
 Model để ngoài Git, mount read-only vào container:
@@ -238,7 +271,6 @@ Những mục dưới đây **chưa** được làm — đừng giả định l�
 - **Không có liveness / anti-spoofing.** Chụp lại ảnh trên màn hình vẫn qua được
   xác thực. Đang chờ chọn provider thương mại. `liveness_score` luôn `NULL`.
 - **Chưa rate-limit.** Redis đã chạy nhưng chưa dùng cho login/enrollment/verify.
-- **Attendance chưa ghi audit log** (mới có cho location và membership).
-- **Chưa có API cho Manager xem attendance** và xem ảnh bằng chứng (Phase 7).
+- **Chỉ điều chỉnh thủ công mới ghi audit log cho attendance**; sự kiện check-in/check-out do member tạo thì không.
 - **Test tự động mới chỉ phủ geofence** (`api/tests/test_geofence.py`).
 - `S3_SERVER_SIDE_ENCRYPTION=false` cho MinIO local; production phải bật lại.

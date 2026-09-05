@@ -4,6 +4,7 @@ from fastapi import APIRouter, Depends
 from pydantic import BaseModel, EmailStr
 
 from app.auth import CurrentUser, require_role
+from app.services.manager_attendance import manager_dashboard
 from app.services.membership import add_member_by_email, get_managed_member, list_manager_members, update_membership
 
 
@@ -11,8 +12,8 @@ router = APIRouter(prefix="/manager", tags=["manager"])
 
 
 @router.get("/dashboard")
-def dashboard(user: CurrentUser = Depends(require_role("MANAGER"))) -> dict[str, str]:
-    return {"status": "ok", "manager_id": str(user.id)}
+def dashboard(user: CurrentUser = Depends(require_role("MANAGER"))) -> dict:
+    return manager_dashboard(user.id)
 
 
 class AddMemberRequest(BaseModel):

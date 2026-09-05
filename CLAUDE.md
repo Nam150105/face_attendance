@@ -90,8 +90,8 @@ Tài khoản demo do migration `002_seed_local_demo` tạo ra chỉ dùng cho m�
 
 ## 8. Trạng thái hiện tại
 
-- **Xong:** Phase 0–6 (hạ tầng, schema, auth/RBAC, membership, location/geofence, face enrollment, check-in/check-out) + nối model ArcFace thật + frontend thin slice (login/enroll/check-in).
-- **Tiếp theo:** Phase 7 — màn hình quản lý chấm công cho Manager.
+- **Xong:** Phase 0–7 (hạ tầng, schema, auth/RBAC, membership, location/geofence, face enrollment, check-in/check-out, quản lý chấm công cho Manager) + model ArcFace thật + frontend cho cả MEMBER và MANAGER.
+- **Tiếp theo:** Phase 8 (responsive/mobile hardening) hoặc Phase 9 (security hardening: rate limit, IDOR test, upload validation).
 - **Đã deploy:** https://namnangno.click, chạy từ máy dev qua Cloudflare Tunnel (service `tunnel` trong compose).
 - **Nợ kỹ thuật đã biết:** xem mục "Known issues" trong [README.md](README.md).
 
@@ -99,7 +99,5 @@ Tài khoản demo do migration `002_seed_local_demo` tạo ra chỉ dùng cho m�
 
 - Liveness / anti-spoofing: **không có**. Ảnh chụp lại màn hình vẫn qua được. Đang chờ chọn provider thương mại.
 - Rate limiting: Redis đã chạy nhưng **chưa dùng**.
-- Audit log cho attendance: **chưa ghi** (mới có cho location và membership).
-- API cho Manager xem attendance và ảnh bằng chứng: **chưa có**.
 - Test tự động: mới chỉ có `api/tests/test_geofence.py`.
 - `FACE_MATCH_THRESHOLD` hiện là **giá trị tạm** chưa qua đánh giá FAR/FRR.

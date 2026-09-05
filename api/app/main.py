@@ -3,7 +3,7 @@ import os
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.routers import attendance, auth, faces, locations, manager, members
+from app.routers import attendance, auth, faces, locations, manager, manager_attendance, members
 
 
 CORS_ALLOW_ORIGINS = [origin.strip() for origin in os.environ.get("CORS_ALLOW_ORIGINS", "").split(",") if origin.strip()]
@@ -18,6 +18,7 @@ app.add_middleware(
 )
 app.include_router(auth.router, prefix="/api/v1")
 app.include_router(manager.router, prefix="/api/v1")
+app.include_router(manager_attendance.router, prefix="/api/v1")
 app.include_router(members.router, prefix="/api/v1")
 app.include_router(locations.router, prefix="/api/v1")
 app.include_router(locations.assignment_router, prefix="/api/v1")

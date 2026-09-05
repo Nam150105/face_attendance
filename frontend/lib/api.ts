@@ -1,15 +1,23 @@
 import { clearTokens, readTokens, writeTokens } from "./session";
 import type {
   AttendanceEvent,
+  AttendanceFilters,
   AttendanceResult,
   AttendanceState,
+  AuditLogEntry,
   CurrentUser,
   EnrollmentChallenge,
   EnrollmentResult,
   FaceEnrollmentStatus,
   GeofenceDecision,
+  LocationInput,
+  ManagedMember,
+  ManagerAttendanceEvent,
+  ManagerDashboard,
+  ManagerLocation,
   MemberLocation,
   MemberProfile,
+  Paged,
   TokenPair,
   UserRole,
 } from "./types";
@@ -75,6 +83,21 @@ interface RequestOptions {
   form?: FormData;
   auth?: boolean;
   retryOnUnauthorized?: boolean;
+}
+
+function queryString(params: object): string {
+  const search = new URLSearchParams();
+  for (const [key, value] of Object.entries(params)) {
+    if (value !== undefined && value !== null && value !== "") {
+      search.set(key, String(value));
+    }
+  }
+  const rendered = search.toString();
+  return rendered ? `?${rendered}` : "";
+}
+
+export function authorizedImageUrl(path: string): string {
+  return `${API_BASE_URL}${path}`;
 }
 
 async function request<T>(path: string, options: RequestOptions = {}): Promise<T> {
@@ -197,5 +220,75 @@ export const api = {
     form.append("idempotency_key", payload.idempotencyKey);
     form.append("image", payload.image, "check-out.jpg");
     return request<AttendanceResult>("/attendance/check-out", { method: "POST", form });
+  },
+
+  managerDashboard() {
+    return request<ManagerDashboard>("/manager/dashboard");
+  },
+  managerMembers() {
+    return request<ManagedMember[]>("/manager/members");
+  },
+  addMemberByEmail(email: string) {
+    return request<ManagedMember>("/manager/members/add-by-email", { method: "POST", json: { email } });
+  },
+  updateMembership(memberId: string, status: string) {
+    return request<ManagedMember>(`/manager/members/${memberId}`, { method: "PUT", json: { status } });
+  },
+  removeMember(memberId: string) {
+    return request<{ member_id: string }>(`/manager/members/${memberId}`, { method: "DELETE" });
+  },
+  managerLocations() {
+    return request<ManagerLocation[]>("/manager/locations");
+  },
+  createLocation(payload: LocationInput) {
+    return request<ManagerLocation>("/manager/locations", { method: "POST", json: payload });
+  },
+  updateLocation(locationId: string, payload: LocationInput) {
+    return request<ManagerLocation>(`/manager/locations/${locationId}`, { method: "PUT", json: payload });
+  },
+  deleteLocation(locationId: string) {
+    return request<{ location_id: string }>(`/manager/locations/${locationId}`, { method: "DELETE" });
+  },
+  assignedLocations(memberId: string) {
+    return request<ManagerLocation[]>(`/manager/members/${memberId}/locations`);
+  },
+  assignLocation(memberId: string, locationId: string, isDefault: boolean) {
+    return request<{ location_id: string }>(`/manager/members/${memberId}/locations`, {
+      method: "POST",
+      json: { location_id: locationId, is_default: isDefault },
+    });
+  },
+  unassignLocation(memberId: string, locationId: string) {
+    return request<{ location_id: string }>(`/manager/members/${memberId}/locations/${locationId}`, {
+      method: "DELETE",
+    });
+  },
+  managerAttendance(filters: AttendanceFilters = {}) {
+    return request<Paged<ManagerAttendanceEvent>>(`/manager/attendance${queryString(filters)}`);
+  },
+  managerAttendanceDetail(eventId: string) {
+    return request<ManagerAttendanceEvent>(`/manager/attendance/${eventId}`);
+  },
+  async managerAttendanceImage(eventId: string): Promise<string> {
+    const tokens = readTokens();
+    if (!tokens) {
+      throw new ApiError(401, "NOT_AUTHENTICATED", "NOT_AUTHENTICATED");
+    }
+    const response = await fetch(`${API_BASE_URL}/manager/attendance/${eventId}/image`, {
+      headers: { Authorization: `Bearer ${tokens.access_token}` },
+    });
+    if (!response.ok) {
+      throw await toApiError(response);
+    }
+    return URL.createObjectURL(await response.blob());
+  },
+  manualAdjust(eventId: string, payload: { status?: string; server_time?: string; reason: string }) {
+    return request<ManagerAttendanceEvent>(`/manager/attendance/${eventId}/manual-adjust`, {
+      method: "POST",
+      json: payload,
+    });
+  },
+  auditLogs(params: { entity_type?: string; action?: string; limit?: number; offset?: number } = {}) {
+    return request<Paged<AuditLogEntry>>(`/manager/audit-logs${queryString(params)}`);
   },
 };
