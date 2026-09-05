@@ -203,9 +203,19 @@ export function CameraCapture({
           </>
         )}
 
-        <div className="camera__overlay" aria-hidden="true">
-          {streaming || preview ? <span className={guideClass} /> : null}
+        <div className={`camera__overlay camera__overlay--${phase}`} aria-hidden="true">
+          {streaming || preview ? (
+            <>
+              <span className="camera__corner camera__corner--tl" />
+              <span className="camera__corner camera__corner--tr" />
+              <span className="camera__corner camera__corner--bl" />
+              <span className="camera__corner camera__corner--br" />
+              <span className={guideClass} />
+            </>
+          ) : null}
           {phase === "verifying" ? <span className="camera__scan" /> : null}
+          {phase === "pass" ? <span className="camera__result camera__result--pass">✓</span> : null}
+          {phase === "fail" ? <span className="camera__result camera__result--fail">✕</span> : null}
           {countdown !== null ? <span className="camera__countdown">{countdown}</span> : null}
         </div>
 

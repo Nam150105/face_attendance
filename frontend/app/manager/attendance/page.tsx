@@ -36,6 +36,13 @@ const STATUS_TONE: Record<AttendanceStatus, "success" | "warning" | "danger"> = 
   FAILED: "danger",
 };
 
+const STATUS_LABELS: Record<AttendanceStatus, string> = {
+  SUCCESS: "Hợp lệ",
+  WARNING_CONFIRMED: "Cảnh báo",
+  BLOCKED: "Bị chặn",
+  FAILED: "Thất bại",
+};
+
 export default function ManagerAttendancePage() {
   const [filters, setFilters] = useState<AttendanceFilters>({});
   const [page, setPage] = useState(0);
@@ -171,10 +178,10 @@ export default function ManagerAttendancePage() {
             onChange={(event) => updateFilter({ status: (event.target.value || undefined) as AttendanceStatus })}
           >
             <option value="">Tất cả</option>
-            <option value="SUCCESS">SUCCESS</option>
-            <option value="WARNING_CONFIRMED">WARNING_CONFIRMED</option>
-            <option value="BLOCKED">BLOCKED</option>
-            <option value="FAILED">FAILED</option>
+            <option value="SUCCESS">Hợp lệ</option>
+            <option value="WARNING_CONFIRMED">Cảnh báo</option>
+            <option value="BLOCKED">Bị chặn</option>
+            <option value="FAILED">Thất bại</option>
           </SelectField>
           <SelectField
             label="Loại"
@@ -184,8 +191,8 @@ export default function ManagerAttendancePage() {
             }
           >
             <option value="">Tất cả</option>
-            <option value="CHECK_IN">Check-in</option>
-            <option value="CHECK_OUT">Check-out</option>
+            <option value="CHECK_IN">Vào ca</option>
+            <option value="CHECK_OUT">Ra ca</option>
           </SelectField>
           <Field
             label="Từ ngày"
@@ -226,11 +233,9 @@ export default function ManagerAttendancePage() {
                   <tr>
                     <th>Thời gian</th>
                     <th>Thành viên</th>
-                    <th>Loại</th>
                     <th>Địa điểm</th>
-                    <th>Khoảng cách</th>
-                    <th>Điểm khớp</th>
-                    <th>Trạng thái</th>
+                    <th>Vị trí</th>
+                    <th>Khuôn mặt</th>
                     <th aria-label="Hành động" />
                   </tr>
                 </thead>
@@ -238,24 +243,45 @@ export default function ManagerAttendancePage() {
                   {events.map((event) => (
                     <tr key={event.id}>
                       <td data-label="Thời gian" className="numeric">
+                        <span className={`flow flow--${event.event_type === "CHECK_IN" ? "in" : "out"}`}>
+                          {event.event_type === "CHECK_IN" ? "Vào" : "Ra"}
+                        </span>{" "}
                         {formatDateTime(event.server_time)}
                       </td>
-                      <td data-label="Thành viên">{event.member_name ?? event.member_email}</td>
-                      <td data-label="Loại">{event.event_type === "CHECK_IN" ? "Check-in" : "Check-out"}</td>
+                      <td data-label="Thành viên">
+                        <p className="event__label">{event.member_name ?? event.member_email}</p>
+                        {event.reason ? <p className="event__meta">Lý do: {event.reason}</p> : null}
+                      </td>
                       <td data-label="Địa điểm">{event.location_name}</td>
-                      <td data-label="Khoảng cách" className="numeric">
-                        {formatDistance(event.distance_meters)}
+                      <td data-label="Vị trí" className="numeric">
+                        <span
+                          className={`meter meter--${
+                            event.status === "SUCCESS" ? "ok" : event.status === "WARNING_CONFIRMED" ? "warn" : "bad"
+                          }`}
+                        >
+                          {formatDistance(event.distance_meters)}
+                        </span>
+                        <p className="event__meta">±{event.gps_accuracy_meters.toFixed(0)} m</p>
                       </td>
-                      <td data-label="Điểm khớp" className="numeric">
-                        {event.face_match_score !== null ? event.face_match_score.toFixed(3) : "—"}
-                      </td>
-                      <td data-label="Trạng thái">
-                        <Badge tone={STATUS_TONE[event.status]}>{event.status}</Badge>
+                      <td data-label="Khuôn mặt" className="numeric">
+                        {event.face_match_score !== null ? (
+                          <>
+                            <span className={`meter meter--${event.face_match_score >= 0.6 ? "ok" : "warn"}`}>
+                              {(event.face_match_score * 100).toFixed(0)}%
+                            </span>
+                            <p className="event__meta">{event.face_match_score.toFixed(3)}</p>
+                          </>
+                        ) : (
+                          <span className="event__meta">—</span>
+                        )}
                       </td>
                       <td data-label="Hành động">
-                        <Button variant="secondary" onClick={() => void openDetail(event)}>
-                          Chi tiết
-                        </Button>
+                        <div className="row" style={{ justifyContent: "flex-end" }}>
+                          <Badge tone={STATUS_TONE[event.status]}>{STATUS_LABELS[event.status]}</Badge>
+                          <Button variant="secondary" size="sm" onClick={() => void openDetail(event)}>
+                            Chi tiết
+                          </Button>
+                        </div>
                       </td>
                     </tr>
                   ))}
@@ -313,7 +339,10 @@ export default function ManagerAttendancePage() {
                   key: "Liveness",
                   value: selected.liveness_score !== null ? selected.liveness_score.toFixed(4) : "chưa có",
                 },
-                { key: "Trạng thái", value: <Badge tone={STATUS_TONE[selected.status]}>{selected.status}</Badge> },
+                {
+                  key: "Trạng thái",
+                  value: <Badge tone={STATUS_TONE[selected.status]}>{STATUS_LABELS[selected.status]}</Badge>,
+                },
                 { key: "Lý do", value: selected.reason ?? "—" },
               ]}
             />

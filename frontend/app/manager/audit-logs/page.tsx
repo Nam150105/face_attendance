@@ -5,13 +5,20 @@ import { useCallback, useEffect, useState } from "react";
 import { ManagerShell } from "../../../components/ManagerShell";
 import { Alert, Badge, Button, Card, Empty, LoadingRows, SelectField } from "../../../components/ui";
 import { api } from "../../../lib/api";
+import { auditChanges, auditLabel, auditTone } from "../../../lib/audit";
 import { formatDateTime } from "../../../lib/geo";
 import { describeError } from "../../../lib/messages";
 import type { AuditLogEntry } from "../../../lib/types";
 
 const PAGE_SIZE = 25;
 
-const ENTITY_TYPES = ["attendance_event", "location", "member_location", "manager_membership"];
+const ENTITY_LABELS: Array<{ value: string; label: string }> = [
+  { value: "", label: "Tất cả" },
+  { value: "attendance_event", label: "Chấm công" },
+  { value: "location", label: "Địa điểm" },
+  { value: "member_location", label: "Phân công địa điểm" },
+  { value: "manager_membership", label: "Thành viên" },
+];
 
 export default function ManagerAuditLogsPage() {
   const [entries, setEntries] = useState<AuditLogEntry[] | null>(null);
@@ -50,77 +57,83 @@ export default function ManagerAuditLogsPage() {
 
       {error ? <Alert tone="danger">{error}</Alert> : null}
 
-      <Card title={`Bản ghi (${total})`}>
-        <div className="filters" style={{ marginBottom: "var(--space-2)" }}>
-          <SelectField
-            label="Đối tượng"
-            value={entityType}
-            onChange={(event) => {
-              setPage(0);
-              setEntityType(event.target.value);
-            }}
-          >
-            <option value="">Tất cả</option>
-            {ENTITY_TYPES.map((type) => (
-              <option key={type} value={type}>
-                {type}
-              </option>
-            ))}
-          </SelectField>
-        </div>
-
+      <Card
+        title={`${total} thay đổi`}
+        action={
+          <div style={{ minWidth: 170 }}>
+            <SelectField
+              label="Lọc"
+              value={entityType}
+              onChange={(event) => {
+                setPage(0);
+                setEntityType(event.target.value);
+              }}
+            >
+              {ENTITY_LABELS.map((item) => (
+                <option key={item.value} value={item.value}>
+                  {item.label}
+                </option>
+              ))}
+            </SelectField>
+          </div>
+        }
+      >
         {entries === null ? (
           <LoadingRows count={4} />
         ) : entries.length === 0 ? (
-          <Empty>Chưa có bản ghi.</Empty>
+          <Empty>Chưa có thay đổi nào.</Empty>
         ) : (
           <>
-            <div className="table-wrap">
-              <table className="table">
-                <thead>
-                  <tr>
-                    <th>Thời gian</th>
-                    <th>Hành động</th>
-                    <th>Đối tượng</th>
-                    <th>Lý do</th>
-                    <th>Thay đổi</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {entries.map((entry) => (
-                    <tr key={entry.id}>
-                      <td data-label="Thời gian" className="numeric">
-                        {formatDateTime(entry.created_at)}
-                      </td>
-                      <td data-label="Hành động">
-                        <Badge tone={entry.action.includes("ADJUST") ? "warning" : "neutral"}>{entry.action}</Badge>
-                      </td>
-                      <td data-label="Đối tượng">{entry.entity_type}</td>
-                      <td data-label="Lý do">{entry.reason ?? "—"}</td>
-                      <td data-label="Thay đổi">
-                        {entry.before_json || entry.after_json ? (
-                          <pre className="code-block">
-                            {JSON.stringify({ before: entry.before_json, after: entry.after_json }, null, 1)}
-                          </pre>
-                        ) : (
-                          "—"
-                        )}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+            <ol className="timeline">
+              {entries.map((entry) => {
+                const changes = auditChanges(entry);
+                return (
+                  <li className="timeline__item" key={entry.id}>
+                    <span className={`timeline__dot timeline__dot--${auditTone(entry.action)}`} aria-hidden="true" />
+                    <div className="timeline__body">
+                      <div className="timeline__head">
+                        <span className="timeline__title">{auditLabel(entry.action)}</span>
+                        <time className="event__meta">{formatDateTime(entry.created_at)}</time>
+                      </div>
+
+                      {changes.length > 0 ? (
+                        <ul className="changes">
+                          {changes.map((change) => (
+                            <li className="changes__row" key={change.field}>
+                              <span className="changes__field">{change.field}</span>
+                              {change.before !== null ? (
+                                <>
+                                  <span className="changes__before">{change.before}</span>
+                                  <span className="changes__arrow" aria-label="thành">
+                                    →
+                                  </span>
+                                </>
+                              ) : null}
+                              <span className="changes__after">{change.after ?? "đã xoá"}</span>
+                            </li>
+                          ))}
+                        </ul>
+                      ) : null}
+
+                      {entry.reason ? <p className="timeline__reason">Lý do: {entry.reason}</p> : null}
+                      <p className="event__meta">
+                        <Badge tone="neutral">{entry.actor_email}</Badge>
+                      </p>
+                    </div>
+                  </li>
+                );
+              })}
+            </ol>
 
             <div className="pagination">
-              <Button variant="secondary" disabled={page === 0} onClick={() => setPage(page - 1)}>
-                Trang trước
+              <Button variant="secondary" size="sm" disabled={page === 0} onClick={() => setPage(page - 1)}>
+                Trước
               </Button>
               <span>
-                Trang {page + 1} / {lastPage + 1}
+                {page + 1} / {lastPage + 1}
               </span>
-              <Button variant="secondary" disabled={page >= lastPage} onClick={() => setPage(page + 1)}>
-                Trang sau
+              <Button variant="secondary" size="sm" disabled={page >= lastPage} onClick={() => setPage(page + 1)}>
+                Sau
               </Button>
             </div>
           </>

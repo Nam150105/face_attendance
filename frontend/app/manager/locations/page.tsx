@@ -73,8 +73,8 @@ export default function ManagerLocationsPage() {
     setForm((current) => ({ ...current, ...point }));
   }, []);
 
-  const setAddressFromMap = useCallback((address: string) => {
-    setForm((current) => (current.address ? current : { ...current, address }));
+  const setAddress = useCallback((address: string) => {
+    setForm((current) => ({ ...current, address: address || null }));
   }, []);
 
   async function save(event: React.FormEvent) {
@@ -185,25 +185,14 @@ export default function ManagerLocationsPage() {
               value={form.name}
               onChange={(event) => setForm((current) => ({ ...current, name: event.target.value }))}
             />
-            <Field
-              label="Địa chỉ"
-              maxLength={500}
-              placeholder="Tuỳ chọn"
-              value={form.address ?? ""}
-              onChange={(event) =>
-                setForm((current) => ({ ...current, address: event.target.value || null }))
-              }
-            />
-
-            <hr className="divider" />
-
             <LocationPicker
-              value={{ latitude: form.latitude, longitude: form.longitude }}
-              onChange={setPoint}
-              onAddressFound={setAddressFromMap}
+              point={{ latitude: form.latitude, longitude: form.longitude }}
+              address={form.address ?? ""}
+              onPointChange={setPoint}
+              onAddressChange={setAddress}
+              allowRadiusMeters={form.allow_radius_meters}
+              warningRadiusMeters={form.warning_radius_meters}
             />
-
-            <hr className="divider" />
 
             <div className="row">
               <div style={{ flex: "1 1 140px" }}>

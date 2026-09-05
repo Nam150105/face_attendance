@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 import uuid
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 
 import psycopg
 from fastapi import HTTPException
@@ -222,46 +222,95 @@ def member_attendance(manager_id: uuid.UUID, member_id: uuid.UUID, filters: dict
 
 def manager_dashboard(manager_id: uuid.UUID) -> dict:
     today = date.today()
+    since = today - timedelta(days=6)
     with psycopg.connect(DATABASE_URL) as connection:
-        members = connection.execute(
-            "SELECT count(*) FROM manager_memberships WHERE manager_user_id = %s AND status = 'ACTIVE'",
-            (manager_id,),
-        ).fetchone()[0]
         locations = connection.execute(
             "SELECT count(*) FROM locations WHERE manager_user_id = %s AND is_active = true", (manager_id,)
         ).fetchone()[0]
-        enrolled = connection.execute(
+        members = connection.execute(
             """
-            SELECT count(DISTINCT f.member_id)
-            FROM face_embeddings f
-            JOIN manager_memberships mm ON mm.member_user_id = f.member_id
-            WHERE mm.manager_user_id = %s AND mm.status = 'ACTIVE' AND f.revoked_at IS NULL
+            SELECT u.id, u.email, mp.full_name,
+                   EXISTS (SELECT 1 FROM face_embeddings f WHERE f.member_id = u.id AND f.revoked_at IS NULL),
+                   open_event.server_time,
+                   last_event.server_time,
+                   last_event.event_type::text
+            FROM manager_memberships mm
+            JOIN users u ON u.id = mm.member_user_id
+            LEFT JOIN member_profiles mp ON mp.user_id = u.id
+            LEFT JOIN LATERAL (
+                SELECT e.server_time FROM attendance_events e
+                WHERE e.member_id = u.id AND e.event_type = 'CHECK_IN'
+                  AND e.status IN ('SUCCESS', 'WARNING_CONFIRMED')
+                  AND NOT EXISTS (
+                      SELECT 1 FROM attendance_events c
+                      WHERE c.member_id = u.id AND c.event_type = 'CHECK_OUT'
+                        AND c.status = 'SUCCESS' AND c.server_time > e.server_time
+                  )
+                ORDER BY e.server_time DESC LIMIT 1
+            ) open_event ON true
+            LEFT JOIN LATERAL (
+                SELECT e.server_time, e.event_type FROM attendance_events e
+                WHERE e.member_id = u.id ORDER BY e.server_time DESC LIMIT 1
+            ) last_event ON true
+            WHERE mm.manager_user_id = %s AND mm.status = 'ACTIVE'
+            ORDER BY open_event.server_time DESC NULLS LAST, u.email
             """,
             (manager_id,),
-        ).fetchone()[0]
-        today_events, checked_in = connection.execute(
+        ).fetchall()
+        daily_rows = connection.execute(
             """
-            SELECT
-                count(*) FILTER (WHERE e.server_time >= %s),
-                count(DISTINCT e.member_id) FILTER (
-                    WHERE e.event_type = 'CHECK_IN' AND e.status IN ('SUCCESS', 'WARNING_CONFIRMED')
-                      AND e.server_time >= %s
-                      AND NOT EXISTS (
-                          SELECT 1 FROM attendance_events c
-                          WHERE c.member_id = e.member_id AND c.event_type = 'CHECK_OUT'
-                            AND c.status = 'SUCCESS' AND c.server_time > e.server_time
-                      )
-                )
+            SELECT e.server_time::date AS day,
+                   count(*) FILTER (WHERE e.event_type = 'CHECK_IN') AS check_in,
+                   count(*) FILTER (WHERE e.event_type = 'CHECK_OUT') AS check_out,
+                   count(*) FILTER (WHERE e.status = 'WARNING_CONFIRMED') AS warnings
             FROM attendance_events e
             JOIN manager_memberships mm ON mm.member_user_id = e.member_id
-            WHERE mm.manager_user_id = %s AND mm.status = 'ACTIVE'
+            WHERE mm.manager_user_id = %s AND mm.status = 'ACTIVE' AND e.server_time >= %s
+            GROUP BY day
             """,
-            (today, today, manager_id),
-        ).fetchone()
+            (manager_id, since),
+        ).fetchall()
+        events_today = connection.execute(
+            """
+            SELECT count(*) FROM attendance_events e
+            JOIN manager_memberships mm ON mm.member_user_id = e.member_id
+            WHERE mm.manager_user_id = %s AND mm.status = 'ACTIVE' AND e.server_time >= %s
+            """,
+            (manager_id, today),
+        ).fetchone()[0]
+
+    by_day = {row[0]: row for row in daily_rows}
+    daily = []
+    for offset in range(6, -1, -1):
+        day = today - timedelta(days=offset)
+        row = by_day.get(day)
+        daily.append(
+            {
+                "date": day.isoformat(),
+                "check_in": row[1] if row else 0,
+                "check_out": row[2] if row else 0,
+                "warnings": row[3] if row else 0,
+            }
+        )
+
+    member_rows = [
+        {
+            "member_id": row[0],
+            "email": row[1],
+            "full_name": row[2],
+            "face_enrolled": row[3],
+            "checked_in_at": row[4],
+            "last_event_at": row[5],
+            "last_event_type": row[6],
+        }
+        for row in members
+    ]
     return {
-        "active_members": members,
+        "active_members": len(member_rows),
         "active_locations": locations,
-        "members_with_face": enrolled,
-        "events_today": today_events,
-        "currently_checked_in": checked_in,
+        "members_with_face": sum(1 for item in member_rows if item["face_enrolled"]),
+        "events_today": events_today,
+        "currently_checked_in": sum(1 for item in member_rows if item["checked_in_at"] is not None),
+        "members": member_rows,
+        "daily": daily,
     }

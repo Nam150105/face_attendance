@@ -32,12 +32,44 @@ const CODE_MESSAGES: Record<string, string> = {
   "Image exceeds 10 MB limit": "Ảnh vượt quá giới hạn 10 MB.",
   "Database unavailable": "Không kết nối được cơ sở dữ liệu.",
   "Member not found": "Không tìm thấy hồ sơ thành viên.",
+  "Registered member email not found": "Email này chưa có tài khoản trên hệ thống. Người đó cần tự đăng ký trước, sau đó bạn mới thêm được.",
+  "Member is already managed": "Thành viên này đã có trong danh sách của bạn.",
+  "Member is outside manager scope": "Thành viên không thuộc phạm vi quản lý của bạn.",
+  "Location is outside manager scope or inactive": "Địa điểm không thuộc quyền quản lý hoặc đã tắt.",
+  "Assignment not found in manager scope": "Không tìm thấy phân công này.",
+  "Attendance event is outside manager scope": "Bản ghi không thuộc phạm vi quản lý của bạn.",
+  "Attendance event has no evidence image": "Bản ghi không có ảnh bằng chứng.",
+  "Location is inactive": "Địa điểm đã bị tắt.",
+  "Invalid membership status": "Trạng thái không hợp lệ.",
+  ADJUST_REASON_REQUIRED: "Cần nhập lý do điều chỉnh.",
+  NOTHING_TO_ADJUST: "Chưa thay đổi gì so với hiện tại.",
+  INVALID_ATTENDANCE_STATUS: "Trạng thái chấm công không hợp lệ.",
+  PLACE_QUERY_REQUIRED: "Nhập địa chỉ, link bản đồ hoặc toạ độ.",
+  PLACE_NOT_FOUND: "Không tìm thấy địa điểm nào khớp. Thử tên cụ thể hơn hoặc dán link Google Maps.",
+  PLACE_LINK_HAS_NO_COORDINATES: "Link này không chứa toạ độ. Mở Google Maps, giữ vào điểm cần chọn rồi copy link chia sẻ.",
+  PLACE_LINK_UNREACHABLE: "Không mở được link. Kiểm tra lại đường dẫn.",
+  PLACE_COORDINATES_INVALID: "Toạ độ nằm ngoài phạm vi hợp lệ.",
+  GEOCODER_UNAVAILABLE: "Dịch vụ tra cứu bản đồ đang không phản hồi. Thử dán toạ độ trực tiếp.",
   "Only members can enroll a face": "Chỉ tài khoản MEMBER mới đăng ký được khuôn mặt.",
+};
+
+const STATUS_FALLBACK: Record<number, string> = {
+  400: "Yêu cầu không hợp lệ.",
+  401: "Phiên đăng nhập đã hết hạn. Đăng nhập lại.",
+  403: "Bạn không có quyền thực hiện thao tác này.",
+  404: "Không tìm thấy dữ liệu.",
+  409: "Dữ liệu đã tồn tại hoặc đang xung đột.",
+  413: "Tệp quá lớn.",
+  422: "Dữ liệu nhập chưa hợp lệ.",
+  429: "Thao tác quá nhanh. Thử lại sau.",
+  500: "Máy chủ gặp lỗi. Thử lại sau.",
+  502: "Dịch vụ phụ trợ không phản hồi.",
+  503: "Dịch vụ tạm thời không khả dụng.",
 };
 
 export function describeError(error: unknown): string {
   if (error instanceof ApiError) {
-    return CODE_MESSAGES[error.code] ?? `Lỗi ${error.statusCode}: ${error.code}`;
+    return CODE_MESSAGES[error.code] ?? STATUS_FALLBACK[error.statusCode] ?? "Thao tác không thành công.";
   }
   if (error instanceof Error) {
     return error.message;

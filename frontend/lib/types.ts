@@ -106,12 +106,31 @@ export interface AttendanceResult {
   message: string;
 }
 
+export interface DashboardMember {
+  member_id: string;
+  email: string;
+  full_name: string | null;
+  face_enrolled: boolean;
+  checked_in_at: string | null;
+  last_event_at: string | null;
+  last_event_type: AttendanceEventType | null;
+}
+
+export interface DashboardDay {
+  date: string;
+  check_in: number;
+  check_out: number;
+  warnings: number;
+}
+
 export interface ManagerDashboard {
   active_members: number;
   active_locations: number;
   members_with_face: number;
   events_today: number;
   currently_checked_in: number;
+  members: DashboardMember[];
+  daily: DashboardDay[];
 }
 
 export interface ManagedMember {

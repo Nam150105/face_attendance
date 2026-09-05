@@ -228,6 +228,27 @@ Bảng dữ liệu tự chuyển thành thẻ khi màn hình hẹp hơn 720px.
   trên màn hình hẹp.
 - Nút bấm, badge, alert và bảng được làm lại; text rút gọn theo hướng kỹ thuật.
 
+### Phase 7.2 — Hoàn thiện UX
+
+- **Đăng ký thu đủ hồ sơ**: họ tên (bắt buộc), số điện thoại, mã nhân viên, bộ phận,
+  chức danh; ghi thẳng vào `member_profiles` ngay sau khi tạo tài khoản.
+- **Sửa lỗi bấm "Tìm" bị thoát khỏi form.** Ô tìm vị trí trước đây là một `<form>`
+  lồng trong form địa điểm; HTML không cho phép form lồng nhau nên trình duyệt gộp
+  lại và nút Tìm submit form ngoài. Nay là nút `type="button"`.
+- **Gộp ô nhập địa điểm**: một ô duy nhất vừa là địa chỉ vừa là ô tìm kiếm; toạ độ
+  hiện dạng chỉ đọc, mở ra khi cần nhập tay.
+- **Bản đồ vẽ luôn hai vòng geofence** theo bán kính đang nhập; pin đổi thành hình
+  giọt nước màu đỏ viền trắng.
+- **Thông báo lỗi bằng tiếng Việt**, không còn lộ mã trạng thái hay chuỗi tiếng Anh.
+- **Nhật ký đọc được**: hành động dịch sang tiếng Việt, thay đổi hiện dạng
+  `Trạng thái: Hợp lệ → Cảnh báo` thay vì JSON thô, bố cục timeline.
+- **Dashboard**: ô số liệu có màu theo ngữ nghĩa, biểu đồ cột 7 ngày tách check-in
+  và check-out, danh sách thành viên kèm ai đang trong ca và ai chưa có khuôn mặt.
+- **Bảng chấm công**: nhãn Vào/Ra, khoảng cách và điểm khớp tô màu theo ngưỡng,
+  trạng thái hiển thị tiếng Việt.
+- **Camera**: bốn góc ngắm đổi màu theo trạng thái, vòng dẫn hướng thở nhẹ, dấu
+  tích hoặc dấu X khi có kết quả.
+
 ## Face AI và model
 
 Model để ngoài Git, mount read-only vào container:
@@ -242,9 +263,11 @@ báo `not_configured` và không bao giờ sinh embedding giả. Máy local bậ
 SCRFD/ArcFace (`insightface-buffalo_l-arcface` / `w600k_r50`) bằng
 `FACE_AI_ENABLE_EMBEDDINGS=true`.
 
-**`FACE_MATCH_THRESHOLD=0.35` là giá trị tạm (provisional).** Đây là mức thường dùng
-cho cosine similarity của `w600k_r50`, **chưa** được đánh giá FAR/FRR trên tập ảnh có
-đồng thuận. Phải đo lại trước khi đưa vào production.
+**`FACE_MATCH_THRESHOLD=0.35` vẫn là giá trị tạm (provisional).** Hai lần check-in
+thật đầu tiên cho điểm khớp `0.8552` và `0.8089`, tức khoảng cách tới ngưỡng rất
+rộng — an toàn về phía từ chối nhầm. Nhưng **chưa có dữ liệu người lạ** nên chưa
+kết luận được về chấp nhận nhầm. Phải đo FAR/FRR trên tập ảnh có đồng thuận
+trước khi đưa vào production.
 
 ## Deployment
 

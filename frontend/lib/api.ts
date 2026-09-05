@@ -157,7 +157,13 @@ export const api = {
   memberProfile() {
     return request<MemberProfile>("/members/me");
   },
-  updateMemberProfile(payload: { full_name: string; phone?: string | null }) {
+  updateMemberProfile(payload: {
+    full_name: string;
+    phone?: string | null;
+    employee_code?: string | null;
+    position?: string | null;
+    department?: string | null;
+  }) {
     return request<MemberProfile>("/members/me", { method: "PUT", json: payload });
   },
   memberLocations() {
