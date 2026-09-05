@@ -77,6 +77,24 @@ export function describeError(error: unknown): string {
   return "Đã xảy ra lỗi không xác định.";
 }
 
+const FAILURE_LABELS: Record<string, string> = {
+  OUTSIDE_ALLOWED_ZONE: "Ngoài vùng cho phép",
+  GPS_ACCURACY_LOW: "GPS không đủ chính xác",
+  FACE_NOT_MATCHED: "Khuôn mặt không khớp",
+  FACE_NOT_FOUND: "Không thấy khuôn mặt",
+  MULTIPLE_FACES: "Nhiều khuôn mặt",
+  FACE_QUALITY_LOW: "Ảnh chất lượng thấp",
+  IMAGE_INVALID: "Ảnh không hợp lệ",
+  IMAGE_TOO_SMALL: "Ảnh quá nhỏ",
+};
+
+export function describeFailure(code: string | null): string | null {
+  if (!code) {
+    return null;
+  }
+  return FAILURE_LABELS[code] ?? code;
+}
+
 export function describeCode(code: string): string {
   return CODE_MESSAGES[code] ?? code;
 }

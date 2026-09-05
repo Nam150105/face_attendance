@@ -7,7 +7,7 @@ import { AppShell } from "../components/AppShell";
 import { Alert, Badge, Button, Card, DataList, Empty, LoadingRows } from "../components/ui";
 import { ApiError, api } from "../lib/api";
 import { formatDateTime, formatDistance, isSecureContextReady } from "../lib/geo";
-import { describeError } from "../lib/messages";
+import { describeError, describeFailure } from "../lib/messages";
 import type { AttendanceEvent, AttendanceState, CurrentUser, FaceEnrollmentStatus, MemberLocation } from "../lib/types";
 
 interface DashboardData {
@@ -179,7 +179,7 @@ export default function DashboardPage() {
                   </p>
                   <p className="event__meta">
                     {formatDateTime(event.server_time)} · cách {formatDistance(event.distance_meters)}
-                    {event.face_match_score !== null ? ` · khớp ${event.face_match_score.toFixed(3)}` : ""}
+                    {event.failure_code ? ` · ${describeFailure(event.failure_code)}` : ""}
                   </p>
                 </div>
                 <Badge tone={event.status === "SUCCESS" ? "success" : event.status === "WARNING_CONFIRMED" ? "warning" : "danger"}>

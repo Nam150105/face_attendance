@@ -76,6 +76,62 @@ def _event_response(row: tuple) -> dict:
     return {"status": row[0], "event_id": row[1], "distance_meters": float(row[2]), "message": row[3]}
 
 
+def _record_rejection(
+    connection: psycopg.Connection,
+    user: CurrentUser,
+    location_id: uuid.UUID,
+    event_type: str,
+    status: str,
+    failure_code: str,
+    latitude: float,
+    longitude: float,
+    gps_accuracy_meters: float,
+    distance_meters: float,
+    idempotency_key: str,
+    face_match_score: float | None = None,
+    object_key: str | None = None,
+) -> None:
+    """A rejected attempt is still evidence: keep it so managers can review it."""
+    connection.execute(
+        """
+        INSERT INTO attendance_events (
+            member_id, location_id, event_type, status, server_time, latitude, longitude,
+            gps_accuracy_meters, distance_meters, face_match_score, image_object_key,
+            failure_code, idempotency_key
+        )
+        VALUES (%s, %s, %s::attendance_event_type, %s::attendance_status, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+        """,
+        (
+            user.id,
+            location_id,
+            event_type,
+            status,
+            _utc_now(),
+            latitude,
+            longitude,
+            gps_accuracy_meters,
+            distance_meters,
+            face_match_score,
+            object_key,
+            failure_code,
+            idempotency_key,
+        ),
+    )
+    connection.commit()
+
+
+def _reject(status_code: int, detail: str) -> HTTPException:
+    return HTTPException(status_code=status_code, detail=detail)
+
+
+def _geofence_rejection(decision) -> tuple[str, int] | None:
+    if decision.status == GeofenceStatus.GPS_ACCURACY_LOW:
+        return "GPS_ACCURACY_LOW", 422
+    if decision.status == GeofenceStatus.BLOCK:
+        return "OUTSIDE_ALLOWED_ZONE", 403
+    return None
+
+
 def check_in(
     user: CurrentUser,
     location_id: uuid.UUID,
@@ -88,7 +144,7 @@ def check_in(
     content_type: str,
 ) -> dict:
     if gps_accuracy_meters < 0:
-        raise HTTPException(status_code=422, detail="GPS accuracy must be non-negative")
+        raise _reject(422, "GPS accuracy must be non-negative")
     with psycopg.connect(DATABASE_URL) as connection:
         existing = connection.execute(
             "SELECT status::text, id, distance_meters, 'Request already processed' FROM attendance_events WHERE idempotency_key = %s",
@@ -98,30 +154,45 @@ def check_in(
             return _event_response(existing)
         connection.execute("SELECT id FROM users WHERE id = %s FOR UPDATE", (user.id,)).fetchone()
         if _open_state(connection, user.id) is not None:
-            raise HTTPException(status_code=409, detail="CHECK_IN_ALREADY_EXISTS")
+            raise _reject(409, "CHECK_IN_ALREADY_EXISTS")
         location = _location_for_member(connection, user.id, location_id)
         if location is None:
-            raise HTTPException(status_code=404, detail="Location is not assigned to this member")
+            raise _reject(404, "Location is not assigned to this member")
+
         decision = evaluate_geofence(
             latitude, longitude, gps_accuracy_meters, float(location[1]), float(location[2]),
             GeofencePolicy(location[3], location[4], 100),
         )
-        if decision.status == GeofenceStatus.GPS_ACCURACY_LOW:
-            raise HTTPException(status_code=422, detail="GPS_ACCURACY_LOW")
-        if decision.status == GeofenceStatus.BLOCK:
-            raise HTTPException(status_code=403, detail="OUTSIDE_ALLOWED_ZONE")
+        rejection = _geofence_rejection(decision)
+        if rejection is not None:
+            code, status_code = rejection
+            _record_rejection(
+                connection, user, location_id, "CHECK_IN", "BLOCKED", code,
+                latitude, longitude, gps_accuracy_meters, decision.distance_meters, idempotency_key,
+            )
+            raise _reject(status_code, code)
         if decision.status == GeofenceStatus.WARNING_REASON_REQUIRED and not reason:
-            raise HTTPException(status_code=422, detail="WARNING_REASON_REQUIRED")
+            raise _reject(422, "WARNING_REASON_REQUIRED")
+
         reference_embedding = _reference_embedding(connection, user.id)
         if reference_embedding is None:
-            raise HTTPException(status_code=409, detail="FACE_NOT_ENROLLED")
+            raise _reject(409, "FACE_NOT_ENROLLED")
         face_result = _verify_face(image, user.id, reference_embedding)
         if _face_ai_not_configured(face_result):
-            raise HTTPException(status_code=503, detail="FACE_MODEL_NOT_CONFIGURED")
-        if face_result.get("status") != "VERIFIED":
-            raise HTTPException(status_code=403, detail=face_result.get("code", "FACE_NOT_MATCHED"))
+            raise _reject(503, "FACE_MODEL_NOT_CONFIGURED")
+
         object_key = f"attendance/{user.id}/{uuid.uuid4()}.jpg"
         PrivateObjectStorage().put_private(object_key, image, content_type)
+
+        if face_result.get("status") != "VERIFIED":
+            code = face_result.get("code", "FACE_NOT_MATCHED")
+            _record_rejection(
+                connection, user, location_id, "CHECK_IN", "FAILED", code,
+                latitude, longitude, gps_accuracy_meters, decision.distance_meters, idempotency_key,
+                face_result.get("face_match_score"), object_key,
+            )
+            raise _reject(403, code)
+
         event_status = "WARNING_CONFIRMED" if decision.status == GeofenceStatus.WARNING_REASON_REQUIRED else "SUCCESS"
         row = connection.execute(
             """
@@ -132,7 +203,7 @@ def check_in(
             (user.id, location_id, event_status, _utc_now(), latitude, longitude, gps_accuracy_meters, decision.distance_meters, face_result.get("face_match_score"), face_result.get("liveness_score"), object_key, reason, idempotency_key),
         ).fetchone()
         connection.commit()
-    return {"status": row[0], "event_id": row[1], "distance_meters": float(row[2]), "message": "Check-in successful"}
+    return {"status": row[0], "event_id": row[1], "distance_meters": float(row[2]), "message": "Check-in thành công"}
 
 
 def check_out(
@@ -145,7 +216,7 @@ def check_out(
     content_type: str,
 ) -> dict:
     if gps_accuracy_meters < 0:
-        raise HTTPException(status_code=422, detail="GPS accuracy must be non-negative")
+        raise _reject(422, "GPS accuracy must be non-negative")
     with psycopg.connect(DATABASE_URL) as connection:
         existing = connection.execute(
             "SELECT status::text, id, distance_meters, 'Request already processed' FROM attendance_events WHERE idempotency_key = %s",
@@ -156,41 +227,57 @@ def check_out(
         connection.execute("SELECT id FROM users WHERE id = %s FOR UPDATE", (user.id,)).fetchone()
         open_event = _open_state(connection, user.id)
         if open_event is None:
-            raise HTTPException(status_code=409, detail="CHECK_OUT_WITHOUT_CHECK_IN")
+            raise _reject(409, "CHECK_OUT_WITHOUT_CHECK_IN")
+        location_id = open_event[1]
         checkout_location = connection.execute(
             "SELECT latitude, longitude, allow_radius_meters, warning_radius_meters FROM locations WHERE id = %s AND is_active = true",
-            (open_event[1],),
+            (location_id,),
         ).fetchone()
         if checkout_location is None:
-            raise HTTPException(status_code=404, detail="Checkout location is inactive")
+            raise _reject(404, "Checkout location is inactive")
+
         decision = evaluate_geofence(
             latitude, longitude, gps_accuracy_meters, float(checkout_location[0]), float(checkout_location[1]),
             GeofencePolicy(checkout_location[2], checkout_location[3], 100),
         )
-        if decision.status == GeofenceStatus.GPS_ACCURACY_LOW:
-            raise HTTPException(status_code=422, detail="GPS_ACCURACY_LOW")
-        if decision.status == GeofenceStatus.BLOCK:
-            raise HTTPException(status_code=403, detail="OUTSIDE_ALLOWED_ZONE")
+        rejection = _geofence_rejection(decision)
+        if rejection is not None:
+            code, status_code = rejection
+            _record_rejection(
+                connection, user, location_id, "CHECK_OUT", "BLOCKED", code,
+                latitude, longitude, gps_accuracy_meters, decision.distance_meters, idempotency_key,
+            )
+            raise _reject(status_code, code)
+
         reference_embedding = _reference_embedding(connection, user.id)
         if reference_embedding is None:
-            raise HTTPException(status_code=409, detail="FACE_NOT_ENROLLED")
+            raise _reject(409, "FACE_NOT_ENROLLED")
         face_result = _verify_face(image, user.id, reference_embedding)
         if _face_ai_not_configured(face_result):
-            raise HTTPException(status_code=503, detail="FACE_MODEL_NOT_CONFIGURED")
-        if face_result.get("status") != "VERIFIED":
-            raise HTTPException(status_code=403, detail=face_result.get("code", "FACE_NOT_MATCHED"))
+            raise _reject(503, "FACE_MODEL_NOT_CONFIGURED")
+
         object_key = f"attendance/{user.id}/{uuid.uuid4()}.jpg"
         PrivateObjectStorage().put_private(object_key, image, content_type)
+
+        if face_result.get("status") != "VERIFIED":
+            code = face_result.get("code", "FACE_NOT_MATCHED")
+            _record_rejection(
+                connection, user, location_id, "CHECK_OUT", "FAILED", code,
+                latitude, longitude, gps_accuracy_meters, decision.distance_meters, idempotency_key,
+                face_result.get("face_match_score"), object_key,
+            )
+            raise _reject(403, code)
+
         row = connection.execute(
             """
             INSERT INTO attendance_events (member_id, location_id, event_type, status, server_time, latitude, longitude, gps_accuracy_meters, distance_meters, face_match_score, liveness_score, image_object_key, idempotency_key)
             VALUES (%s, %s, 'CHECK_OUT', 'SUCCESS', %s, %s, %s, %s, %s, %s, %s, %s, %s)
             RETURNING status::text, id, distance_meters
             """,
-            (user.id, open_event[1], _utc_now(), latitude, longitude, gps_accuracy_meters, decision.distance_meters, face_result.get("face_match_score"), face_result.get("liveness_score"), object_key, idempotency_key),
+            (user.id, location_id, _utc_now(), latitude, longitude, gps_accuracy_meters, decision.distance_meters, face_result.get("face_match_score"), face_result.get("liveness_score"), object_key, idempotency_key),
         ).fetchone()
         connection.commit()
-    return {"status": row[0], "event_id": row[1], "distance_meters": float(row[2]), "message": "Check-out successful"}
+    return {"status": row[0], "event_id": row[1], "distance_meters": float(row[2]), "message": "Check-out thành công"}
 
 
 def _event_dict(row: tuple) -> dict:
@@ -205,12 +292,13 @@ def _event_dict(row: tuple) -> dict:
         "gps_accuracy_meters": float(row[7]),
         "face_match_score": float(row[8]) if row[8] is not None else None,
         "reason": row[9],
+        "failure_code": row[10],
     }
 
 
 MY_EVENT_COLUMNS = """
     e.id, e.event_type::text, e.status::text, e.server_time, e.location_id, l.name,
-    e.distance_meters, e.gps_accuracy_meters, e.face_match_score, e.reason
+    e.distance_meters, e.gps_accuracy_meters, e.face_match_score, e.reason, e.failure_code
 """
 
 

@@ -1,23 +1,27 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { AppShell } from "../../components/AppShell";
 import { CameraCapture, type CapturePhase, type CapturedImage, type PhaseLabels } from "../../components/CameraCapture";
-import { Alert, Badge, Button, Card, DataList, SelectField, TextAreaField } from "../../components/ui";
+import { Alert, Button, Card, SelectField, TextAreaField } from "../../components/ui";
 import { ApiError, api } from "../../lib/api";
 import { formatDistance, newIdempotencyKey, readPosition, type FixedPosition } from "../../lib/geo";
-import { GEOFENCE_MESSAGES, describeError } from "../../lib/messages";
-import type { AttendanceState, CurrentUser, GeofenceDecision, MemberLocation } from "../../lib/types";
+import { describeError } from "../../lib/messages";
+import type { AttendanceState, CurrentUser, MemberLocation } from "../../lib/types";
 
-const VERIFY_LABELS: PhaseLabels = {
+const LABELS: PhaseLabels = {
   framing: "Đưa mặt vào khung",
   holding: "Giữ yên",
-  working: "Đang đối chiếu với khuôn mặt đã đăng ký",
-  done: "Khuôn mặt khớp",
-  failed: "Không khớp",
+  working: "Đang kiểm tra vị trí và khuôn mặt",
+  done: "Đã ghi nhận",
+  failed: "Chưa hợp lệ",
 };
+
+/** Codes the member can fix by retaking; anything else blocks the action. */
+const RETRYABLE = new Set(["FACE_NOT_MATCHED", "FACE_NOT_FOUND", "MULTIPLE_FACES", "FACE_QUALITY_LOW", "IMAGE_INVALID", "IMAGE_TOO_SMALL"]);
+const BLOCKING = new Set(["OUTSIDE_ALLOWED_ZONE", "GPS_ACCURACY_LOW"]);
 
 export default function AttendancePage() {
   const router = useRouter();
@@ -25,15 +29,15 @@ export default function AttendancePage() {
   const [state, setState] = useState<AttendanceState | null>(null);
   const [locations, setLocations] = useState<MemberLocation[]>([]);
   const [locationId, setLocationId] = useState("");
-  const [position, setPosition] = useState<FixedPosition | null>(null);
-  const [decision, setDecision] = useState<GeofenceDecision | null>(null);
-  const [captured, setCaptured] = useState<CapturedImage | null>(null);
-  const [reason, setReason] = useState("");
-  const [locating, setLocating] = useState(false);
-  const [phase, setPhase] = useState<CapturePhase>("idle");
-  const [error, setError] = useState<string | null>(null);
-  const [result, setResult] = useState<string | null>(null);
 
+  const [phase, setPhase] = useState<CapturePhase>("idle");
+  const [message, setMessage] = useState<string | null>(null);
+  const [tone, setTone] = useState<"info" | "success" | "warning" | "danger">("info");
+  const [needsReason, setNeedsReason] = useState(false);
+  const [reason, setReason] = useState("");
+  const [blocked, setBlocked] = useState(false);
+
+  const pendingRef = useRef<{ image: Blob; position: FixedPosition } | null>(null);
   const checkedIn = state?.state === "CHECKED_IN";
 
   const load = useCallback(async () => {
@@ -57,7 +61,8 @@ export default function AttendancePage() {
         router.replace("/login");
         return;
       }
-      setError(describeError(cause));
+      setTone("danger");
+      setMessage(describeError(cause));
     }
   }, [router]);
 
@@ -70,92 +75,95 @@ export default function AttendancePage() {
     [locations, locationId],
   );
 
-  const locate = useCallback(async () => {
-    setLocating(true);
-    setError(null);
-    setDecision(null);
-    try {
-      const fix = await readPosition();
-      setPosition(fix);
-      if (locationId) {
-        setDecision(
-          await api.evaluateGeofence(locationId, {
-            latitude: fix.latitude,
-            longitude: fix.longitude,
-            gps_accuracy_meters: fix.accuracyMeters,
-          }),
-        );
+  const send = useCallback(
+    async (image: Blob, position: FixedPosition, withReason?: string) => {
+      const shared = {
+        latitude: position.latitude,
+        longitude: position.longitude,
+        gpsAccuracyMeters: position.accuracyMeters,
+        image,
+      };
+      return checkedIn
+        ? api.checkOut({ ...shared, idempotencyKey: newIdempotencyKey("checkout") })
+        : api.checkIn({ ...shared, locationId, idempotencyKey: newIdempotencyKey("checkin"), reason: withReason });
+    },
+    [checkedIn, locationId],
+  );
+
+  const run = useCallback(
+    async (image: Blob, position: FixedPosition, withReason?: string) => {
+      setPhase("working");
+      setMessage(null);
+      try {
+        const response = await send(image, position, withReason);
+        setPhase("done");
+        setTone("success");
+        setMessage(`${response.message} · cách ${formatDistance(response.distance_meters)}`);
+        setNeedsReason(false);
+        setReason("");
+        pendingRef.current = null;
+        setState(await api.attendanceState());
+      } catch (cause) {
+        const code = cause instanceof ApiError ? cause.code : "";
+        if (code === "WARNING_REASON_REQUIRED") {
+          setPhase("idle");
+          setNeedsReason(true);
+          setTone("warning");
+          setMessage("Bạn đang ở ngoài bán kính cho phép. Nhập lý do rồi xác nhận để ghi nhận.");
+          return;
+        }
+        setPhase("failed");
+        setTone("danger");
+        setMessage(describeError(cause));
+        setBlocked(BLOCKING.has(code) || !RETRYABLE.has(code));
       }
-    } catch (cause) {
-      setError(describeError(cause));
-    } finally {
-      setLocating(false);
-    }
-  }, [locationId]);
+    },
+    [send],
+  );
 
-  const onCaptured = useCallback((image: CapturedImage | null) => {
-    setCaptured(image);
-    setPhase("idle");
-    setError(null);
-  }, []);
+  const onCaptured = useCallback(
+    (image: CapturedImage | null) => {
+      if (!image) {
+        pendingRef.current = null;
+        setPhase("idle");
+        setMessage(null);
+        setNeedsReason(false);
+        setBlocked(false);
+        return;
+      }
+      // Location is read at capture time; the member never has to press a separate button.
+      setPhase("working");
+      setMessage(null);
+      void readPosition()
+        .then((position) => {
+          pendingRef.current = { image: image.blob, position };
+          return run(image.blob, position);
+        })
+        .catch((cause) => {
+          setPhase("failed");
+          setTone("danger");
+          setBlocked(true);
+          setMessage(describeError(cause));
+        });
+    },
+    [run],
+  );
 
-  const reasonRequired = decision?.status === "WARNING_REASON_REQUIRED";
-  const blocked = decision?.status === "BLOCK" || decision?.status === "GPS_ACCURACY_LOW";
-  const canSubmit =
-    Boolean(captured) &&
-    Boolean(position) &&
-    !blocked &&
-    (!reasonRequired || reason.trim().length > 0) &&
-    phase !== "working";
-
-  async function submit() {
-    if (!captured || !position) {
+  const confirmWithReason = useCallback(() => {
+    const pending = pendingRef.current;
+    if (!pending || reason.trim().length === 0) {
       return;
     }
-    setPhase("working");
-    setError(null);
-    setResult(null);
-    try {
-      const response = checkedIn
-        ? await api.checkOut({
-            latitude: position.latitude,
-            longitude: position.longitude,
-            gpsAccuracyMeters: position.accuracyMeters,
-            idempotencyKey: newIdempotencyKey("checkout"),
-            image: captured.blob,
-          })
-        : await api.checkIn({
-            locationId,
-            latitude: position.latitude,
-            longitude: position.longitude,
-            gpsAccuracyMeters: position.accuracyMeters,
-            idempotencyKey: newIdempotencyKey("checkin"),
-            reason: reasonRequired ? reason.trim() : undefined,
-            image: captured.blob,
-          });
-      setPhase("done");
-      setResult(`${response.message} · cách ${formatDistance(response.distance_meters)}`);
-      setCaptured(null);
-      setReason("");
-      setDecision(null);
-      setPosition(null);
-      setState(await api.attendanceState());
-    } catch (cause) {
-      setPhase("failed");
-      setError(describeError(cause));
-    }
-  }
+    void run(pending.image, pending.position, reason.trim());
+  }, [reason, run]);
 
-  const geofenceTone =
-    decision?.status === "ALLOW" ? "success" : decision?.status === "WARNING_REASON_REQUIRED" ? "warning" : "danger";
+  const action = checkedIn ? "Check-out" : "Check-in";
 
-  return (
-    <AppShell email={user?.email}>
-      <h1 className="page-title">{checkedIn ? "Check-out" : "Check-in"}</h1>
-      <p className="page-lead">Vị trí và khuôn mặt đều được máy chủ xác minh lại.</p>
-
-      {state && !state.face_enrolled ? (
-        <Card title="Chưa có dữ liệu khuôn mặt">
+  if (state && !state.face_enrolled) {
+    return (
+      <AppShell email={user?.email}>
+        <h1 className="page-title">{action}</h1>
+        <Card>
           <div className="stack">
             <Alert tone="warning">Cần đăng ký khuôn mặt trước khi chấm công.</Alert>
             <Button onClick={() => router.push("/enroll")} block>
@@ -163,102 +171,75 @@ export default function AttendancePage() {
             </Button>
           </div>
         </Card>
-      ) : (
-        <>
-          <Card title="1 · Vị trí">
-            <div className="stack">
-              {checkedIn ? (
-                <DataList rows={[{ key: "Địa điểm", value: activeLocation?.name ?? "—" }]} />
-              ) : locations.length === 0 ? (
-                <Alert tone="warning">Chưa được gán địa điểm nào.</Alert>
-              ) : (
-                <SelectField
-                  label="Địa điểm"
-                  value={locationId}
-                  onChange={(event) => {
-                    setLocationId(event.target.value);
-                    setDecision(null);
-                  }}
-                >
-                  {locations.map((location) => (
-                    <option key={location.id} value={location.id}>
-                      {location.name}
-                      {location.is_default ? " · mặc định" : ""}
-                    </option>
-                  ))}
-                </SelectField>
-              )}
+      </AppShell>
+    );
+  }
 
-              <Button variant="secondary" onClick={() => void locate()} loading={locating} disabled={!locationId}>
-                {position ? "Cập nhật vị trí" : "Lấy vị trí"}
-              </Button>
+  return (
+    <AppShell email={user?.email}>
+      <h1 className="page-title">{action}</h1>
+      <p className="page-lead">
+        {checkedIn ? activeLocation?.name ?? "Đang trong ca" : "Chụp ảnh, hệ thống tự kiểm tra vị trí."}
+      </p>
 
-              {position ? (
-                <DataList
-                  rows={[
-                    {
-                      key: "Toạ độ",
-                      value: (
-                        <span className="mono">
-                          {position.latitude.toFixed(6)}, {position.longitude.toFixed(6)}
-                        </span>
-                      ),
-                    },
-                    { key: "Sai số GPS", value: `${position.accuracyMeters.toFixed(0)} m` },
-                    ...(decision
-                      ? [
-                          { key: "Khoảng cách", value: formatDistance(decision.distance_meters) },
-                          { key: "Kết quả", value: <Badge tone={geofenceTone}>{decision.status}</Badge> },
-                        ]
-                      : []),
-                  ]}
-                />
-              ) : null}
-
-              {decision ? (
-                <Alert tone={geofenceTone}>{GEOFENCE_MESSAGES[decision.status] ?? decision.status}</Alert>
-              ) : null}
-
-              {reasonRequired ? (
-                <TextAreaField
-                  label="Lý do"
-                  hint="Bắt buộc khi ở ngoài bán kính cho phép."
-                  required
-                  maxLength={500}
-                  value={reason}
-                  onChange={(event) => setReason(event.target.value)}
-                />
-              ) : null}
-            </div>
-          </Card>
-
-          <Card title="2 · Khuôn mặt">
-            <CameraCapture
-              captureLabel="Chụp"
-              labels={VERIFY_LABELS}
-              onCaptured={onCaptured}
-              phase={phase}
+      <Card>
+        <div className="stack">
+          {!checkedIn && locations.length === 0 ? (
+            <Alert tone="warning">Chưa được gán địa điểm nào.</Alert>
+          ) : !checkedIn && locations.length > 1 ? (
+            <SelectField
+              label="Địa điểm"
+              value={locationId}
+              onChange={(event) => {
+                setLocationId(event.target.value);
+                setBlocked(false);
+                setMessage(null);
+              }}
               disabled={phase === "working"}
-            />
-          </Card>
+            >
+              {locations.map((location) => (
+                <option key={location.id} value={location.id}>
+                  {location.name}
+                </option>
+              ))}
+            </SelectField>
+          ) : null}
 
-          <Card title="3 · Gửi">
-            <div className="stack">
-              {!position ? <Alert tone="info">Lấy vị trí trước.</Alert> : null}
-              {position && !captured ? <Alert tone="info">Chụp ảnh trước.</Alert> : null}
-              {error ? <Alert tone="danger">{error}</Alert> : null}
-              {result ? <Alert tone="success">{result}</Alert> : null}
+          <CameraCapture
+            captureLabel={action}
+            labels={LABELS}
+            onCaptured={onCaptured}
+            phase={phase}
+            disabled={phase === "working" || !locationId}
+          />
 
-              <Button onClick={() => void submit()} loading={phase === "working"} disabled={!canSubmit} block>
-                {checkedIn ? "Xác nhận check-out" : "Xác nhận check-in"}
+          {needsReason ? (
+            <>
+              <TextAreaField
+                label="Lý do"
+                hint="Bắt buộc khi ở ngoài bán kính cho phép."
+                required
+                maxLength={500}
+                value={reason}
+                onChange={(event) => setReason(event.target.value)}
+              />
+              <Button onClick={confirmWithReason} disabled={reason.trim().length === 0 || phase === "working"} block>
+                Xác nhận {action.toLowerCase()}
               </Button>
-              <Button variant="ghost" onClick={() => router.push("/")}>
-                Trang chính
-              </Button>
-            </div>
-          </Card>
-        </>
-      )}
+            </>
+          ) : null}
+
+          {message ? <Alert tone={tone}>{message}</Alert> : null}
+
+          {blocked ? (
+            <Alert tone="info">Không thể {action.toLowerCase()} tại đây. Lần thử này đã được ghi lại.</Alert>
+          ) : null}
+
+          <Button variant="ghost" onClick={() => router.push("/")}>
+            Trang chính
+          </Button>
+        </div>
+      </Card>
     </AppShell>
   );
 }

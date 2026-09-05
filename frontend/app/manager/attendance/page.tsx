@@ -18,7 +18,7 @@ import {
 } from "../../../components/ui";
 import { api } from "../../../lib/api";
 import { formatDateTime, formatDistance } from "../../../lib/geo";
-import { describeError } from "../../../lib/messages";
+import { describeError, describeFailure } from "../../../lib/messages";
 import type {
   AttendanceFilters,
   AttendanceStatus,
@@ -250,6 +250,9 @@ export default function ManagerAttendancePage() {
                       </td>
                       <td data-label="Thành viên">
                         <p className="event__label">{event.member_name ?? event.member_email}</p>
+                        {event.failure_code ? (
+                          <p className="event__meta meter--bad">{describeFailure(event.failure_code)}</p>
+                        ) : null}
                         {event.reason ? <p className="event__meta">Lý do: {event.reason}</p> : null}
                       </td>
                       <td data-label="Địa điểm">{event.location_name}</td>
@@ -344,6 +347,9 @@ export default function ManagerAttendancePage() {
                   value: <Badge tone={STATUS_TONE[selected.status]}>{STATUS_LABELS[selected.status]}</Badge>,
                 },
                 { key: "Lý do", value: selected.reason ?? "—" },
+                ...(selected.failure_code
+                  ? [{ key: "Bị từ chối vì", value: describeFailure(selected.failure_code) ?? "—" }]
+                  : []),
               ]}
             />
 

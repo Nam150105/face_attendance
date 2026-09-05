@@ -36,7 +36,7 @@ deployment nào mở ra Internet đều **bắt buộc** đổi mật khẩu nga
 docker compose exec -T postgres psql -U face_attendance -d face_attendance -c "UPDATE users SET password_hash = crypt('<mat-khau-moi>', gen_salt('bf')) WHERE email = 'member@example.com';"
 ```
 
-Migration revision hiện tại: `007_face_enrollment_challenges`.
+Migration revision hiện tại: `008_attendance_failure_code`.
 
 ```powershell
 docker compose exec -T postgres psql -U face_attendance -d face_attendance -c "select version_num from alembic_version;"
@@ -249,6 +249,29 @@ Bảng dữ liệu tự chuyển thành thẻ khi màn hình hẹp hơn 720px.
 - **Camera**: bốn góc ngắm đổi màu theo trạng thái, vòng dẫn hướng thở nhẹ, dấu
   tích hoặc dấu X khi có kết quả.
 
+### Phase 7.3 — Chấm công một chạm và lưu vết lần thử bị từ chối
+
+Màn hình chấm công rút còn một thẻ và một nút. Bấm chụp là hệ thống tự lấy GPS,
+tự gửi, máy chủ quyết định. Không hiển thị toạ độ cho người dùng.
+
+Migration `008_attendance_failure_code` thêm cột `failure_code` và index riêng cho
+các bản ghi bị từ chối. Trước đây hai giá trị `BLOCKED` và `FAILED` trong enum
+`attendance_status` chưa bao giờ được ghi: mọi lần thất bại đều bị `raise` và biến
+mất. Nay:
+
+| Tình huống | Trạng thái | `failure_code` | Lưu ảnh |
+|---|---|---|---|
+| Ngoài bán kính cảnh báo | `BLOCKED` | `OUTSIDE_ALLOWED_ZONE` | không |
+| Sai số GPS quá ngưỡng | `BLOCKED` | `GPS_ACCURACY_LOW` | không |
+| Khuôn mặt không khớp | `FAILED` | `FACE_NOT_MATCHED` | có |
+| Ảnh không đạt | `FAILED` | mã từ Face AI | có |
+
+Lần bị geofence chặn không lưu ảnh vì máy chủ dừng trước bước nhận diện. Lần sai
+khuôn mặt thì lưu, đó chính là bằng chứng cần cho quản lý.
+
+Bản ghi bị từ chối không mở ca: `_open_state` chỉ tính `SUCCESS` và
+`WARNING_CONFIRMED`.
+
 ## Face AI và model
 
 Model để ngoài Git, mount read-only vào container:
@@ -311,6 +334,8 @@ Những mục dưới đây **chưa** được làm — đừng giả định l�
 - **Không có liveness / anti-spoofing.** Chụp lại ảnh trên màn hình vẫn qua được
   xác thực. Đang chờ chọn provider thương mại. `liveness_score` luôn `NULL`.
 - **Chưa rate-limit.** Redis đã chạy nhưng chưa dùng cho login/enrollment/verify.
+  Vì lần thử sai khuôn mặt nay có lưu ảnh, thiếu rate limit đồng nghĩa dung lượng
+  MinIO có thể bị bơm không giới hạn.
 - **Chỉ điều chỉnh thủ công mới ghi audit log cho attendance**; sự kiện check-in/check-out do member tạo thì không.
 - **Test tự động mới chỉ phủ geofence** (`api/tests/test_geofence.py`).
 - `S3_SERVER_SIDE_ENCRYPTION=false` cho MinIO local; production phải bật lại.

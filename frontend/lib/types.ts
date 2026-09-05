@@ -79,6 +79,7 @@ export interface AttendanceEvent {
   gps_accuracy_meters: number;
   face_match_score: number | null;
   reason: string | null;
+  failure_code: string | null;
 }
 
 export interface AttendanceState {
@@ -191,6 +192,7 @@ export interface ManagerAttendanceEvent {
   has_image: boolean;
   reason: string | null;
   created_at: string;
+  failure_code: string | null;
 }
 
 export interface AttendanceFilters {
