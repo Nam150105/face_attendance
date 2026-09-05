@@ -4,7 +4,7 @@ Hướng dẫn làm việc trên repo này. Đọc file này trước khi bắt 
 
 ## 1. Nguồn sự thật
 
-Spec nằm trong [`face-attendance-docs/`](face-attendance-docs/) và **luôn thắng** khi mâu thuẫn với code:
+Spec nằm trong [`docs/`](docs/) và **luôn thắng** khi mâu thuẫn với code:
 
 | File | Dùng khi |
 |---|---|

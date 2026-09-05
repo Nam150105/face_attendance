@@ -1,7 +1,7 @@
 # Face Attendance
 
 Hệ thống chấm công bằng nhận diện khuôn mặt và geofence GPS, được xây dựng theo từng
-phase từ spec trong [`face-attendance-docs`](face-attendance-docs/README.md).
+phase từ spec trong [`docs`](docs/README.md).
 Quy ước làm việc trên repo nằm ở [CLAUDE.md](CLAUDE.md).
 
 ## Chạy local
