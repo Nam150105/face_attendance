@@ -3,18 +3,18 @@
 import { useCallback, useEffect, useState } from "react";
 
 import { Dialog } from "../../../components/Dialog";
+import { LocationPicker } from "../../../components/LocationPicker";
 import { ManagerShell } from "../../../components/ManagerShell";
 import { Alert, Badge, Button, Card, Empty, Field, LoadingRows } from "../../../components/ui";
 import { api } from "../../../lib/api";
-import { readPosition } from "../../../lib/geo";
 import { describeError } from "../../../lib/messages";
 import type { LocationInput, ManagerLocation } from "../../../lib/types";
 
 const EMPTY_FORM: LocationInput = {
   name: "",
   address: null,
-  latitude: 0,
-  longitude: 0,
+  latitude: 21.0285,
+  longitude: 105.8048,
   allow_radius_meters: 100,
   warning_radius_meters: 200,
   is_active: true,
@@ -27,8 +27,6 @@ export default function ManagerLocationsPage() {
   const [creating, setCreating] = useState(false);
   const [form, setForm] = useState<LocationInput>(EMPTY_FORM);
   const [formError, setFormError] = useState<string | null>(null);
-  const [locating, setLocating] = useState(false);
-  const [accuracy, setAccuracy] = useState<number | null>(null);
   const [saving, setSaving] = useState(false);
 
   const load = useCallback(async () => {
@@ -49,7 +47,6 @@ export default function ManagerLocationsPage() {
     setEditing(null);
     setCreating(true);
     setFormError(null);
-    setAccuracy(null);
   }
 
   function openEdit(location: ManagerLocation) {
@@ -65,31 +62,20 @@ export default function ManagerLocationsPage() {
     setEditing(location);
     setCreating(false);
     setFormError(null);
-    setAccuracy(null);
   }
 
-  function closeDialog() {
+  const closeDialog = useCallback(() => {
     setEditing(null);
     setCreating(false);
-  }
+  }, []);
 
-  async function useCurrentPosition() {
-    setLocating(true);
-    setFormError(null);
-    try {
-      const fix = await readPosition();
-      setForm((current) => ({
-        ...current,
-        latitude: Number(fix.latitude.toFixed(7)),
-        longitude: Number(fix.longitude.toFixed(7)),
-      }));
-      setAccuracy(fix.accuracyMeters);
-    } catch (cause) {
-      setFormError(describeError(cause));
-    } finally {
-      setLocating(false);
-    }
-  }
+  const setPoint = useCallback((point: { latitude: number; longitude: number }) => {
+    setForm((current) => ({ ...current, ...point }));
+  }, []);
+
+  const setAddressFromMap = useCallback((address: string) => {
+    setForm((current) => (current.address ? current : { ...current, address }));
+  }, []);
 
   async function save(event: React.FormEvent) {
     event.preventDefault();
@@ -115,7 +101,7 @@ export default function ManagerLocationsPage() {
   }
 
   async function deactivate(location: ManagerLocation) {
-    if (!window.confirm(`Vô hiệu hoá địa điểm "${location.name}"? Thành viên sẽ không chấm công tại đây được nữa.`)) {
+    if (!window.confirm(`Tắt "${location.name}"?`)) {
       return;
     }
     try {
@@ -126,26 +112,18 @@ export default function ManagerLocationsPage() {
     }
   }
 
-  const dialogOpen = creating || editing !== null;
-
   return (
     <ManagerShell>
       <h1 className="page-title">Địa điểm</h1>
-      <p className="page-lead">
-        Ngưỡng geofence được lưu theo từng địa điểm và luôn được máy chủ kiểm tra lại khi chấm công.
-      </p>
+      <p className="page-lead">Ngưỡng geofence lưu theo từng địa điểm, máy chủ luôn kiểm tra lại khi chấm công.</p>
 
       {error ? <Alert tone="danger">{error}</Alert> : null}
 
-      <Card
-        title="Danh sách địa điểm"
-        subtitle="Bấm sửa để đổi toạ độ hoặc bán kính."
-        action={<Button onClick={openCreate}>Tạo địa điểm</Button>}
-      >
+      <Card title="Danh sách" action={<Button onClick={openCreate}>Tạo mới</Button>}>
         {locations === null ? (
           <LoadingRows count={3} />
         ) : locations.length === 0 ? (
-          <Empty>Chưa có địa điểm nào. Tạo một địa điểm để thành viên bắt đầu chấm công.</Empty>
+          <Empty>Chưa có địa điểm.</Empty>
         ) : (
           <div className="table-wrap">
             <table className="table">
@@ -153,40 +131,36 @@ export default function ManagerLocationsPage() {
                 <tr>
                   <th>Tên</th>
                   <th>Toạ độ</th>
-                  <th>Cho phép</th>
-                  <th>Cảnh báo</th>
+                  <th>Bán kính</th>
                   <th>Trạng thái</th>
-                  <th aria-label="Hành động" />
+                  <th aria-label="Thao tác" />
                 </tr>
               </thead>
               <tbody>
                 {locations.map((location) => (
                   <tr key={location.id}>
                     <td data-label="Tên">
-                      <span className="event__label">{location.name}</span>
+                      <p className="event__label">{location.name}</p>
                       {location.address ? <p className="event__meta">{location.address}</p> : null}
                     </td>
-                    <td data-label="Toạ độ" className="numeric">
-                      {location.latitude.toFixed(6)}, {location.longitude.toFixed(6)}
+                    <td data-label="Toạ độ" className="numeric mono">
+                      {location.latitude.toFixed(5)}, {location.longitude.toFixed(5)}
                     </td>
-                    <td data-label="Cho phép" className="numeric">
-                      {location.allow_radius_meters} m
-                    </td>
-                    <td data-label="Cảnh báo" className="numeric">
-                      {location.warning_radius_meters} m
+                    <td data-label="Bán kính" className="numeric">
+                      {location.allow_radius_meters} / {location.warning_radius_meters} m
                     </td>
                     <td data-label="Trạng thái">
                       <Badge tone={location.is_active ? "success" : "neutral"}>
-                        {location.is_active ? "Hoạt động" : "Đã tắt"}
+                        {location.is_active ? "Bật" : "Tắt"}
                       </Badge>
                     </td>
-                    <td data-label="Hành động">
+                    <td data-label="Thao tác">
                       <div className="row">
-                        <Button variant="secondary" onClick={() => openEdit(location)}>
+                        <Button variant="secondary" size="sm" onClick={() => openEdit(location)}>
                           Sửa
                         </Button>
                         {location.is_active ? (
-                          <Button variant="ghost" onClick={() => void deactivate(location)}>
+                          <Button variant="ghost" size="sm" onClick={() => void deactivate(location)}>
                             Tắt
                           </Button>
                         ) : null}
@@ -200,77 +174,71 @@ export default function ManagerLocationsPage() {
         )}
       </Card>
 
-      {dialogOpen ? (
-        <Dialog title={editing ? `Sửa ${editing.name}` : "Tạo địa điểm"} onClose={closeDialog}>
+      {creating || editing ? (
+        <Dialog title={editing ? editing.name : "Địa điểm mới"} onClose={closeDialog}>
           <form className="stack" onSubmit={save}>
             <Field
-              label="Tên địa điểm"
+              label="Tên"
               required
               maxLength={200}
+              placeholder="Văn phòng Hà Nội"
               value={form.name}
-              onChange={(event) => setForm({ ...form, name: event.target.value })}
+              onChange={(event) => setForm((current) => ({ ...current, name: event.target.value }))}
             />
             <Field
               label="Địa chỉ"
               maxLength={500}
+              placeholder="Tuỳ chọn"
               value={form.address ?? ""}
-              onChange={(event) => setForm({ ...form, address: event.target.value || null })}
+              onChange={(event) =>
+                setForm((current) => ({ ...current, address: event.target.value || null }))
+              }
             />
 
-            <Button variant="secondary" type="button" onClick={() => void useCurrentPosition()} loading={locating}>
-              Dùng vị trí hiện tại của tôi
-            </Button>
-            {accuracy !== null ? (
-              <Alert tone={accuracy <= 50 ? "success" : "warning"}>
-                Đã lấy toạ độ với sai số {accuracy.toFixed(0)} m.
-                {accuracy > 50 ? " Sai số cao — nên lấy lại ở nơi thoáng trước khi lưu." : ""}
-              </Alert>
-            ) : null}
+            <hr className="divider" />
 
-            <Field
-              label="Vĩ độ (latitude)"
-              type="number"
-              step="0.0000001"
-              min={-90}
-              max={90}
-              required
-              value={form.latitude}
-              onChange={(event) => setForm({ ...form, latitude: Number(event.target.value) })}
+            <LocationPicker
+              value={{ latitude: form.latitude, longitude: form.longitude }}
+              onChange={setPoint}
+              onAddressFound={setAddressFromMap}
             />
-            <Field
-              label="Kinh độ (longitude)"
-              type="number"
-              step="0.0000001"
-              min={-180}
-              max={180}
-              required
-              value={form.longitude}
-              onChange={(event) => setForm({ ...form, longitude: Number(event.target.value) })}
-            />
-            <Field
-              label="Bán kính cho phép (m)"
-              hint="Trong bán kính này: chấm công bình thường."
-              type="number"
-              min={1}
-              required
-              value={form.allow_radius_meters}
-              onChange={(event) => setForm({ ...form, allow_radius_meters: Number(event.target.value) })}
-            />
-            <Field
-              label="Bán kính cảnh báo (m)"
-              hint="Giữa hai bán kính: bắt buộc nhập lý do. Vượt qua: chặn."
-              type="number"
-              min={2}
-              required
-              value={form.warning_radius_meters}
-              onChange={(event) => setForm({ ...form, warning_radius_meters: Number(event.target.value) })}
-            />
+
+            <hr className="divider" />
+
+            <div className="row">
+              <div style={{ flex: "1 1 140px" }}>
+                <Field
+                  label="Cho phép (m)"
+                  hint="Trong bán kính: chấm công bình thường"
+                  type="number"
+                  min={1}
+                  required
+                  value={form.allow_radius_meters}
+                  onChange={(event) =>
+                    setForm((current) => ({ ...current, allow_radius_meters: Number(event.target.value) }))
+                  }
+                />
+              </div>
+              <div style={{ flex: "1 1 140px" }}>
+                <Field
+                  label="Cảnh báo (m)"
+                  hint="Vượt qua: chặn"
+                  type="number"
+                  min={2}
+                  required
+                  value={form.warning_radius_meters}
+                  onChange={(event) =>
+                    setForm((current) => ({ ...current, warning_radius_meters: Number(event.target.value) }))
+                  }
+                />
+              </div>
+            </div>
 
             {formError ? <Alert tone="danger">{formError}</Alert> : null}
 
             <div className="row">
               <Button type="submit" loading={saving}>
-                {editing ? "Lưu thay đổi" : "Tạo địa điểm"}
+                Lưu
               </Button>
               <Button variant="secondary" type="button" onClick={closeDialog}>
                 Huỷ

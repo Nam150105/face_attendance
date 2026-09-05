@@ -14,28 +14,34 @@ export function Dialog({
   children: ReactNode;
 }) {
   const panelRef = useRef<HTMLDivElement | null>(null);
+  const closeRef = useRef(onClose);
+  closeRef.current = onClose;
 
+  // Focus and scroll-lock run once. Re-running them on every render would steal
+  // focus from the field being typed into, which dismisses the mobile keyboard.
   useEffect(() => {
+    panelRef.current?.focus({ preventScroll: true });
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+
     function onKeyDown(event: KeyboardEvent) {
       if (event.key === "Escape") {
-        onClose();
+        closeRef.current();
       }
     }
     document.addEventListener("keydown", onKeyDown);
-    panelRef.current?.focus();
-    const previousOverflow = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
+
     return () => {
       document.removeEventListener("keydown", onKeyDown);
       document.body.style.overflow = previousOverflow;
     };
-  }, [onClose]);
+  }, []);
 
   return (
     <div
       className="dialog-backdrop"
       role="presentation"
-      onClick={(event) => {
+      onMouseDown={(event) => {
         if (event.target === event.currentTarget) {
           onClose();
         }

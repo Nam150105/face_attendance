@@ -111,7 +111,7 @@ async function request<T>(path: string, options: RequestOptions = {}): Promise<T
     if (!tokens) {
       throw new ApiError(401, "NOT_AUTHENTICATED", "NOT_AUTHENTICATED");
     }
-    headers.Authorization = `Bearer ${tokens.access_token}`;
+    headers["X-API-Key"] = tokens.access_token;
   }
   const response = await fetch(`${API_BASE_URL}${path}`, {
     method,
@@ -222,6 +222,18 @@ export const api = {
     return request<AttendanceResult>("/attendance/check-out", { method: "POST", form });
   },
 
+  resolvePlace(query: string) {
+    return request<{ latitude: number; longitude: number; label: string | null; source: string }>(
+      "/manager/locations/resolve-place",
+      { method: "POST", json: { query } },
+    );
+  },
+  reversePlace(latitude: number, longitude: number) {
+    return request<{ label: string | null }>("/manager/locations/reverse-place", {
+      method: "POST",
+      json: { latitude, longitude },
+    });
+  },
   managerDashboard() {
     return request<ManagerDashboard>("/manager/dashboard");
   },
@@ -275,7 +287,7 @@ export const api = {
       throw new ApiError(401, "NOT_AUTHENTICATED", "NOT_AUTHENTICATED");
     }
     const response = await fetch(`${API_BASE_URL}/manager/attendance/${eventId}/image`, {
-      headers: { Authorization: `Bearer ${tokens.access_token}` },
+      headers: { "X-API-Key": tokens.access_token },
     });
     if (!response.ok) {
       throw await toApiError(response);

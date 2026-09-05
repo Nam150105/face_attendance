@@ -211,6 +211,23 @@ phạm vi quản lý trước khi trả nội dung, kèm `Cache-Control: private
 
 Bảng dữ liệu tự chuyển thành thẻ khi màn hình hẹp hơn 720px.
 
+### Phase 7.1 — Sửa lỗi UI và hoàn thiện
+
+- **Auth dùng `X-API-Key`.** Access token gửi qua header `X-API-Key`;
+  `Authorization: Bearer` vẫn được chấp nhận cho client cũ.
+- **Sửa lỗi bàn phím mobile tự đóng.** `Dialog` chạy lại effect focus mỗi lần
+  render nên cướp focus khỏi ô đang gõ; effect nay chỉ chạy một lần khi mount.
+- **Chọn vị trí không cần có mặt tại chỗ.** `POST /manager/locations/resolve-place`
+  nhận địa chỉ, link Google Maps (kể cả link rút gọn, được mở server-side), hoặc
+  cặp toạ độ. Kết hợp bản đồ Leaflet kéo pin và nút lấy GPS thiết bị.
+  Geocoder dùng Photon, dự phòng Nominatim.
+- **Hiệu ứng xác minh khuôn mặt.** Đếm ngược 3 giây, khung dẫn hướng đổi màu theo
+  trạng thái, hiệu ứng quét khi đang xác minh, hiển thị số đo chất lượng trả về
+  từ Face AI.
+- **Sửa tràn layout.** `min-width: 0` toàn cục, ô nhập không còn vượt khỏi thẻ cha
+  trên màn hình hẹp.
+- Nút bấm, badge, alert và bảng được làm lại; text rút gọn theo hướng kỹ thuật.
+
 ## Face AI và model
 
 Model để ngoài Git, mount read-only vào container:

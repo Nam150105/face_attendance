@@ -45,15 +45,15 @@ export default function ManagerAuditLogsPage() {
 
   return (
     <ManagerShell>
-      <h1 className="page-title">Nhật ký thao tác</h1>
-      <p className="page-lead">Ghi lại mọi thay đổi quản trị do tài khoản của bạn thực hiện.</p>
+      <h1 className="page-title">Nhật ký</h1>
+      <p className="page-lead">Mọi thay đổi quản trị từ tài khoản của bạn.</p>
 
       {error ? <Alert tone="danger">{error}</Alert> : null}
 
       <Card title={`Bản ghi (${total})`}>
         <div className="filters" style={{ marginBottom: "var(--space-2)" }}>
           <SelectField
-            label="Loại đối tượng"
+            label="Đối tượng"
             value={entityType}
             onChange={(event) => {
               setPage(0);
@@ -72,7 +72,7 @@ export default function ManagerAuditLogsPage() {
         {entries === null ? (
           <LoadingRows count={4} />
         ) : entries.length === 0 ? (
-          <Empty>Chưa có bản ghi nào.</Empty>
+          <Empty>Chưa có bản ghi.</Empty>
         ) : (
           <>
             <div className="table-wrap">

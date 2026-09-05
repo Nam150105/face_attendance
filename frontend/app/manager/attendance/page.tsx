@@ -120,7 +120,7 @@ export default function ManagerAttendancePage() {
     try {
       const updated = await api.manualAdjust(selected.id, { status: adjustStatus, reason: adjustReason.trim() });
       setSelected(updated);
-      setAdjustNotice("Đã điều chỉnh và ghi vào nhật ký.");
+      setAdjustNotice("Đã lưu và ghi nhật ký.");
       setAdjustReason("");
       await load();
     } catch (cause) {
@@ -135,7 +135,7 @@ export default function ManagerAttendancePage() {
   return (
     <ManagerShell>
       <h1 className="page-title">Chấm công</h1>
-      <p className="page-lead">Lịch sử của toàn bộ thành viên bạn quản lý, mới nhất trước.</p>
+      <p className="page-lead">Toàn bộ thành viên bạn quản lý, mới nhất trước.</p>
 
       {error ? <Alert tone="danger">{error}</Alert> : null}
 
@@ -208,7 +208,7 @@ export default function ManagerAttendancePage() {
               setPage(0);
             }}
           >
-            Xoá bộ lọc
+            Xoá lọc
           </Button>
         </div>
       </Card>
@@ -217,7 +217,7 @@ export default function ManagerAttendancePage() {
         {events === null ? (
           <LoadingRows count={4} />
         ) : events.length === 0 ? (
-          <Empty>Không có bản ghi nào khớp bộ lọc.</Empty>
+          <Empty>Không có bản ghi khớp bộ lọc.</Empty>
         ) : (
           <>
             <div className="table-wrap">
@@ -290,7 +290,7 @@ export default function ManagerAttendancePage() {
                 <LoadingRows count={2} />
               )
             ) : (
-              <Alert tone="warning">Bản ghi này không có ảnh bằng chứng.</Alert>
+              <Alert tone="warning">Không có ảnh bằng chứng.</Alert>
             )}
 
             <DataList
@@ -306,22 +306,22 @@ export default function ManagerAttendancePage() {
                   value: `${selected.latitude.toFixed(6)}, ${selected.longitude.toFixed(6)}`,
                 },
                 {
-                  key: "Điểm khớp khuôn mặt",
+                  key: "Điểm khớp",
                   value: selected.face_match_score !== null ? selected.face_match_score.toFixed(4) : "—",
                 },
                 {
-                  key: "Điểm liveness",
+                  key: "Liveness",
                   value: selected.liveness_score !== null ? selected.liveness_score.toFixed(4) : "chưa có",
                 },
                 { key: "Trạng thái", value: <Badge tone={STATUS_TONE[selected.status]}>{selected.status}</Badge> },
-                { key: "Lý do giải trình", value: selected.reason ?? "—" },
+                { key: "Lý do", value: selected.reason ?? "—" },
               ]}
             />
 
             <hr style={{ border: "none", borderTop: "1px solid var(--border-subtle)", margin: 0 }} />
 
             <h3 className="card__title" style={{ fontSize: "var(--text-md)" }}>
-              Điều chỉnh thủ công
+              Điều chỉnh
             </h3>
             <SelectField
               label="Trạng thái mới"
@@ -335,7 +335,7 @@ export default function ManagerAttendancePage() {
             </SelectField>
             <TextAreaField
               label="Lý do điều chỉnh"
-              hint="Bắt buộc, tối thiểu 3 ký tự. Nội dung này được lưu vào nhật ký."
+              hint="Bắt buộc, tối thiểu 3 ký tự. Lưu vào nhật ký."
               required
               maxLength={500}
               value={adjustReason}
@@ -348,7 +348,7 @@ export default function ManagerAttendancePage() {
               loading={adjusting}
               disabled={adjustReason.trim().length < 3 || adjustStatus === selected.status}
             >
-              Lưu điều chỉnh
+              Lưu
             </Button>
           </div>
         </Dialog>

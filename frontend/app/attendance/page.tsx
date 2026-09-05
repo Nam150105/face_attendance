@@ -4,7 +4,7 @@ import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { AppShell } from "../../components/AppShell";
-import { CameraCapture, type CapturedImage } from "../../components/CameraCapture";
+import { CameraCapture, type CapturedImage, type VerifyPhase } from "../../components/CameraCapture";
 import { Alert, Badge, Button, Card, DataList, SelectField, TextAreaField } from "../../components/ui";
 import { ApiError, api } from "../../lib/api";
 import { formatDistance, newIdempotencyKey, readPosition, type FixedPosition } from "../../lib/geo";
@@ -22,7 +22,7 @@ export default function AttendancePage() {
   const [captured, setCaptured] = useState<CapturedImage | null>(null);
   const [reason, setReason] = useState("");
   const [locating, setLocating] = useState(false);
-  const [submitting, setSubmitting] = useState(false);
+  const [phase, setPhase] = useState<VerifyPhase>("idle");
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<string | null>(null);
 
@@ -38,12 +38,12 @@ export default function AttendancePage() {
       setUser(me);
       setState(currentState);
       setLocations(memberLocations);
-      const preferred =
+      setLocationId(
         currentState.open_check_in_location_id ??
-        memberLocations.find((item) => item.is_default)?.id ??
-        memberLocations[0]?.id ??
-        "";
-      setLocationId(preferred);
+          memberLocations.find((item) => item.is_default)?.id ??
+          memberLocations[0]?.id ??
+          "",
+      );
     } catch (cause) {
       if (cause instanceof ApiError && cause.statusCode === 401) {
         router.replace("/login");
@@ -85,16 +85,26 @@ export default function AttendancePage() {
     }
   }, [locationId]);
 
+  const onCaptured = useCallback((image: CapturedImage | null) => {
+    setCaptured(image);
+    setPhase("idle");
+    setError(null);
+  }, []);
+
   const reasonRequired = decision?.status === "WARNING_REASON_REQUIRED";
   const blocked = decision?.status === "BLOCK" || decision?.status === "GPS_ACCURACY_LOW";
   const canSubmit =
-    Boolean(captured) && Boolean(position) && !blocked && (!reasonRequired || reason.trim().length > 0) && !submitting;
+    Boolean(captured) &&
+    Boolean(position) &&
+    !blocked &&
+    (!reasonRequired || reason.trim().length > 0) &&
+    phase !== "verifying";
 
   async function submit() {
     if (!captured || !position) {
       return;
     }
-    setSubmitting(true);
+    setPhase("verifying");
     setError(null);
     setResult(null);
     try {
@@ -115,16 +125,16 @@ export default function AttendancePage() {
             reason: reasonRequired ? reason.trim() : undefined,
             image: captured.blob,
           });
-      setResult(`${response.message} (cách ${formatDistance(response.distance_meters)})`);
+      setPhase("pass");
+      setResult(`${response.message} · cách ${formatDistance(response.distance_meters)}`);
       setCaptured(null);
       setReason("");
       setDecision(null);
       setPosition(null);
       setState(await api.attendanceState());
     } catch (cause) {
+      setPhase("fail");
       setError(describeError(cause));
-    } finally {
-      setSubmitting(false);
     }
   }
 
@@ -134,30 +144,28 @@ export default function AttendancePage() {
   return (
     <AppShell email={user?.email}>
       <h1 className="page-title">{checkedIn ? "Check-out" : "Check-in"}</h1>
-      <p className="page-lead">
-        Vị trí và khuôn mặt đều được máy chủ kiểm tra lại. Dữ liệu gửi từ trình duyệt chỉ là đầu vào.
-      </p>
+      <p className="page-lead">Vị trí và khuôn mặt đều được máy chủ xác minh lại.</p>
 
       {state && !state.face_enrolled ? (
-        <Card title="Chưa đăng ký khuôn mặt">
+        <Card title="Chưa có dữ liệu khuôn mặt">
           <div className="stack">
-            <Alert tone="warning">Bạn cần đăng ký khuôn mặt trước khi chấm công.</Alert>
+            <Alert tone="warning">Cần đăng ký khuôn mặt trước khi chấm công.</Alert>
             <Button onClick={() => router.push("/enroll")} block>
-              Đăng ký khuôn mặt
+              Đăng ký ngay
             </Button>
           </div>
         </Card>
       ) : (
         <>
-          <Card title="1. Vị trí" subtitle={checkedIn ? "Check-out dùng lại địa điểm đã check-in." : undefined}>
+          <Card title="1 · Vị trí">
             <div className="stack">
               {checkedIn ? (
                 <DataList rows={[{ key: "Địa điểm", value: activeLocation?.name ?? "—" }]} />
               ) : locations.length === 0 ? (
-                <Alert tone="warning">Chưa có địa điểm nào được gán cho bạn.</Alert>
+                <Alert tone="warning">Chưa được gán địa điểm nào.</Alert>
               ) : (
                 <SelectField
-                  label="Địa điểm check-in"
+                  label="Địa điểm"
                   value={locationId}
                   onChange={(event) => {
                     setLocationId(event.target.value);
@@ -167,28 +175,32 @@ export default function AttendancePage() {
                   {locations.map((location) => (
                     <option key={location.id} value={location.id}>
                       {location.name}
-                      {location.is_default ? " (mặc định)" : ""}
+                      {location.is_default ? " · mặc định" : ""}
                     </option>
                   ))}
                 </SelectField>
               )}
 
               <Button variant="secondary" onClick={() => void locate()} loading={locating} disabled={!locationId}>
-                {position ? "Cập nhật vị trí" : "Lấy vị trí hiện tại"}
+                {position ? "Cập nhật vị trí" : "Lấy vị trí"}
               </Button>
 
               {position ? (
                 <DataList
                   rows={[
-                    { key: "Toạ độ", value: `${position.latitude.toFixed(6)}, ${position.longitude.toFixed(6)}` },
+                    {
+                      key: "Toạ độ",
+                      value: (
+                        <span className="mono">
+                          {position.latitude.toFixed(6)}, {position.longitude.toFixed(6)}
+                        </span>
+                      ),
+                    },
                     { key: "Sai số GPS", value: `${position.accuracyMeters.toFixed(0)} m` },
                     ...(decision
                       ? [
                           { key: "Khoảng cách", value: formatDistance(decision.distance_meters) },
-                          {
-                            key: "Kết quả",
-                            value: <Badge tone={geofenceTone}>{decision.status}</Badge>,
-                          },
+                          { key: "Kết quả", value: <Badge tone={geofenceTone}>{decision.status}</Badge> },
                         ]
                       : []),
                   ]}
@@ -201,8 +213,8 @@ export default function AttendancePage() {
 
               {reasonRequired ? (
                 <TextAreaField
-                  label="Lý do giải trình"
-                  hint="Bắt buộc khi bạn ở ngoài bán kính cho phép."
+                  label="Lý do"
+                  hint="Bắt buộc khi ở ngoài bán kính cho phép."
                   required
                   maxLength={500}
                   value={reason}
@@ -212,26 +224,27 @@ export default function AttendancePage() {
             </div>
           </Card>
 
-          <Card title="2. Khuôn mặt" subtitle="Chụp ảnh trực tiếp, không dùng ảnh có sẵn.">
+          <Card title="2 · Khuôn mặt">
             <CameraCapture
-              captureLabel={checkedIn ? "Chụp ảnh check-out" : "Chụp ảnh check-in"}
-              onCaptured={setCaptured}
-              disabled={submitting}
+              captureLabel="Chụp"
+              onCaptured={onCaptured}
+              phase={phase}
+              disabled={phase === "verifying"}
             />
           </Card>
 
-          <Card title="3. Xác nhận">
+          <Card title="3 · Gửi">
             <div className="stack">
-              {!position ? <Alert tone="info">Lấy vị trí trước khi gửi.</Alert> : null}
-              {position && !captured ? <Alert tone="info">Chụp ảnh khuôn mặt trước khi gửi.</Alert> : null}
+              {!position ? <Alert tone="info">Lấy vị trí trước.</Alert> : null}
+              {position && !captured ? <Alert tone="info">Chụp ảnh trước.</Alert> : null}
               {error ? <Alert tone="danger">{error}</Alert> : null}
               {result ? <Alert tone="success">{result}</Alert> : null}
 
-              <Button onClick={() => void submit()} loading={submitting} disabled={!canSubmit} block>
+              <Button onClick={() => void submit()} loading={phase === "verifying"} disabled={!canSubmit} block>
                 {checkedIn ? "Xác nhận check-out" : "Xác nhận check-in"}
               </Button>
               <Button variant="ghost" onClick={() => router.push("/")}>
-                Về bảng điều khiển
+                Trang chính
               </Button>
             </div>
           </Card>

@@ -4,22 +4,23 @@ import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 
 import { AppShell } from "../../components/AppShell";
-import { CameraCapture, type CapturedImage } from "../../components/CameraCapture";
+import { CameraCapture, type CapturedImage, type VerifyPhase } from "../../components/CameraCapture";
 import { Alert, Badge, Button, Card, DataList } from "../../components/ui";
 import { ApiError, api } from "../../lib/api";
 import { formatDateTime } from "../../lib/geo";
 import { describeCode, describeError } from "../../lib/messages";
-import type { CurrentUser, FaceEnrollmentStatus } from "../../lib/types";
+import type { CurrentUser, EnrollmentResult, FaceEnrollmentStatus } from "../../lib/types";
 
 export default function EnrollPage() {
   const router = useRouter();
   const [user, setUser] = useState<CurrentUser | null>(null);
   const [face, setFace] = useState<FaceEnrollmentStatus | null>(null);
   const [captured, setCaptured] = useState<CapturedImage | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [rejection, setRejection] = useState<string | null>(null);
-  const [success, setSuccess] = useState(false);
-  const [submitting, setSubmitting] = useState(false);
+  const [phase, setPhase] = useState<VerifyPhase>("idle");
+  const [message, setMessage] = useState<string | null>(null);
+  const [tone, setTone] = useState<"danger" | "warning" | "success">("danger");
+  const [quality, setQuality] = useState<EnrollmentResult | null>(null);
+  const [done, setDone] = useState(false);
 
   const load = useCallback(async () => {
     try {
@@ -31,7 +32,7 @@ export default function EnrollPage() {
         router.replace("/login");
         return;
       }
-      setError(describeError(cause));
+      setMessage(describeError(cause));
     }
   }, [router]);
 
@@ -39,77 +40,105 @@ export default function EnrollPage() {
     void load();
   }, [load]);
 
+  const onCaptured = useCallback((image: CapturedImage | null) => {
+    setCaptured(image);
+    setPhase("idle");
+    setMessage(null);
+    setQuality(null);
+  }, []);
+
   async function submit() {
     if (!captured) {
       return;
     }
-    setSubmitting(true);
-    setError(null);
-    setRejection(null);
+    setPhase("verifying");
+    setMessage(null);
     try {
       const challenge = await api.startEnrollment();
       const result = await api.verifyEnrollment(challenge, captured.blob);
+      setQuality(result);
       if (result.status !== "ENROLLED") {
-        setRejection(describeCode(result.code ?? "UNKNOWN_ERROR"));
+        setPhase("fail");
+        setTone("warning");
+        setMessage(describeCode(result.code ?? "UNKNOWN_ERROR"));
         return;
       }
-      setSuccess(true);
+      setPhase("pass");
+      setTone("success");
+      setMessage("Đã lưu dữ liệu khuôn mặt.");
+      setDone(true);
       setFace(await api.faceStatus());
     } catch (cause) {
-      setError(describeError(cause));
-    } finally {
-      setSubmitting(false);
+      setPhase("fail");
+      setTone("danger");
+      setMessage(describeError(cause));
     }
   }
 
   return (
     <AppShell email={user?.email}>
       <h1 className="page-title">Đăng ký khuôn mặt</h1>
-      <p className="page-lead">
-        Ảnh chỉ được dùng để tạo vector đặc trưng phục vụ xác thực chấm công. Ảnh gốc không được lưu ở bước này.
-      </p>
+      <p className="page-lead">Ảnh chỉ dùng để sinh vector đặc trưng. Ảnh gốc không được lưu.</p>
 
       {face?.enrolled ? (
-        <Card title="Dữ liệu hiện có" action={<Badge tone="success">Đã đăng ký</Badge>}>
+        <Card title="Dữ liệu hiện tại" action={<Badge tone="success">Đã có</Badge>}>
           <DataList
             rows={[
-              { key: "Model", value: face.model_name ?? "—" },
-              { key: "Phiên bản", value: face.model_version ?? "—" },
-              { key: "Đăng ký lúc", value: face.enrolled_at ? formatDateTime(face.enrolled_at) : "—" },
+              { key: "Model", value: <span className="mono">{face.model_version ?? "—"}</span> },
+              { key: "Đăng ký", value: face.enrolled_at ? formatDateTime(face.enrolled_at) : "—" },
             ]}
           />
           <p className="field__hint" style={{ marginTop: "var(--space-2)" }}>
-            Đăng ký lại sẽ thu hồi dữ liệu khuôn mặt cũ và thay bằng ảnh mới.
+            Đăng ký lại sẽ thu hồi dữ liệu cũ.
           </p>
         </Card>
       ) : null}
 
-      <Card title="Chụp ảnh khuôn mặt" subtitle="Giữ khuôn mặt trong vòng tròn, đủ sáng, không đeo khẩu trang hoặc kính râm.">
+      <Card title="Chụp ảnh" subtitle="Một người trong khung, đủ sáng, không khẩu trang hay kính râm.">
         <div className="stack">
-          <CameraCapture captureLabel="Chụp ảnh" onCaptured={setCaptured} disabled={submitting} />
+          <CameraCapture
+            captureLabel="Chụp"
+            onCaptured={onCaptured}
+            phase={phase}
+            disabled={phase === "verifying"}
+          />
 
-          <ul className="field__hint" style={{ margin: 0, paddingLeft: "var(--space-2)" }}>
-            <li>Chỉ một người trong khung hình.</li>
-            <li>Ảnh rõ nét, không rung — ảnh mờ sẽ bị từ chối.</li>
-            <li>Tránh ngược sáng hoặc phòng quá tối.</li>
-          </ul>
+          {quality ? (
+            <div className="quality">
+              <div className="quality__item">
+                <p className="quality__value">{quality.face_count ?? "—"}</p>
+                <p className="quality__label">Khuôn mặt</p>
+              </div>
+              <div className="quality__item">
+                <p className="quality__value">{quality.blur_score?.toFixed(0) ?? "—"}</p>
+                <p className="quality__label">Độ nét</p>
+              </div>
+              <div className="quality__item">
+                <p className="quality__value">{quality.brightness_score?.toFixed(0) ?? "—"}</p>
+                <p className="quality__label">Độ sáng</p>
+              </div>
+            </div>
+          ) : null}
 
-          {rejection ? <Alert tone="warning">{rejection}</Alert> : null}
-          {error ? <Alert tone="danger">{error}</Alert> : null}
-          {success ? <Alert tone="success">Đăng ký khuôn mặt thành công. Bạn đã có thể chấm công.</Alert> : null}
+          {message ? <Alert tone={tone}>{message}</Alert> : null}
 
-          {success ? (
+          {done ? (
             <div className="row">
               <Button onClick={() => router.push("/attendance")} block>
-                Đi tới chấm công
+                Chấm công
               </Button>
               <Button variant="secondary" onClick={() => router.push("/")}>
-                Về bảng điều khiển
+                Trang chính
               </Button>
             </div>
           ) : (
-            <Button onClick={() => void submit()} loading={submitting} disabled={!captured} block>
-              Gửi ảnh đăng ký
+            <Button
+              onClick={() => void submit()}
+              loading={phase === "verifying"}
+              disabled={!captured}
+              block
+            >
+              Gửi đăng ký
             </Button>
           )}
         </div>

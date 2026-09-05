@@ -10,7 +10,7 @@ from typing import Annotated
 import jwt
 import psycopg
 from fastapi import Depends, HTTPException, status
-from fastapi.security import OAuth2PasswordBearer
+from fastapi.security import APIKeyHeader, OAuth2PasswordBearer
 from passlib.context import CryptContext
 from pydantic import BaseModel, EmailStr, Field
 
@@ -22,7 +22,8 @@ REFRESH_TTL_DAYS = int(os.environ.get("JWT_REFRESH_TTL_DAYS", "30"))
 AUTH_DEBUG_RETURN_RESET_TOKEN = os.environ.get("AUTH_DEBUG_RETURN_RESET_TOKEN", "false").lower() == "true"
 ALGORITHM = "HS256"
 password_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/v1/auth/login")
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/v1/auth/login", auto_error=False)
+api_key_scheme = APIKeyHeader(name="X-API-Key", auto_error=False)
 
 
 class RegisterRequest(BaseModel):
@@ -115,7 +116,7 @@ def issue_tokens(connection: psycopg.Connection, user_id: uuid.UUID, role: str) 
 
 
 def unauthorized(message: str = "Invalid or expired credentials") -> HTTPException:
-    return HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=message, headers={"WWW-Authenticate": "Bearer"})
+    return HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=message)
 
 
 def decode_access_token(token: str) -> dict:
@@ -138,7 +139,18 @@ def decode_refresh_token(token: str) -> dict:
     return payload
 
 
-def get_current_user(token: Annotated[str, Depends(oauth2_scheme)]) -> CurrentUser:
+def access_token(
+    api_key: Annotated[str | None, Depends(api_key_scheme)],
+    bearer: Annotated[str | None, Depends(oauth2_scheme)],
+) -> str:
+    """X-API-Key carries the access token. Bearer stays accepted for existing clients."""
+    token = api_key or bearer
+    if not token:
+        raise unauthorized("Missing X-API-Key header")
+    return token
+
+
+def get_current_user(token: Annotated[str, Depends(access_token)]) -> CurrentUser:
     payload = decode_access_token(token)
     try:
         with psycopg.connect(DATABASE_URL) as connection:

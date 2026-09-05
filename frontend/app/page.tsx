@@ -89,18 +89,18 @@ export default function DashboardPage() {
   return (
     <AppShell email={data.user.email}>
       <h1 className="page-title">Bảng điều khiển</h1>
-      <p className="page-lead">Trạng thái chấm công và dữ liệu khuôn mặt của bạn.</p>
+      <p className="page-lead">Trạng thái ca làm và dữ liệu khuôn mặt.</p>
 
       {!isSecureContextReady() ? (
         <Alert tone="warning">
-          Trang đang chạy trên kết nối không bảo mật. Camera và định vị chỉ hoạt động khi truy cập bằng https://.
+          Kết nối không bảo mật. Camera và GPS chỉ hoạt động trên https://.
         </Alert>
       ) : null}
 
       <Card
         title="Trạng thái hiện tại"
-        subtitle={checkedIn ? "Bạn đang trong ca làm việc." : "Bạn chưa check-in hôm nay."}
-        action={<Badge tone={checkedIn ? "success" : "neutral"}>{checkedIn ? "ĐANG LÀM VIỆC" : "CHƯA CHECK-IN"}</Badge>}
+        subtitle={checkedIn ? "Đang trong ca." : "Chưa check-in."}
+        action={<Badge tone={checkedIn ? "success" : "neutral"}>{checkedIn ? "TRONG CA" : "NGOÀI CA"}</Badge>}
       >
         <div className="stack">
           <DataList
@@ -113,20 +113,20 @@ export default function DashboardPage() {
                   <Badge tone="warning">Chưa đăng ký</Badge>
                 ),
               },
-              { key: "Địa điểm được gán", value: String(data.locations.length) },
+              { key: "Địa điểm", value: String(data.locations.length) },
               {
-                key: "Giờ check-in",
+                key: "Vào ca",
                 value: state.open_check_in_time ? formatDateTime(state.open_check_in_time) : "—",
               },
             ]}
           />
 
           {!face.enrolled ? (
-            <Alert tone="warning">Bạn cần đăng ký khuôn mặt trước khi có thể chấm công.</Alert>
+            <Alert tone="warning">Cần đăng ký khuôn mặt trước khi chấm công.</Alert>
           ) : null}
           {data.locations.length === 0 ? (
             <Alert tone="warning">
-              Chưa có địa điểm nào được gán cho bạn. Liên hệ quản lý để được thêm vào một địa điểm check-in.
+              Chưa được gán địa điểm. Liên hệ quản lý.
             </Alert>
           ) : null}
 
@@ -137,15 +137,15 @@ export default function DashboardPage() {
           </div>
           {face.enrolled ? (
             <Button variant="secondary" onClick={() => router.push("/enroll")}>
-              Đăng ký lại khuôn mặt
+              Đăng ký lại
             </Button>
           ) : null}
         </div>
       </Card>
 
-      <Card title="Địa điểm của bạn">
+      <Card title="Địa điểm">
         {data.locations.length === 0 ? (
-          <Empty>Chưa có địa điểm nào.</Empty>
+          <Empty>Chưa có địa điểm.</Empty>
         ) : (
           <div className="stack stack--tight">
             {data.locations.map((location) => (
@@ -158,7 +158,7 @@ export default function DashboardPage() {
                 </div>
                 <div className="row">
                   {location.is_default ? <Badge tone="info">Mặc định</Badge> : null}
-                  <Badge tone="neutral">{location.allow_radius_meters}m</Badge>
+                  <Badge tone="neutral">{location.allow_radius_meters} m</Badge>
                 </div>
               </div>
             ))}
@@ -166,9 +166,9 @@ export default function DashboardPage() {
         )}
       </Card>
 
-      <Card title="Lịch sử gần đây">
+      <Card title="Lịch sử">
         {data.history.length === 0 ? (
-          <Empty>Chưa có bản ghi chấm công nào.</Empty>
+          <Empty>Chưa có bản ghi.</Empty>
         ) : (
           <div>
             {data.history.map((event) => (

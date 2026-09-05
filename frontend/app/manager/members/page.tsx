@@ -4,7 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 
 import { Dialog } from "../../../components/Dialog";
 import { ManagerShell } from "../../../components/ManagerShell";
-import { Alert, Badge, Button, Card, DataList, Empty, Field, LoadingRows, SelectField } from "../../../components/ui";
+import { Alert, Badge, Button, Card, Checkbox, DataList, Empty, Field, LoadingRows, SelectField } from "../../../components/ui";
 import { api } from "../../../lib/api";
 import { describeError } from "../../../lib/messages";
 import type { ManagedMember, ManagerLocation } from "../../../lib/types";
@@ -47,7 +47,7 @@ export default function ManagerMembersPage() {
     setAddNotice(null);
     try {
       const member = await api.addMemberByEmail(email.trim());
-      setAddNotice(`Đã thêm ${member.email} vào danh sách quản lý.`);
+      setAddNotice(`Đã thêm ${member.email}.`);
       setEmail("");
       await load();
     } catch (cause) {
@@ -115,15 +115,15 @@ export default function ManagerMembersPage() {
     <ManagerShell>
       <h1 className="page-title">Thành viên</h1>
       <p className="page-lead">
-        Chỉ thêm được email đã đăng ký tài khoản MEMBER. Mọi thay đổi đều ghi vào nhật ký.
+        Chỉ thêm được email đã có tài khoản MEMBER. Mọi thay đổi đều vào nhật ký.
       </p>
 
       {error ? <Alert tone="danger">{error}</Alert> : null}
 
-      <Card title="Thêm thành viên" subtitle="Nhập email member đã có tài khoản trên hệ thống.">
+      <Card title="Thêm thành viên">
         <form className="stack" onSubmit={addMember}>
           <Field
-            label="Email thành viên"
+            label="Email"
             type="email"
             inputMode="email"
             required
@@ -133,7 +133,7 @@ export default function ManagerMembersPage() {
           {addError ? <Alert tone="danger">{addError}</Alert> : null}
           {addNotice ? <Alert tone="success">{addNotice}</Alert> : null}
           <Button type="submit" loading={adding}>
-            Thêm vào danh sách
+            Thêm
           </Button>
         </form>
       </Card>
@@ -142,7 +142,7 @@ export default function ManagerMembersPage() {
         {members === null ? (
           <LoadingRows count={3} />
         ) : members.length === 0 ? (
-          <Empty>Chưa có thành viên nào.</Empty>
+          <Empty>Chưa có thành viên.</Empty>
         ) : (
           <div className="table-wrap">
             <table className="table">
@@ -197,7 +197,7 @@ export default function ManagerMembersPage() {
             {assigned === null ? (
               <LoadingRows count={2} />
             ) : assigned.length === 0 ? (
-              <Alert tone="warning">Thành viên chưa được gán địa điểm nào nên chưa thể check-in.</Alert>
+              <Alert tone="warning">Chưa gán địa điểm nên chưa check-in được.</Alert>
             ) : (
               <div>
                 {assigned.map((location) => (
@@ -221,11 +221,11 @@ export default function ManagerMembersPage() {
             )}
 
             {locations.length === 0 ? (
-              <Alert tone="warning">Chưa có địa điểm nào đang hoạt động để gán.</Alert>
+              <Alert tone="warning">Không có địa điểm nào đang bật.</Alert>
             ) : (
               <>
                 <SelectField
-                  label="Gán thêm địa điểm"
+                  label="Gán thêm"
                   value={locationId}
                   onChange={(event) => setLocationId(event.target.value)}
                 >
@@ -235,17 +235,9 @@ export default function ManagerMembersPage() {
                     </option>
                   ))}
                 </SelectField>
-                <label className="row" style={{ alignItems: "center", gap: "var(--space-1)" }}>
-                  <input
-                    type="checkbox"
-                    checked={isDefault}
-                    onChange={(event) => setIsDefault(event.target.checked)}
-                    style={{ width: 20, height: 20 }}
-                  />
-                  <span className="field__label">Đặt làm địa điểm mặc định</span>
-                </label>
+                <Checkbox label="Đặt làm mặc định" checked={isDefault} onChange={setIsDefault} />
                 <Button onClick={() => void assign()} loading={busy} disabled={!locationId}>
-                  Gán địa điểm
+                  Gán
                 </Button>
               </>
             )}

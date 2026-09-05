@@ -4,6 +4,7 @@ from fastapi import APIRouter, Depends, status
 from pydantic import BaseModel, Field
 
 from app.auth import CurrentUser, get_current_user, require_role
+from app.services.places import resolve_place, reverse_geocode
 from app.services.locations import (
     assign_location,
     create_location,
@@ -30,6 +31,15 @@ class LocationRequest(BaseModel):
 class AssignmentRequest(BaseModel):
     location_id: UUID
     is_default: bool = False
+
+
+class PlaceLookupRequest(BaseModel):
+    query: str = Field(min_length=1, max_length=2000)
+
+
+class ReverseLookupRequest(BaseModel):
+    latitude: float = Field(ge=-90, le=90)
+    longitude: float = Field(ge=-180, le=180)
 
 
 class GeofenceRequest(BaseModel):
@@ -91,3 +101,13 @@ def assigned(member_id: UUID, user: CurrentUser = Depends(require_role("MANAGER"
 @assignment_router.delete("/{member_id}/locations/{location_id}")
 def unassign(member_id: UUID, location_id: UUID, user: CurrentUser = Depends(require_role("MANAGER"))) -> dict:
     return unassign_location(user.id, member_id, location_id)
+
+
+@router.post("/resolve-place")
+def resolve(request: PlaceLookupRequest, user: CurrentUser = Depends(require_role("MANAGER"))) -> dict:
+    return resolve_place(request.query)
+
+
+@router.post("/reverse-place")
+def reverse(request: ReverseLookupRequest, user: CurrentUser = Depends(require_role("MANAGER"))) -> dict:
+    return reverse_geocode(request.latitude, request.longitude)

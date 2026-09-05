@@ -1,4 +1,10 @@
-import type { ButtonHTMLAttributes, InputHTMLAttributes, ReactNode, TextareaHTMLAttributes } from "react";
+import type {
+  ButtonHTMLAttributes,
+  InputHTMLAttributes,
+  ReactNode,
+  SelectHTMLAttributes,
+  TextareaHTMLAttributes,
+} from "react";
 
 type ButtonVariant = "primary" | "secondary" | "ghost" | "danger";
 
@@ -6,12 +12,16 @@ interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
   variant?: ButtonVariant;
   block?: boolean;
   loading?: boolean;
+  size?: "md" | "sm";
 }
 
-export function Button({ variant = "primary", block, loading, children, disabled, ...rest }: ButtonProps) {
+export function Button({ variant = "primary", block, loading, size = "md", children, disabled, ...rest }: ButtonProps) {
   const classes = ["button"];
   if (variant !== "primary") {
     classes.push(`button--${variant}`);
+  }
+  if (size === "sm") {
+    classes.push("button--sm");
   }
   if (block) {
     classes.push("button--block");
@@ -57,7 +67,7 @@ interface FieldProps extends InputHTMLAttributes<HTMLInputElement> {
 }
 
 export function Field({ label, hint, id, ...rest }: FieldProps) {
-  const inputId = id ?? `field-${label.replace(/\s+/g, "-").toLowerCase()}`;
+  const inputId = id ?? `f-${label.replace(/\s+/g, "-").toLowerCase()}`;
   const hintId = hint ? `${inputId}-hint` : undefined;
   return (
     <div className="field">
@@ -80,7 +90,7 @@ interface TextAreaFieldProps extends TextareaHTMLAttributes<HTMLTextAreaElement>
 }
 
 export function TextAreaField({ label, hint, id, ...rest }: TextAreaFieldProps) {
-  const inputId = id ?? `textarea-${label.replace(/\s+/g, "-").toLowerCase()}`;
+  const inputId = id ?? `t-${label.replace(/\s+/g, "-").toLowerCase()}`;
   const hintId = hint ? `${inputId}-hint` : undefined;
   return (
     <div className="field">
@@ -97,19 +107,14 @@ export function TextAreaField({ label, hint, id, ...rest }: TextAreaFieldProps) 
   );
 }
 
-export function SelectField({
-  label,
-  hint,
-  id,
-  children,
-  ...rest
-}: {
+interface SelectFieldProps extends SelectHTMLAttributes<HTMLSelectElement> {
   label: string;
   hint?: string;
-  id?: string;
   children: ReactNode;
-} & React.SelectHTMLAttributes<HTMLSelectElement>) {
-  const inputId = id ?? `select-${label.replace(/\s+/g, "-").toLowerCase()}`;
+}
+
+export function SelectField({ label, hint, id, children, ...rest }: SelectFieldProps) {
+  const inputId = id ?? `s-${label.replace(/\s+/g, "-").toLowerCase()}`;
   return (
     <div className="field">
       <label className="field__label" htmlFor={inputId}>
@@ -120,6 +125,23 @@ export function SelectField({
       </select>
       {hint ? <span className="field__hint">{hint}</span> : null}
     </div>
+  );
+}
+
+export function Checkbox({
+  label,
+  checked,
+  onChange,
+}: {
+  label: string;
+  checked: boolean;
+  onChange: (checked: boolean) => void;
+}) {
+  return (
+    <label className="checkbox">
+      <input type="checkbox" checked={checked} onChange={(event) => onChange(event.target.checked)} />
+      <span>{label}</span>
+    </label>
   );
 }
 
@@ -157,9 +179,9 @@ export function Empty({ children }: { children: ReactNode }) {
 export function LoadingRows({ count = 3 }: { count?: number }) {
   return (
     <div className="stack stack--tight" aria-busy="true" aria-live="polite">
-      <span className="visually-hidden">Đang tải dữ liệu</span>
+      <span className="visually-hidden">Đang tải</span>
       {Array.from({ length: count }, (_, index) => (
-        <span className="skeleton" key={index} style={{ width: `${100 - index * 15}%` }} />
+        <span className="skeleton" key={index} style={{ width: `${100 - index * 14}%` }} />
       ))}
     </div>
   );

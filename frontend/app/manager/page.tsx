@@ -10,11 +10,11 @@ import { describeError } from "../../lib/messages";
 import type { ManagerDashboard } from "../../lib/types";
 
 const TILES: Array<{ key: keyof ManagerDashboard; label: string }> = [
-  { key: "active_members", label: "Thành viên đang quản lý" },
+  { key: "active_members", label: "Thành viên" },
   { key: "currently_checked_in", label: "Đang trong ca" },
   { key: "events_today", label: "Sự kiện hôm nay" },
-  { key: "members_with_face", label: "Đã đăng ký khuôn mặt" },
-  { key: "active_locations", label: "Địa điểm đang hoạt động" },
+  { key: "members_with_face", label: "Đã có khuôn mặt" },
+  { key: "active_locations", label: "Địa điểm" },
 ];
 
 export default function ManagerHomePage() {
@@ -28,7 +28,7 @@ export default function ManagerHomePage() {
   return (
     <ManagerShell>
       <h1 className="page-title">Tổng quan</h1>
-      <p className="page-lead">Số liệu tính trên phạm vi thành viên bạn đang quản lý.</p>
+      <p className="page-lead">Phạm vi: thành viên bạn quản lý.</p>
 
       {error ? <Alert tone="danger">{error}</Alert> : null}
 
@@ -47,25 +47,25 @@ export default function ManagerHomePage() {
         </Card>
       )}
 
-      <Card title="Bắt đầu từ đâu">
+      <Card title="Bắt đầu">
         <div className="stack stack--tight">
           <p className="card__subtitle">
             <Link className="link" href="/manager/locations">
               Địa điểm
             </Link>{" "}
-            — tạo hoặc sửa vị trí check-in, có nút lấy thẳng toạ độ GPS của thiết bị bạn đang dùng.
+            — tạo và sửa vị trí bằng bản đồ, link Google Maps hoặc địa chỉ.
           </p>
           <p className="card__subtitle">
             <Link className="link" href="/manager/members">
               Thành viên
             </Link>{" "}
-            — thêm member bằng email đã đăng ký và gán địa điểm cho họ.
+            — thêm member theo email và gán địa điểm.
           </p>
           <p className="card__subtitle">
             <Link className="link" href="/manager/attendance">
               Chấm công
             </Link>{" "}
-            — lọc theo ngày, thành viên, trạng thái; xem ảnh bằng chứng và điều chỉnh thủ công.
+            — lọc, xem ảnh bằng chứng, điều chỉnh thủ công.
           </p>
         </div>
       </Card>

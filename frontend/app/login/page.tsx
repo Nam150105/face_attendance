@@ -41,8 +41,8 @@ export default function LoginPage() {
       <h1 className="page-title">{mode === "login" ? "Đăng nhập" : "Tạo tài khoản"}</h1>
       <p className="page-lead">
         {mode === "login"
-          ? "Dùng tài khoản đã đăng ký để chấm công bằng khuôn mặt."
-          : "Tài khoản MEMBER dùng để chấm công. Tài khoản MANAGER dùng để quản lý."}
+          ? "Chấm công bằng khuôn mặt và GPS."
+          : "MEMBER để chấm công, MANAGER để quản lý."}
       </p>
 
       <Card>
@@ -55,7 +55,7 @@ export default function LoginPage() {
             required
             value={email}
             onChange={(event) => setEmail(event.target.value)}
-            hint={mode === "register" ? "Dùng tên miền thật, ví dụ example.com." : undefined}
+            hint={mode === "register" ? "Tên miền thật, ví dụ example.com" : undefined}
           />
           <Field
             label="Mật khẩu"
@@ -65,12 +65,12 @@ export default function LoginPage() {
             minLength={8}
             value={password}
             onChange={(event) => setPassword(event.target.value)}
-            hint={mode === "register" ? "Tối thiểu 8 ký tự, gồm cả chữ và số." : undefined}
+            hint={mode === "register" ? "Tối thiểu 8 ký tự, có chữ và số" : undefined}
           />
           {mode === "register" ? (
             <SelectField label="Vai trò" value={role} onChange={(event) => setRole(event.target.value as UserRole)}>
-              <option value="MEMBER">MEMBER — chấm công</option>
-              <option value="MANAGER">MANAGER — quản lý</option>
+              <option value="MEMBER">MEMBER</option>
+              <option value="MANAGER">MANAGER</option>
             </SelectField>
           ) : null}
 
@@ -92,7 +92,7 @@ export default function LoginPage() {
             setError(null);
           }}
         >
-          {mode === "login" ? "Đăng ký ngay" : "Quay lại đăng nhập"}
+          {mode === "login" ? "Đăng ký" : "Đăng nhập"}
         </button>
       </p>
     </AppShell>
