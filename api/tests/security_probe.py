@@ -81,7 +81,7 @@ def multipart(fields: dict[str, str], file_field: str, filename: str,
     return buffer.getvalue(), f"multipart/form-data; boundary={boundary}"
 
 
-def register(role: str) -> tuple[str, str]:
+def register(role: str, created: list[str]) -> tuple[str, str]:
     """
     Fixtures are inserted directly so repeated probe runs do not eat the public
     registration quota — the limiter is a thing under test, not a thing to fight.
@@ -89,6 +89,7 @@ def register(role: str) -> tuple[str, str]:
     from passlib.context import CryptContext
 
     email = f"probe-{uuid.uuid4().hex[:12]}@example.com"
+    created.append(email)
     with psycopg.connect(DATABASE_URL) as connection:
         connection.execute(
             "INSERT INTO users (email, password_hash, role, status, email_verified_at)"
@@ -139,12 +140,18 @@ def cleanup(emails: list[str]) -> None:
 
 def main() -> int:
     created: list[str] = []
+
+    def make(role: str) -> tuple[str, str]:
+        """Record the account before anything else can fail, so a mid-way error
+        still leaves the cleanup with something to remove."""
+        email, token = register(role, created)
+        return email, token
+
     try:
-        manager_a_email, manager_a = register("MANAGER")
-        manager_b_email, manager_b = register("MANAGER")
-        member_a_email, member_a = register("MEMBER")
-        member_b_email, member_b = register("MEMBER")
-        created = [manager_a_email, manager_b_email, member_a_email, member_b_email]
+        manager_a_email, manager_a = make("MANAGER")
+        manager_b_email, manager_b = make("MANAGER")
+        member_a_email, member_a = make("MEMBER")
+        member_b_email, member_b = make("MEMBER")
 
         # Manager A manages Member A only; Manager B manages Member B only.
         call("POST", "/manager/members/add-by-email", manager_a, {"email": member_a_email})

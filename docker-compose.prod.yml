@@ -1,0 +1,49 @@
+# Production overlay. Use together with the base file:
+#
+#   docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build
+#
+# What it changes:
+#   - removes the database admin UI
+#   - stops publishing service ports on the host; only the proxy is reachable
+#   - makes the API's health check depend on its real dependencies
+#   - turns off the debug flag that returns password reset tokens in responses
+#
+# It does not contain any secret: those still come from .env.
+
+services:
+  adminer:
+    # Adminer is a full database client. Scaling it to zero keeps the service
+    # defined for local work while making sure production never starts it.
+    deploy:
+      replicas: 0
+    profiles: ["never"]
+
+  api:
+    environment:
+      AUTH_DEBUG_RETURN_RESET_TOKEN: "false"
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      RATE_LIMIT_ENABLED: "true"
+    ports: !reset []
+    healthcheck:
+      # /ready, not /health: an API that cannot reach Postgres or object storage
+      # must not be reported as healthy to whatever is waiting on it.
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8000/ready', timeout=5).status == 200 else 1)"]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+
+  postgres:
+    ports: !reset []
+
+  redis:
+    ports: !reset []
+
+  minio:
+    ports: !reset []
+
+  face-ai:
+    ports: !reset []
+
+  frontend:
+    ports: !reset []

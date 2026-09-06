@@ -69,7 +69,18 @@ Theo skill `design-system` (dark cloud-platform aesthetic):
 - Touch target tối thiểu 44px, focus-visible luôn hiện, tôn trọng `prefers-reduced-motion`, WCAG 2.2 AA.
 - Mọi màn hình phải xử lý đủ 4 trạng thái: empty / loading / error / success.
 
-## 7. Bảo mật đã có (đừng gỡ khi refactor)
+## 7. Vận hành
+
+Xem `docs/13_OPERATIONS_RUNBOOK.md`. Tóm tắt:
+
+- `GET /health` = liveness (không chạm dependency). `GET /ready` = readiness, trả **503** khi Postgres hoặc object storage chết. Redis và face-ai được báo cáo nhưng không bắt buộc.
+- Log là JSON một dòng một sự kiện, có `request_id`; mỗi response trả kèm header `X-Request-ID`.
+- `GET /metrics` theo định dạng Prometheus, **không route ra ngoài** qua Caddy.
+- Sao lưu: `./scripts/backup.sh ./backups`. Diễn tập khôi phục: `./scripts/restore.sh <thư mục> --into face_attendance_restore_test --database-only`.
+- **Thư mục `backups/` chứa ảnh khuôn mặt và hash mật khẩu** — đã gitignore, phải mã hoá khi mang đi.
+- Chạy production: `docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build` (bỏ Adminer, không publish port nào trừ proxy).
+
+## 8. Bảo mật đã có (đừng gỡ khi refactor)
 
 - **Rate limit** qua Redis ở `api/app/security.py`. Login giới hạn theo cả IP lẫn email; đăng ký/quên mật khẩu theo IP; chấm công và nhận diện theo user. Fail-open khi Redis lỗi — đây là phanh chống brute-force, không phải cổng phân quyền.
 - **Upload ảnh** xác thực bằng magic byte, không tin `Content-Type` của client. Ảnh trả về luôn qua `safe_image_content_type()`; nếu bỏ bước này thì một tệp HTML tải lên sẽ được phục vụ lại từ origin của API và thành stored XSS.
@@ -80,7 +91,7 @@ Theo skill `design-system` (dark cloud-platform aesthetic):
   docker compose run --rm -v "D:ace-attendancepi:/src:ro" -w /src -e PROBE_BASE_URL=http://api:8000/api/v1 api python -m tests.security_probe
   ```
 
-## 8. Lệnh hay dùng
+## 9. Lệnh hay dùng
 
 ```powershell
 docker compose up -d --build
@@ -99,18 +110,20 @@ docker compose build frontend
 
 Tài khoản demo do migration `002_seed_local_demo` tạo ra chỉ dùng cho máy local. Mật khẩu trên môi trường public đã được đổi và **không được ghi vào repo** — hỏi người dùng nếu cần.
 
-## 9. Trạng thái hiện tại
+## 10. Trạng thái hiện tại
 
-- **Xong:** Phase 0–9 (hạ tầng, schema, auth/RBAC, membership, location/geofence, face enrollment, check-in/check-out, quản lý chấm công cho Manager, responsive/mobile hardening, security hardening) + model ArcFace thật + frontend cho cả MEMBER và MANAGER.
-- **Tiếp theo:** Phase 10 (observability, backup/restore, cấu hình production).
+- **Xong:** Phase 0–10 — toàn bộ roadmap trong `docs/10_IMPLEMENTATION_PHASES.md`.
+- **Tiếp theo:** không còn phase nào. Việc mở rộng lấy từ `docs/12_RECOMMENDED_ADDITIONS.md` (retention ảnh, email verification, multi-tenant…).
 - **Đã deploy:** https://namnangno.click, chạy từ máy dev qua Cloudflare Tunnel (service `tunnel` trong compose).
 - **Nợ kỹ thuật đã biết:** xem mục "Known issues" trong [README.md](README.md).
 
-## 10. Những thứ CHƯA có — đừng giả định là đã có
+## 11. Những thứ CHƯA có — đừng giả định là đã có
 
 - Liveness / anti-spoofing: **không có**. Ảnh chụp lại màn hình vẫn qua được. Đang chờ chọn provider thương mại.
+- Lịch sao lưu tự động: **chưa có**. Script đã có nhưng phải chạy tay, chưa gắn cron.
+- Tài khoản demo `manager@example.com` / `member@example.com` từ migration 002 **vẫn tồn tại và đang ACTIVE** trên bản deploy công khai (manager@example.com đang quản lý 3 thành viên). Cân nhắc đổi mật khẩu hoặc chuyển sang SUSPENDED.
 - Retention dữ liệu sinh trắc học: **chưa có**. `07_SECURITY_PRIVACY.md` §6 yêu cầu thời hạn lưu cấu hình được và không giữ vô hạn — hiện ảnh bằng chứng và embedding được giữ mãi, chưa có job dọn.
-- Test tự động: mới chỉ có `api/tests/test_geofence.py`. Frontend chưa có test trong repo — kiểm chứng giao diện đang làm thủ công bằng Playwright ngoài repo.
+- Test tự động: `api/tests/` có geofence + kiểm tra ảnh tải lên (unit) và `security_probe.py` (chạy trên stack thật). Frontend chưa có test trong repo — kiểm chứng giao diện đang làm thủ công bằng Playwright ngoài repo.
 - Service worker (`frontend/public/sw.js`) chỉ cache app shell và asset tĩnh. **Không cache `/api/*`** — dữ liệu chấm công và ảnh bằng chứng không bao giờ được ghi xuống cache trình duyệt. Đổi chiến lược thì phải tăng `CACHE_VERSION`.
 - Offline chỉ mở được app và báo lỗi tử tế; **không có hàng đợi chấm công offline** — mọi lượt check-in/check-out đều cần mạng vì server mới là nơi xác thực.
 - `FACE_MATCH_THRESHOLD` hiện là **giá trị tạm** chưa qua đánh giá FAR/FRR.

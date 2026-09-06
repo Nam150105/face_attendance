@@ -16,3 +16,8 @@ dist/
 *.onnx.data
 face-ai/models/
 caddy-root.crt
+
+# Backups chứa ảnh sinh trắc học và hash mật khẩu — không bao giờ commit.
+backups/
+*.dump
+objects.tar

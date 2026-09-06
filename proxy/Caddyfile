@@ -2,6 +2,21 @@
 	auto_https disable_redirects
 }
 
+(security_headers) {
+	header {
+		# The API sets its own headers per response; only the frontend origin is
+		# decorated here so the two do not end up duplicated on /api/* replies.
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "DENY"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		Permissions-Policy "camera=(self), geolocation=(self), microphone=(), payment=()"
+		# 180 days, no includeSubDomains and no preload: long enough to matter,
+		# short enough to back out of without waiting a year.
+		Strict-Transport-Security "max-age=15552000"
+		-Server
+	}
+}
+
 (app) {
 	handle /api/* {
 		reverse_proxy api:8000
@@ -10,6 +25,7 @@
 		reverse_proxy api:8000
 	}
 	handle {
+		import security_headers
 		reverse_proxy frontend:3000
 	}
 }
