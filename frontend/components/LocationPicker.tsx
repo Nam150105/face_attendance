@@ -58,26 +58,32 @@ export function LocationPicker({
       const start: PickedPoint = point.latitude ? point : FALLBACK;
       const map = leaflet.map(containerRef.current, { zoomControl: true });
       map.setView([start.latitude, start.longitude], point.latitude ? 17 : 12);
+      
       leaflet
-        .tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", { maxZoom: 19, attribution: "© OpenStreetMap" })
+        .tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
+          maxZoom: 19,
+          attribution: "© OpenStreetMap",
+        })
         .addTo(map);
 
       warningRef.current = leaflet
         .circle([start.latitude, start.longitude], {
           radius: warningRadiusMeters,
           color: "#f59e0b",
-          weight: 1,
+          weight: 1.5,
           fillColor: "#f59e0b",
-          fillOpacity: 0.07,
+          fillOpacity: 0.1,
+          dashArray: "4, 4",
         })
         .addTo(map);
+
       allowRef.current = leaflet
         .circle([start.latitude, start.longitude], {
           radius: allowRadiusMeters,
           color: "#10b981",
-          weight: 1,
+          weight: 2,
           fillColor: "#10b981",
-          fillOpacity: 0.12,
+          fillOpacity: 0.18,
         })
         .addTo(map);
 
@@ -121,7 +127,6 @@ export function LocationPicker({
       mapRef.current = null;
       markerRef.current = null;
     };
-    // Created once; coordinate updates are pushed by the effects below.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -157,7 +162,7 @@ export function LocationPicker({
       if (result.label) {
         onAddressChange(result.label);
       }
-      setNotice(result.label ?? "Đã đặt pin theo toạ độ bạn nhập.");
+      setNotice(result.label ? `Đã tìm thấy: ${result.label}` : "Đã đặt ghim trên bản đồ.");
     } catch (cause) {
       setError(describeError(cause));
     } finally {
@@ -165,106 +170,105 @@ export function LocationPicker({
     }
   }, [address, onAddressChange, onPointChange]);
 
-  const useMyPosition = useCallback(async () => {
+  const useGps = useCallback(async () => {
     setBusy("gps");
     setError(null);
     setNotice(null);
     try {
-      const fix = await readPosition();
-      onPointChange({
-        latitude: Number(fix.latitude.toFixed(7)),
-        longitude: Number(fix.longitude.toFixed(7)),
-      });
-      setNotice(`Vị trí của bạn, sai số ${fix.accuracyMeters.toFixed(0)} m`);
-      const reverse = await api.reversePlace(fix.latitude, fix.longitude).catch(() => null);
-      if (reverse?.label && !address.trim()) {
-        onAddressChange(reverse.label);
-      }
+      const pos = await readPosition();
+      onPointChange({ latitude: pos.latitude, longitude: pos.longitude });
+      setNotice(`Đã lấy vị trí hiện tại của bạn (độ chính xác ±${pos.accuracyMeters.toFixed(0)}m).`);
     } catch (cause) {
       setError(describeError(cause));
     } finally {
       setBusy(null);
     }
-  }, [address, onAddressChange, onPointChange]);
+  }, [onPointChange]);
 
   return (
     <div className="stack">
       <div className="field">
-        <label className="field__label" htmlFor="place-query">
-          Địa chỉ
+        <label className="field__label" htmlFor="location-address-input">
+          Tìm địa điểm
         </label>
-        <div className="search-row">
+        <div style={{ display: "flex", gap: "8px" }}>
           <input
-            id="place-query"
+            id="location-address-input"
             className="input"
-            placeholder="Tên toà nhà, địa chỉ, link Google Maps hoặc 21.0285, 105.8048"
+            placeholder="Nhập địa chỉ, toạ độ hoặc dán liên kết Google Maps"
             value={address}
-            onChange={(event) => onAddressChange(event.target.value)}
-            onKeyDown={(event) => {
-              if (event.key === "Enter") {
-                event.preventDefault();
+            onChange={(e) => onAddressChange(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") {
+                e.preventDefault();
                 void search();
               }
             }}
           />
-          {/* Not a submit button: this sits inside the location form and must not save it. */}
-          <Button type="button" onClick={() => void search()} loading={busy === "search"} disabled={!address.trim()}>
+          <Button variant="secondary" onClick={() => void search()} loading={busy === "search"} size="sm">
             Tìm
+          </Button>
+          <Button variant="ghost" onClick={() => void useGps()} loading={busy === "gps"} size="sm" title="Dùng vị trí hiện tại">
+            GPS
           </Button>
         </div>
       </div>
 
-      <div className="map" ref={containerRef} role="application" aria-label="Bản đồ chọn vị trí" />
+      {notice ? <Alert tone="success">{notice}</Alert> : null}
+      {error ? <Alert tone="danger">{error}</Alert> : null}
 
-      <div className="map-actions">
-        <Button variant="secondary" size="sm" type="button" onClick={() => void useMyPosition()} loading={busy === "gps"}>
-          Vị trí của tôi
-        </Button>
-        <button type="button" className="link" onClick={() => setManual((current) => !current)}>
-          {manual ? "Ẩn toạ độ" : "Nhập toạ độ tay"}
+      <div
+        ref={containerRef}
+        style={{
+          width: "100%",
+          height: "260px",
+          borderRadius: "var(--radius-lg)",
+          overflow: "hidden",
+          border: "1px solid var(--border-medium)",
+          boxShadow: "var(--shadow-panel)",
+        }}
+      />
+
+      <div className="row row--between" style={{ fontSize: "var(--text-xs)", color: "var(--text-secondary)" }}>
+        <div className="row">
+          <span style={{ display: "inline-block", width: 10, height: 10, borderRadius: "50%", background: "var(--color-success)" }} />
+          <span>Phạm vi chuẩn {allowRadiusMeters}m</span>
+          <span style={{ display: "inline-block", width: 10, height: 10, borderRadius: "50%", background: "var(--color-warning)", marginLeft: 8 }} />
+          <span>Phạm vi cảnh báo {warningRadiusMeters}m</span>
+        </div>
+        <button
+          type="button"
+          onClick={() => setManual(!manual)}
+          style={{ background: "none", border: "none", color: "var(--color-primary)", cursor: "pointer", fontSize: "12px", textDecoration: "underline" }}
+        >
+          {manual ? "Ẩn toạ độ thủ công" : "Nhập toạ độ thủ công"}
         </button>
-        <span className="coords mono">
-          {point.latitude.toFixed(6)}, {point.longitude.toFixed(6)}
-        </span>
       </div>
 
       {manual ? (
         <div className="row">
-          <div style={{ flex: "1 1 140px" }}>
-            <label className="field__label" htmlFor="lat-input">
-              Vĩ độ
-            </label>
+          <div style={{ flex: 1 }}>
+            <label className="field__label">Vĩ độ (Latitude)</label>
             <input
-              id="lat-input"
-              className="input"
               type="number"
-              step="0.0000001"
-              min={-90}
-              max={90}
+              step="any"
+              className="input mono"
               value={point.latitude}
-              onChange={(event) => onPointChange({ ...point, latitude: Number(event.target.value) })}
+              onChange={(e) => onPointChange({ ...point, latitude: parseFloat(e.target.value) || 0 })}
             />
           </div>
-          <div style={{ flex: "1 1 140px" }}>
-            <label className="field__label" htmlFor="lng-input">
-              Kinh độ
-            </label>
+          <div style={{ flex: 1 }}>
+            <label className="field__label">Kinh độ (Longitude)</label>
             <input
-              id="lng-input"
-              className="input"
               type="number"
-              step="0.0000001"
-              min={-180}
-              max={180}
+              step="any"
+              className="input mono"
               value={point.longitude}
-              onChange={(event) => onPointChange({ ...point, longitude: Number(event.target.value) })}
+              onChange={(e) => onPointChange({ ...point, longitude: parseFloat(e.target.value) || 0 })}
             />
           </div>
         </div>
       ) : null}
-
-      {notice ? <Alert tone="success">{notice}</Alert> : null}
-      {error ? <Alert tone="danger">{error}</Alert> : null}
     </div>
   );
 }

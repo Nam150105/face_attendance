@@ -5,7 +5,7 @@ import { useCallback, useEffect, useState } from "react";
 import { Dialog } from "../../../components/Dialog";
 import { LocationPicker } from "../../../components/LocationPicker";
 import { ManagerShell } from "../../../components/ManagerShell";
-import { Alert, Badge, Button, Card, Empty, Field, LoadingRows } from "../../../components/ui";
+import { Alert, Badge, Button, Card, Checkbox, Empty, Field, LoadingRows } from "../../../components/ui";
 import { api } from "../../../lib/api";
 import { describeError } from "../../../lib/messages";
 import type { LocationInput, ManagerLocation } from "../../../lib/types";
@@ -80,8 +80,12 @@ export default function ManagerLocationsPage() {
   async function save(event: React.FormEvent) {
     event.preventDefault();
     setFormError(null);
+    if (!form.name.trim()) {
+      setFormError("Vui lòng nhập tên địa điểm.");
+      return;
+    }
     if (form.warning_radius_meters <= form.allow_radius_meters) {
-      setFormError("Bán kính cảnh báo phải lớn hơn bán kính cho phép.");
+      setFormError("Phạm vi cảnh báo phải lớn hơn phạm vi cho phép.");
       return;
     }
     setSaving(true);
@@ -100,12 +104,25 @@ export default function ManagerLocationsPage() {
     }
   }
 
-  async function deactivate(location: ManagerLocation) {
-    if (!window.confirm(`Tắt "${location.name}"?`)) {
+  async function toggleDeactivate(location: ManagerLocation) {
+    const actionName = location.is_active ? "tắt" : "bật lại";
+    if (!window.confirm(`Bạn có chắc chắn muốn ${actionName} địa điểm "${location.name}"?`)) {
       return;
     }
     try {
-      await api.deleteLocation(location.id);
+      if (location.is_active) {
+        await api.deleteLocation(location.id);
+      } else {
+        await api.updateLocation(location.id, {
+          name: location.name,
+          address: location.address,
+          latitude: location.latitude,
+          longitude: location.longitude,
+          allow_radius_meters: location.allow_radius_meters,
+          warning_radius_meters: location.warning_radius_meters,
+          is_active: true,
+        });
+      }
       await load();
     } catch (cause) {
       setError(describeError(cause));
@@ -114,24 +131,33 @@ export default function ManagerLocationsPage() {
 
   return (
     <ManagerShell>
-      <h1 className="page-title">Địa điểm</h1>
-      <p className="page-lead">Ngưỡng geofence lưu theo từng địa điểm, máy chủ luôn kiểm tra lại khi chấm công.</p>
+      <div className="page-header">
+        <div>
+          <h1 className="page-title">Địa điểm</h1>
+          <p className="page-lead">
+            Thiết lập toạ độ và phạm vi cho phép ghi nhận tại từng địa điểm.
+          </p>
+        </div>
+        <Button onClick={openCreate} icon={<span>+</span>}>
+          Thêm địa điểm
+        </Button>
+      </div>
 
       {error ? <Alert tone="danger">{error}</Alert> : null}
 
-      <Card title="Danh sách" action={<Button onClick={openCreate}>Tạo mới</Button>}>
+      <Card title="Danh sách địa điểm">
         {locations === null ? (
           <LoadingRows count={3} />
         ) : locations.length === 0 ? (
-          <Empty>Chưa có địa điểm.</Empty>
+          <Empty>Chưa có địa điểm nào. Nhấn &quot;Thêm địa điểm&quot; để bắt đầu.</Empty>
         ) : (
           <div className="table-wrap">
             <table className="table">
               <thead>
                 <tr>
-                  <th>Tên</th>
+                  <th>Tên địa điểm</th>
                   <th>Toạ độ</th>
-                  <th>Bán kính</th>
+                  <th>Phạm vi (chuẩn / cảnh báo)</th>
                   <th>Trạng thái</th>
                   <th aria-label="Thao tác" />
                 </tr>
@@ -143,27 +169,32 @@ export default function ManagerLocationsPage() {
                       <p className="event__label">{location.name}</p>
                       {location.address ? <p className="event__meta">{location.address}</p> : null}
                     </td>
-                    <td data-label="Toạ độ" className="numeric mono">
+                    <td data-label="Toạ độ" className="numeric mono" style={{ fontSize: "13px" }}>
                       {location.latitude.toFixed(5)}, {location.longitude.toFixed(5)}
                     </td>
-                    <td data-label="Bán kính" className="numeric">
-                      {location.allow_radius_meters} / {location.warning_radius_meters} m
+                    <td data-label="Phạm vi" className="numeric">
+                      <span style={{ color: "var(--color-success)", fontWeight: 600 }}>{location.allow_radius_meters}m</span>
+                      {" / "}
+                      <span style={{ color: "var(--color-warning)" }}>{location.warning_radius_meters}m</span>
                     </td>
                     <td data-label="Trạng thái">
                       <Badge tone={location.is_active ? "success" : "neutral"}>
-                        {location.is_active ? "Bật" : "Tắt"}
+                        {location.is_active ? "Đang bật" : "Đã tắt"}
                       </Badge>
                     </td>
                     <td data-label="Thao tác">
                       <div className="row">
-                        <Button variant="secondary" size="sm" onClick={() => openEdit(location)}>
+                        <Button size="sm" variant="secondary" onClick={() => openEdit(location)}>
                           Sửa
                         </Button>
-                        {location.is_active ? (
-                          <Button variant="ghost" size="sm" onClick={() => void deactivate(location)}>
-                            Tắt
-                          </Button>
-                        ) : null}
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          onClick={() => void toggleDeactivate(location)}
+                          style={{ color: location.is_active ? "var(--color-danger)" : "var(--color-success)" }}
+                        >
+                          {location.is_active ? "Tắt" : "Bật"}
+                        </Button>
                       </div>
                     </td>
                   </tr>
@@ -174,17 +205,21 @@ export default function ManagerLocationsPage() {
         )}
       </Card>
 
+      {/* Create / Edit Dialog */}
       {creating || editing ? (
-        <Dialog title={editing ? editing.name : "Địa điểm mới"} onClose={closeDialog}>
+        <Dialog
+          title={editing ? `Sửa địa điểm: ${editing.name}` : "Thêm địa điểm"}
+          onClose={closeDialog}
+        >
           <form className="stack" onSubmit={save}>
             <Field
-              label="Tên"
+              label="Tên địa điểm"
               required
-              maxLength={200}
-              placeholder="Văn phòng Hà Nội"
+              placeholder="Ví dụ: Trụ sở chính, Cơ sở 2, Phòng 301…"
               value={form.name}
-              onChange={(event) => setForm((current) => ({ ...current, name: event.target.value }))}
+              onChange={(e) => setForm({ ...form, name: e.target.value })}
             />
+
             <LocationPicker
               point={{ latitude: form.latitude, longitude: form.longitude }}
               address={form.address ?? ""}
@@ -195,41 +230,45 @@ export default function ManagerLocationsPage() {
             />
 
             <div className="row">
-              <div style={{ flex: "1 1 140px" }}>
+              <div style={{ flex: 1 }}>
                 <Field
-                  label="Cho phép (m)"
-                  hint="Trong bán kính: chấm công bình thường"
+                  label="Phạm vi chuẩn (mét)"
                   type="number"
-                  min={1}
+                  min={10}
+                  max={5000}
                   required
+                  hint="Trong phạm vi này, lượt ghi nhận là hợp lệ."
                   value={form.allow_radius_meters}
-                  onChange={(event) =>
-                    setForm((current) => ({ ...current, allow_radius_meters: Number(event.target.value) }))
-                  }
+                  onChange={(e) => setForm({ ...form, allow_radius_meters: parseInt(e.target.value, 10) || 10 })}
                 />
               </div>
-              <div style={{ flex: "1 1 140px" }}>
+              <div style={{ flex: 1 }}>
                 <Field
-                  label="Cảnh báo (m)"
-                  hint="Vượt qua: chặn"
+                  label="Phạm vi cảnh báo (mét)"
                   type="number"
-                  min={2}
+                  min={form.allow_radius_meters + 1}
+                  max={10000}
                   required
+                  hint="Ngoài phạm vi chuẩn nhưng trong mức này thì phải nhập lý do."
                   value={form.warning_radius_meters}
-                  onChange={(event) =>
-                    setForm((current) => ({ ...current, warning_radius_meters: Number(event.target.value) }))
-                  }
+                  onChange={(e) => setForm({ ...form, warning_radius_meters: parseInt(e.target.value, 10) || 20 })}
                 />
               </div>
             </div>
 
+            <Checkbox
+              label="Bật địa điểm này ngay sau khi lưu"
+              checked={form.is_active}
+              onChange={(checked) => setForm({ ...form, is_active: checked })}
+            />
+
             {formError ? <Alert tone="danger">{formError}</Alert> : null}
 
-            <div className="row">
-              <Button type="submit" loading={saving}>
-                Lưu
+            <div className="row" style={{ marginTop: "8px" }}>
+              <Button type="submit" loading={saving} block>
+                {editing ? "Lưu thay đổi" : "Tạo địa điểm"}
               </Button>
-              <Button variant="secondary" type="button" onClick={closeDialog}>
+              <Button variant="secondary" onClick={closeDialog} disabled={saving} block>
                 Huỷ
               </Button>
             </div>

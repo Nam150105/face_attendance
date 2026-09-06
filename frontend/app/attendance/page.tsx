@@ -5,23 +5,36 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { AppShell } from "../../components/AppShell";
 import { CameraCapture, type CapturePhase, type CapturedImage, type PhaseLabels } from "../../components/CameraCapture";
-import { Alert, Button, Card, SelectField, TextAreaField } from "../../components/ui";
+import { Alert, Badge, Button, Card, SelectField, TextAreaField, playChime } from "../../components/ui";
 import { ApiError, api } from "../../lib/api";
 import { formatDistance, newIdempotencyKey, readPosition, type FixedPosition } from "../../lib/geo";
 import { describeError } from "../../lib/messages";
 import type { AttendanceState, CurrentUser, MemberLocation } from "../../lib/types";
 
 const LABELS: PhaseLabels = {
-  framing: "Đưa mặt vào khung",
-  holding: "Giữ yên",
-  working: "Đang kiểm tra vị trí và khuôn mặt",
+  framing: "Đưa khuôn mặt vào giữa khung",
+  holding: "Giữ yên thiết bị…",
+  working: "Đang xác thực khuôn mặt và vị trí…",
   done: "Đã ghi nhận",
-  failed: "Chưa hợp lệ",
+  failed: "Chưa ghi nhận được",
 };
 
-/** Codes the member can fix by retaking; anything else blocks the action. */
-const RETRYABLE = new Set(["FACE_NOT_MATCHED", "FACE_NOT_FOUND", "MULTIPLE_FACES", "FACE_QUALITY_LOW", "IMAGE_INVALID", "IMAGE_TOO_SMALL"]);
+const RETRYABLE = new Set([
+  "FACE_NOT_MATCHED",
+  "FACE_NOT_FOUND",
+  "MULTIPLE_FACES",
+  "FACE_QUALITY_LOW",
+  "IMAGE_INVALID",
+  "IMAGE_TOO_SMALL",
+]);
 const BLOCKING = new Set(["OUTSIDE_ALLOWED_ZONE", "GPS_ACCURACY_LOW"]);
+
+const QUICK_REASONS = [
+  "Đang ở địa điểm khác theo phân công",
+  "Hoạt động bên ngoài (công tác, ngoại khoá)",
+  "Tín hiệu định vị lệch do trong nhà",
+  "Đã báo trước với người quản lý",
+];
 
 export default function AttendancePage() {
   const router = useRouter();
@@ -36,6 +49,7 @@ export default function AttendancePage() {
   const [needsReason, setNeedsReason] = useState(false);
   const [reason, setReason] = useState("");
   const [blocked, setBlocked] = useState(false);
+  const [successInfo, setSuccessInfo] = useState<{ distance: number; locationName: string; time: string } | null>(null);
 
   const pendingRef = useRef<{ image: Blob; position: FixedPosition } | null>(null);
   const checkedIn = state?.state === "CHECKED_IN";
@@ -98,7 +112,13 @@ export default function AttendancePage() {
         const response = await send(image, position, withReason);
         setPhase("done");
         setTone("success");
-        setMessage(`${response.message} · cách ${formatDistance(response.distance_meters)}`);
+        playChime("success");
+        setMessage(`Đã ghi nhận. Vị trí cách địa điểm ${formatDistance(response.distance_meters)}.`);
+        setSuccessInfo({
+          distance: response.distance_meters,
+          locationName: activeLocation?.name ?? "địa điểm",
+          time: new Intl.DateTimeFormat("vi-VN", { hour: "2-digit", minute: "2-digit", second: "2-digit" }).format(new Date()),
+        });
         setNeedsReason(false);
         setReason("");
         pendingRef.current = null;
@@ -109,7 +129,7 @@ export default function AttendancePage() {
           setPhase("idle");
           setNeedsReason(true);
           setTone("warning");
-          setMessage("Bạn đang ở ngoài bán kính cho phép. Nhập lý do rồi xác nhận để ghi nhận.");
+          setMessage("Bạn đang ở ngoài phạm vi chuẩn của địa điểm. Vui lòng chọn hoặc nhập lý do để tiếp tục.");
           return;
         }
         setPhase("failed");
@@ -118,7 +138,7 @@ export default function AttendancePage() {
         setBlocked(BLOCKING.has(code) || !RETRYABLE.has(code));
       }
     },
-    [send],
+    [activeLocation?.name, send],
   );
 
   const onCaptured = useCallback(
@@ -129,9 +149,9 @@ export default function AttendancePage() {
         setMessage(null);
         setNeedsReason(false);
         setBlocked(false);
+        setSuccessInfo(null);
         return;
       }
-      // Location is read at capture time; the member never has to press a separate button.
       setPhase("working");
       setMessage(null);
       void readPosition()
@@ -157,87 +177,157 @@ export default function AttendancePage() {
     void run(pending.image, pending.position, reason.trim());
   }, [reason, run]);
 
-  const action = checkedIn ? "Check-out" : "Check-in";
-
-  if (state && !state.face_enrolled) {
-    return (
-      <AppShell email={user?.email}>
-        <h1 className="page-title">{action}</h1>
-        <Card>
-          <div className="stack">
-            <Alert tone="warning">Cần đăng ký khuôn mặt trước khi chấm công.</Alert>
-            <Button onClick={() => router.push("/enroll")} block>
-              Đăng ký ngay
-            </Button>
-          </div>
-        </Card>
-      </AppShell>
-    );
-  }
+  const actionName = checkedIn ? "Check-out" : "Check-in";
 
   return (
     <AppShell email={user?.email}>
-      <h1 className="page-title">{action}</h1>
-      <p className="page-lead">
-        {checkedIn ? activeLocation?.name ?? "Đang trong ca" : "Chụp ảnh, hệ thống tự kiểm tra vị trí."}
-      </p>
+      <div className="page-header">
+        <div>
+          <h1 className="page-title">{actionName}</h1>
+          <p className="page-lead">
+            {checkedIn
+              ? "Xác thực khuôn mặt để kết thúc phiên đang mở."
+              : "Nhìn thẳng vào camera và cho phép trình duyệt lấy vị trí hiện tại."}
+          </p>
+        </div>
+        <Badge tone={checkedIn ? "success" : "info"}>
+          {checkedIn ? "Đang trong phiên" : "Chưa mở phiên"}
+        </Badge>
+      </div>
 
-      <Card>
+      {!checkedIn && locations.length > 1 ? (
+        <Card title="Địa điểm">
+          <SelectField
+            label="Chọn địa điểm ghi nhận hôm nay"
+            value={locationId}
+            onChange={(event) => setLocationId(event.target.value)}
+          >
+            {locations.map((item) => (
+              <option key={item.id} value={item.id}>
+                {item.name} {item.is_default ? "(Mặc định)" : ""} · phạm vi {item.allow_radius_meters}m
+              </option>
+            ))}
+          </SelectField>
+        </Card>
+      ) : null}
+
+      <Card
+        title="Xác thực khuôn mặt"
+        subtitle={
+          activeLocation
+            ? `${activeLocation.name} · phạm vi chuẩn ${activeLocation.allow_radius_meters}m`
+            : "Giữ thiết bị ngang tầm mắt."
+        }
+      >
         <div className="stack">
-          {!checkedIn && locations.length === 0 ? (
-            <Alert tone="warning">Chưa được gán địa điểm nào.</Alert>
-          ) : !checkedIn && locations.length > 1 ? (
-            <SelectField
-              label="Địa điểm"
-              value={locationId}
-              onChange={(event) => {
-                setLocationId(event.target.value);
-                setBlocked(false);
-                setMessage(null);
+          {successInfo ? (
+            <div
+              style={{
+                textAlign: "center",
+                padding: "var(--space-4) var(--space-2)",
+                background: "linear-gradient(145deg, rgba(16, 185, 129, 0.15), var(--surface-panel))",
+                borderRadius: "var(--radius-lg)",
+                border: "1px solid rgba(16, 185, 129, 0.35)",
               }}
-              disabled={phase === "working"}
             >
-              {locations.map((location) => (
-                <option key={location.id} value={location.id}>
-                  {location.name}
-                </option>
-              ))}
-            </SelectField>
-          ) : null}
-
-          <CameraCapture
-            captureLabel={action}
-            labels={LABELS}
-            onCaptured={onCaptured}
-            phase={phase}
-            disabled={phase === "working" || !locationId}
-          />
-
-          {needsReason ? (
-            <>
-              <TextAreaField
-                label="Lý do"
-                hint="Bắt buộc khi ở ngoài bán kính cho phép."
-                required
-                maxLength={500}
-                value={reason}
-                onChange={(event) => setReason(event.target.value)}
-              />
-              <Button onClick={confirmWithReason} disabled={reason.trim().length === 0 || phase === "working"} block>
-                Xác nhận {action.toLowerCase()}
+              <div
+                style={{
+                  width: 56,
+                  height: 56,
+                  borderRadius: "50%",
+                  background: "var(--color-success)",
+                  color: "#fff",
+                  display: "grid",
+                  placeItems: "center",
+                  margin: "0 auto 16px",
+                  boxShadow: "0 0 20px var(--color-success-glow)",
+                }}
+              >
+                <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3">
+                  <polyline points="20 6 9 17 4 12" />
+                </svg>
+              </div>
+              <h2 style={{ fontSize: "var(--text-xl)", fontWeight: 800, marginBottom: "4px" }}>
+                {checkedIn ? "Đã check-in" : "Đã check-out"}
+              </h2>
+              <p style={{ color: "var(--text-secondary)", fontSize: "var(--text-sm)", marginBottom: "16px" }}>
+                Thời điểm ghi nhận: <strong style={{ color: "var(--text-primary)" }}>{successInfo.time}</strong>
+                <br />
+                Cách {successInfo.locationName}: <strong style={{ color: "var(--color-cyan)" }}>{formatDistance(successInfo.distance)}</strong>
+              </p>
+              <Button onClick={() => router.push("/")} block>
+                Về trang chính
               </Button>
-            </>
-          ) : null}
+            </div>
+          ) : (
+            <CameraCapture
+              captureLabel={checkedIn ? "Chụp ảnh check-out" : "Chụp ảnh check-in"}
+              labels={LABELS}
+              onCaptured={onCaptured}
+              phase={phase}
+              disabled={phase === "working" || (needsReason && !reason.trim())}
+            />
+          )}
 
-          {message ? <Alert tone={tone}>{message}</Alert> : null}
+          {message && !successInfo ? <Alert tone={tone}>{message}</Alert> : null}
+
+          {/* Quick Reason Form for Warning Geofence Area */}
+          {needsReason ? (
+            <div
+              style={{
+                background: "var(--surface-card)",
+                padding: "var(--space-3)",
+                borderRadius: "var(--radius-lg)",
+                border: "1px solid rgba(245, 158, 11, 0.35)",
+              }}
+            >
+              <h3 style={{ fontSize: "var(--text-md)", fontWeight: 700, color: "var(--color-warning)", marginBottom: "8px" }}>
+                Cần lý do cho vị trí này
+              </h3>
+              <p style={{ fontSize: "var(--text-xs)", color: "var(--text-secondary)", marginBottom: "12px" }}>
+                Bạn đang ở ngoài phạm vi chuẩn của địa điểm. Chọn một lý do có sẵn hoặc tự nhập bên dưới.
+              </p>
+
+              <div className="filter-pills" style={{ marginBottom: "12px" }}>
+                {QUICK_REASONS.map((q) => (
+                  <button
+                    key={q}
+                    type="button"
+                    className={`pill-chip ${reason === q ? "pill-chip--active" : ""}`}
+                    onClick={() => setReason(q)}
+                  >
+                    {q}
+                  </button>
+                ))}
+              </div>
+
+              <TextAreaField
+                label="Lý do chi tiết"
+                required
+                placeholder="Mô tả ngắn gọn lý do hoặc vị trí thực tế của bạn…"
+                value={reason}
+                onChange={(e) => setReason(e.target.value)}
+              />
+
+              <Button
+                style={{ marginTop: "12px" }}
+                onClick={confirmWithReason}
+                disabled={reason.trim().length === 0 || phase === "working"}
+                loading={phase === "working"}
+                block
+              >
+                Xác nhận và ghi nhận
+              </Button>
+            </div>
+          ) : null}
 
           {blocked ? (
-            <Alert tone="info">Không thể {action.toLowerCase()} tại đây. Lần thử này đã được ghi lại.</Alert>
+            <div className="row">
+              <Button variant="secondary" onClick={() => router.push("/")} block>
+                Về trang chính
+              </Button>
+            </div>
           ) : null}
-
-          <Button variant="ghost" onClick={() => router.push("/")}>
-            Trang chính
-          </Button>
         </div>
       </Card>
     </AppShell>

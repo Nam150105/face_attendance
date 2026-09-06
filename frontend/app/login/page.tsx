@@ -67,42 +67,91 @@ export default function LoginPage() {
 
   return (
     <AppShell>
-      <h1 className="page-title">{registering ? "Tạo tài khoản" : "Đăng nhập"}</h1>
-      <p className="page-lead">
-        {registering ? "MEMBER để chấm công, MANAGER để quản lý." : "Chấm công bằng khuôn mặt và GPS."}
-      </p>
+      <div style={{ textAlign: "center", marginBottom: "var(--space-3)" }}>
+        <h1 className="page-title" style={{ fontSize: "var(--text-3xl)", marginBottom: "6px" }}>
+          {registering ? "Tạo tài khoản" : "Đăng nhập"}
+        </h1>
+        <p className="page-lead">
+          {registering
+            ? "Chọn loại tài khoản phù hợp với vai trò của bạn trong tổ chức."
+            : "Chấm công và điểm danh bằng nhận diện khuôn mặt, xác thực bằng vị trí."}
+        </p>
 
-      <Card>
-        <form className="stack" onSubmit={submit}>
-          <SelectField
-            label="Vai trò"
-            value={role}
-            onChange={(event) => setRole(event.target.value as UserRole)}
-            style={registering ? undefined : { display: "none" }}
-            aria-hidden={!registering}
+        {/* Mode Switcher Tabs */}
+        <div
+          style={{
+            display: "inline-flex",
+            background: "var(--surface-panel)",
+            padding: "4px",
+            borderRadius: "var(--radius-full)",
+            border: "1px solid var(--border-subtle)",
+            marginBottom: "var(--space-2)",
+          }}
+        >
+          <button
+            type="button"
+            className={`pill-chip ${!registering ? "pill-chip--active" : ""}`}
+            style={{ border: "none", padding: "8px 22px" }}
+            onClick={() => {
+              setMode("login");
+              setError(null);
+            }}
           >
-            <option value="MEMBER">MEMBER</option>
-            <option value="MANAGER">MANAGER</option>
-          </SelectField>
+            Đăng nhập
+          </button>
+          <button
+            type="button"
+            className={`pill-chip ${registering ? "pill-chip--active" : ""}`}
+            style={{ border: "none", padding: "8px 22px" }}
+            onClick={() => {
+              setMode("register");
+              setError(null);
+            }}
+          >
+            Tạo tài khoản
+          </button>
+        </div>
+      </div>
+
+      <Card glow>
+        <form className="stack" onSubmit={submit}>
+          {registering ? (
+            <SelectField
+              label="Loại tài khoản"
+              value={role}
+              onChange={(event) => setRole(event.target.value as UserRole)}
+              hint={
+                role === "MEMBER"
+                  ? "Người tự check-in / check-out bằng khuôn mặt và vị trí."
+                  : "Người thiết lập địa điểm, quản lý danh sách và duyệt bản ghi."
+              }
+            >
+              <option value="MEMBER">Thành viên (MEMBER)</option>
+              <option value="MANAGER">Quản trị viên (MANAGER)</option>
+            </SelectField>
+          ) : null}
 
           <Field
             label="Email"
             type="email"
             inputMode="email"
             autoComplete="email"
+            placeholder="ten.ban@tochuc.vn"
             required
             value={email}
             onChange={(event) => setEmail(event.target.value)}
           />
+
           <Field
             label="Mật khẩu"
             type="password"
             autoComplete={registering ? "new-password" : "current-password"}
             required
             minLength={8}
+            placeholder="••••••••"
             value={password}
             onChange={(event) => setPassword(event.target.value)}
-            hint={registering ? "Tối thiểu 8 ký tự, có chữ và số" : undefined}
+            hint={registering ? "Tối thiểu 8 ký tự, nên có cả chữ và số." : undefined}
           />
 
           {registering && role === "MEMBER" ? (
@@ -128,20 +177,20 @@ export default function LoginPage() {
                 onChange={(event) => setProfileField("phone", event.target.value)}
               />
               <div className="row">
-                <div style={{ flex: "1 1 150px" }}>
+                <div style={{ flex: "1 1 140px" }}>
                   <Field
-                    label="Mã nhân viên"
+                    label="Mã định danh"
                     maxLength={100}
-                    placeholder="Tuỳ chọn"
+                    placeholder="NV-0123 / SV-24001"
                     value={profile.employee_code}
                     onChange={(event) => setProfileField("employee_code", event.target.value)}
                   />
                 </div>
-                <div style={{ flex: "1 1 150px" }}>
+                <div style={{ flex: "1 1 140px" }}>
                   <Field
-                    label="Bộ phận"
+                    label="Đơn vị / Nhóm"
                     maxLength={150}
-                    placeholder="Tuỳ chọn"
+                    placeholder="Phòng Kỹ thuật / Lớp 12A1"
                     value={profile.department}
                     onChange={(event) => setProfileField("department", event.target.value)}
                   />
@@ -150,7 +199,7 @@ export default function LoginPage() {
               <Field
                 label="Chức danh"
                 maxLength={150}
-                placeholder="Tuỳ chọn"
+                placeholder="Chuyên viên / Giảng viên / Học viên"
                 value={profile.position}
                 onChange={(event) => setProfileField("position", event.target.value)}
               />
@@ -159,25 +208,15 @@ export default function LoginPage() {
 
           {error ? <Alert tone="danger">{error}</Alert> : null}
 
-          <Button type="submit" loading={submitting} block>
-            {registering ? "Đăng ký" : "Đăng nhập"}
+          <Button type="submit" size="lg" loading={submitting} block>
+            {registering ? "Tạo tài khoản" : "Đăng nhập"}
           </Button>
         </form>
       </Card>
 
-      <p className="page-lead">
-        {registering ? "Đã có tài khoản? " : "Chưa có tài khoản? "}
-        <button
-          type="button"
-          className="link"
-          onClick={() => {
-            setMode(registering ? "login" : "register");
-            setError(null);
-          }}
-        >
-          {registering ? "Đăng nhập" : "Đăng ký"}
-        </button>
-      </p>
+      <div style={{ textAlign: "center", marginTop: "var(--space-2)", fontSize: "var(--text-xs)", color: "var(--text-muted)" }}>
+        🔒 Dữ liệu khuôn mặt được lưu dưới dạng đặc trưng đã mã hoá và chỉ dùng để đối chiếu khi bạn check-in.
+      </div>
     </AppShell>
   );
 }

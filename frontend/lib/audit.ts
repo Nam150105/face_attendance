@@ -10,7 +10,7 @@ const ACTION_LABELS: Record<string, string> = {
   LOCATION_DEACTIVATED: "Tắt địa điểm",
   LOCATION_ASSIGNED: "Gán địa điểm",
   LOCATION_UNASSIGNED: "Gỡ địa điểm",
-  ATTENDANCE_MANUALLY_ADJUSTED: "Sửa bản ghi chấm công",
+  ATTENDANCE_MANUALLY_ADJUSTED: "Điều chỉnh bản ghi",
 };
 
 const FIELD_LABELS: Record<string, string> = {
@@ -20,8 +20,8 @@ const FIELD_LABELS: Record<string, string> = {
   address: "Địa chỉ",
   latitude: "Vĩ độ",
   longitude: "Kinh độ",
-  allow_radius_meters: "Bán kính cho phép",
-  warning_radius_meters: "Bán kính cảnh báo",
+  allow_radius_meters: "Phạm vi cho phép",
+  warning_radius_meters: "Phạm vi cảnh báo",
   is_active: "Đang bật",
   location_id: "Địa điểm",
   is_default: "Mặc định",
@@ -35,7 +35,7 @@ const STATUS_LABELS: Record<string, string> = {
   SUCCESS: "Hợp lệ",
   WARNING_CONFIRMED: "Cảnh báo đã xác nhận",
   BLOCKED: "Bị chặn",
-  FAILED: "Thất bại",
+  FAILED: "Không hợp lệ",
 };
 
 export type AuditTone = "neutral" | "success" | "warning" | "danger";

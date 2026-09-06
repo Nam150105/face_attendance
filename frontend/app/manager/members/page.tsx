@@ -10,7 +10,6 @@ import {
   Button,
   Card,
   Checkbox,
-  DataList,
   Empty,
   LoadingRows,
   SelectField,
@@ -20,10 +19,17 @@ import { api } from "../../../lib/api";
 import { BULK_STATUS_LABELS, describeError } from "../../../lib/messages";
 import type { BulkAddResult, ManagedMember, ManagerLocation } from "../../../lib/types";
 
+function initials(name: string | null, email: string): string {
+  const source = name?.trim() || email;
+  const parts = source.split(/[\s@.]+/).filter(Boolean);
+  return (parts.length > 1 ? parts[0][0] + parts[parts.length - 1][0] : source.slice(0, 2)).toUpperCase();
+}
+
 export default function ManagerMembersPage() {
   const [members, setMembers] = useState<ManagedMember[] | null>(null);
   const [locations, setLocations] = useState<ManagerLocation[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const [search, setSearch] = useState("");
   const [emails, setEmails] = useState("");
   const [adding, setAdding] = useState(false);
   const [addError, setAddError] = useState<string | null>(null);
@@ -67,7 +73,6 @@ export default function ManagerMembersPage() {
       if (result.failed === 0) {
         setEmails("");
       } else {
-        // Keep only the lines that still need attention so they can be fixed in place.
         setEmails(
           result.results
             .filter((item) => item.status === "NOT_REGISTERED" || item.status === "INVALID_EMAIL")
@@ -137,23 +142,39 @@ export default function ManagerMembersPage() {
     }
   }
 
+  const filteredMembers = (members ?? []).filter((m) => {
+    const q = search.toLowerCase();
+    return (
+      m.email.toLowerCase().includes(q) ||
+      (m.full_name && m.full_name.toLowerCase().includes(q)) ||
+      (m.department && m.department.toLowerCase().includes(q)) ||
+      (m.employee_code && m.employee_code.toLowerCase().includes(q))
+    );
+  });
+
   return (
     <ManagerShell>
-      <h1 className="page-title">Thành viên</h1>
-      <p className="page-lead">
-        Chỉ thêm được email đã có tài khoản MEMBER. Mọi thay đổi đều vào nhật ký.
-      </p>
+      <div className="page-header">
+        <div>
+          <h1 className="page-title">Thành viên</h1>
+          <p className="page-lead">Danh sách người bạn quản lý, trạng thái hồ sơ và phân công địa điểm.</p>
+        </div>
+      </div>
 
       {error ? <Alert tone="danger">{error}</Alert> : null}
 
-      <Card title="Thêm thành viên">
+      {/* Bulk Add Member Card */}
+      <Card
+        title="Thêm thành viên"
+        subtitle="Nhập email của người đã có tài khoản — mỗi email một dòng hoặc ngăn cách bằng dấu phẩy."
+      >
         <form className="stack" onSubmit={addMembers}>
           <TextAreaField
-            label="Email"
-            hint="Mỗi email một dòng. Tối đa 200 email mỗi lần."
+            label="Danh sách email"
+            hint={`Đã nhận ${parsedEmails.length} email · tối đa 200 email mỗi lần.`}
             required
-            rows={5}
-            placeholder={"an@example.com\nbinh@example.com\nchi@example.com"}
+            rows={3}
+            placeholder={"an.nguyen@tochuc.vn\nbinh.tran@tochuc.vn"}
             value={emails}
             onChange={(event) => setEmails(event.target.value)}
           />
@@ -161,80 +182,123 @@ export default function ManagerMembersPage() {
           {addError ? <Alert tone="danger">{addError}</Alert> : null}
 
           {outcome ? (
-            <div className="stack stack--tight">
-              <Alert tone={outcome.failed === 0 ? "success" : "warning"}>
-                Đã thêm {outcome.succeeded}/{outcome.requested}
-                {outcome.already_managed > 0 ? ` · ${outcome.already_managed} đã có sẵn` : ""}
-                {outcome.failed > 0 ? ` · ${outcome.failed} chưa thêm được` : ""}
-              </Alert>
-              <ul className="outcome">
+            <div
+              style={{
+                background: "var(--surface-input)",
+                padding: "var(--space-2)",
+                borderRadius: "var(--radius-md)",
+                border: "1px solid var(--border-subtle)",
+              }}
+            >
+              <p style={{ fontSize: "var(--text-sm)", fontWeight: 700, marginBottom: "8px" }}>
+                Kết quả: {outcome.succeeded} thành công · {outcome.failed} cần xem lại
+              </p>
+              <div className="stack stack--tight">
                 {outcome.results.map((item) => {
-                  const meta = BULK_STATUS_LABELS[item.status];
+                  const meta = BULK_STATUS_LABELS[item.status] ?? { label: item.status, tone: "neutral" as const };
                   return (
-                    <li className="outcome__row" key={item.email}>
-                      <span className="outcome__email">{item.email}</span>
+                    <div className="row row--between" key={item.email} style={{ fontSize: "var(--text-xs)" }}>
+                      <span>{item.email}</span>
                       <Badge tone={meta.tone}>{meta.label}</Badge>
-                    </li>
+                    </div>
                   );
                 })}
-              </ul>
-              {outcome.failed > 0 ? (
-                <p className="field__hint">
-                  Các email chưa thêm được đã giữ lại trong ô trên. Người chưa có tài khoản cần tự đăng ký trước.
-                </p>
-              ) : null}
+              </div>
             </div>
           ) : null}
 
-          <Button type="submit" loading={adding} disabled={parsedEmails.length === 0}>
-            {parsedEmails.length > 1 ? `Thêm ${parsedEmails.length} email` : "Thêm"}
+          <Button type="submit" loading={adding} disabled={parsedEmails.length === 0} block>
+            {parsedEmails.length > 0 ? `Thêm ${parsedEmails.length} thành viên` : "Thêm thành viên"}
           </Button>
         </form>
       </Card>
 
-      <Card title="Đang quản lý">
+      {/* Members Directory Card */}
+      <Card
+        title={`Danh sách thành viên (${filteredMembers.length})`}
+        action={
+          <div className="search-input-wrap">
+            <svg
+              className="search-icon"
+              width="16"
+              height="16"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              aria-hidden="true"
+            >
+              <circle cx="11" cy="11" r="7" />
+              <line x1="21" y1="21" x2="16.65" y2="16.65" />
+            </svg>
+            <input
+              className="input search-input"
+              aria-label="Tìm thành viên"
+              placeholder="Tìm theo tên, email, đơn vị…"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+            />
+          </div>
+        }
+      >
         {members === null ? (
-          <LoadingRows count={3} />
-        ) : members.length === 0 ? (
-          <Empty>Chưa có thành viên.</Empty>
+          <LoadingRows count={4} />
+        ) : filteredMembers.length === 0 ? (
+          <Empty>Không tìm thấy thành viên nào phù hợp.</Empty>
         ) : (
           <div className="table-wrap">
             <table className="table">
               <thead>
                 <tr>
                   <th>Thành viên</th>
-                  <th>Bộ phận</th>
+                  <th>Đơn vị / Mã</th>
+                  <th>Chức danh / Điện thoại</th>
                   <th>Trạng thái</th>
-                  <th aria-label="Hành động" />
+                  <th aria-label="Thao tác" />
                 </tr>
               </thead>
               <tbody>
-                {members.map((member) => (
+                {filteredMembers.map((member) => (
                   <tr key={member.user_id}>
                     <td data-label="Thành viên">
-                      <span className="event__label">{member.full_name ?? "(chưa có tên)"}</span>
-                      <p className="event__meta">{member.email}</p>
+                      <div className="row">
+                        <span className="person__avatar" aria-hidden="true">
+                          {initials(member.full_name, member.email)}
+                        </span>
+                        <div>
+                          <p className="person__name">{member.full_name ?? member.email}</p>
+                          <p className="event__meta">{member.email}</p>
+                        </div>
+                      </div>
                     </td>
-                    <td data-label="Bộ phận">{member.department ?? "—"}</td>
+                    <td data-label="Đơn vị">
+                      <p className="event__label">{member.department ?? "—"}</p>
+                      {member.employee_code ? (
+                        <p className="event__meta mono">{member.employee_code}</p>
+                      ) : null}
+                    </td>
+                    <td data-label="Chức danh">
+                      <p className="event__label">{member.position ?? "—"}</p>
+                      {member.phone ? <p className="event__meta">{member.phone}</p> : null}
+                    </td>
                     <td data-label="Trạng thái">
-                      <Badge tone={member.membership_status === "ACTIVE" ? "success" : "warning"}>
-                        {member.membership_status}
+                      <Badge tone={member.membership_status === "ACTIVE" ? "success" : "neutral"}>
+                        {member.membership_status === "ACTIVE" ? "Đang hoạt động" : "Tạm ngưng"}
                       </Badge>
                     </td>
-                    <td data-label="Hành động">
+                    <td data-label="Thao tác">
                       <div className="row">
-                        <Button variant="secondary" onClick={() => void openAssign(member)}>
-                          Địa điểm
+                        <Button size="sm" variant="secondary" onClick={() => void openAssign(member)}>
+                          Phân công
                         </Button>
-                        {member.membership_status === "ACTIVE" ? (
-                          <Button variant="ghost" onClick={() => void changeStatus(member, "SUSPENDED")}>
-                            Tạm ngưng
-                          </Button>
-                        ) : (
-                          <Button variant="ghost" onClick={() => void changeStatus(member, "ACTIVE")}>
-                            Kích hoạt
-                          </Button>
-                        )}
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          onClick={() => void changeStatus(member, member.membership_status === "ACTIVE" ? "SUSPENDED" : "ACTIVE")}
+                          style={{ color: member.membership_status === "ACTIVE" ? "var(--color-danger)" : "var(--color-success)" }}
+                        >
+                          {member.membership_status === "ACTIVE" ? "Tạm ngưng" : "Kích hoạt"}
+                        </Button>
                       </div>
                     </td>
                   </tr>
@@ -245,66 +309,72 @@ export default function ManagerMembersPage() {
         )}
       </Card>
 
+      {/* Location Assignment Dialog */}
       {selected ? (
-        <Dialog title={`Địa điểm của ${selected.email}`} onClose={() => setSelected(null)}>
+        <Dialog
+          title={`Phân công: ${selected.full_name ?? selected.email}`}
+          onClose={() => setSelected(null)}
+        >
           <div className="stack">
-            {assigned === null ? (
-              <LoadingRows count={2} />
-            ) : assigned.length === 0 ? (
-              <Alert tone="warning">Chưa gán địa điểm nên chưa check-in được.</Alert>
-            ) : (
-              <div>
-                {assigned.map((location) => (
-                  <div className="event" key={location.id}>
-                    <div>
-                      <p className="event__label">{location.name}</p>
-                      <p className="event__meta">
-                        {location.latitude.toFixed(5)}, {location.longitude.toFixed(5)} · cho phép{" "}
-                        {location.allow_radius_meters}m
-                      </p>
-                    </div>
-                    <div className="row">
-                      {location.is_default ? <Badge tone="info">Mặc định</Badge> : null}
-                      <Button variant="ghost" disabled={busy} onClick={() => void unassign(location)}>
+            {dialogError ? <Alert tone="danger">{dialogError}</Alert> : null}
+
+            <div>
+              <h3 style={{ fontSize: "var(--text-sm)", fontWeight: 700, marginBottom: "8px" }}>
+                Địa điểm đang được phân công
+              </h3>
+              {assigned === null ? (
+                <LoadingRows count={2} />
+              ) : assigned.length === 0 ? (
+                <Empty>Chưa được phân công địa điểm nào.</Empty>
+              ) : (
+                <div className="stack stack--tight">
+                  {assigned.map((location) => (
+                    <div className="event" key={location.id}>
+                      <div>
+                        <p className="event__label">{location.name}</p>
+                        <p className="event__meta">
+                          Phạm vi {location.allow_radius_meters}m {location.is_default ? "· Mặc định" : ""}
+                        </p>
+                      </div>
+                      <Button size="sm" variant="ghost" disabled={busy} onClick={() => void unassign(location)}>
                         Gỡ
                       </Button>
                     </div>
-                  </div>
-                ))}
-              </div>
-            )}
+                  ))}
+                </div>
+              )}
+            </div>
 
-            {locations.length === 0 ? (
-              <Alert tone="warning">Không có địa điểm nào đang bật.</Alert>
-            ) : (
-              <>
+            <hr className="divider" />
+
+            {locations.length > 0 ? (
+              <div className="stack">
+                <h3 style={{ fontSize: "var(--text-sm)", fontWeight: 700 }}>Thêm địa điểm</h3>
                 <SelectField
-                  label="Gán thêm"
+                  label="Chọn địa điểm"
                   value={locationId}
                   onChange={(event) => setLocationId(event.target.value)}
                 >
-                  {locations.map((location) => (
-                    <option key={location.id} value={location.id}>
-                      {location.name}
+                  {locations.map((item) => (
+                    <option key={item.id} value={item.id}>
+                      {item.name}
                     </option>
                   ))}
                 </SelectField>
-                <Checkbox label="Đặt làm mặc định" checked={isDefault} onChange={setIsDefault} />
-                <Button onClick={() => void assign()} loading={busy} disabled={!locationId}>
-                  Gán
+
+                <Checkbox
+                  label="Đặt làm địa điểm mặc định"
+                  checked={isDefault}
+                  onChange={setIsDefault}
+                />
+
+                <Button onClick={assign} loading={busy} block>
+                  Phân công địa điểm
                 </Button>
-              </>
+              </div>
+            ) : (
+              <Alert tone="warning">Chưa có địa điểm nào đang bật. Hãy tạo địa điểm trước.</Alert>
             )}
-
-            {dialogError ? <Alert tone="danger">{dialogError}</Alert> : null}
-
-            <DataList
-              rows={[
-                { key: "Email", value: selected.email },
-                { key: "Mã nhân viên", value: selected.employee_code ?? "—" },
-                { key: "Chức danh", value: selected.position ?? "—" },
-              ]}
-            />
           </div>
         </Dialog>
       ) : null}

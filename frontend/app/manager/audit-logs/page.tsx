@@ -13,8 +13,8 @@ import type { AuditLogEntry } from "../../../lib/types";
 const PAGE_SIZE = 25;
 
 const ENTITY_LABELS: Array<{ value: string; label: string }> = [
-  { value: "", label: "Tất cả" },
-  { value: "attendance_event", label: "Chấm công" },
+  { value: "", label: "Tất cả hoạt động" },
+  { value: "attendance_event", label: "Bản ghi ghi nhận" },
   { value: "location", label: "Địa điểm" },
   { value: "member_location", label: "Phân công địa điểm" },
   { value: "manager_membership", label: "Thành viên" },
@@ -52,17 +52,23 @@ export default function ManagerAuditLogsPage() {
 
   return (
     <ManagerShell>
-      <h1 className="page-title">Nhật ký</h1>
-      <p className="page-lead">Mọi thay đổi quản trị từ tài khoản của bạn.</p>
+      <div className="page-header">
+        <div>
+          <h1 className="page-title">Nhật ký hoạt động</h1>
+          <p className="page-lead">
+            Lưu vết mọi thay đổi về thành viên, địa điểm và bản ghi, kèm người thực hiện.
+          </p>
+        </div>
+      </div>
 
       {error ? <Alert tone="danger">{error}</Alert> : null}
 
       <Card
-        title={`${total} thay đổi`}
+        title={`Lịch sử thay đổi (${total})`}
         action={
-          <div style={{ minWidth: 170 }}>
+          <div style={{ minWidth: 220 }}>
             <SelectField
-              label="Lọc"
+              label="Loại hoạt động"
               value={entityType}
               onChange={(event) => {
                 setPage(0);
@@ -81,7 +87,7 @@ export default function ManagerAuditLogsPage() {
         {entries === null ? (
           <LoadingRows count={4} />
         ) : entries.length === 0 ? (
-          <Empty>Chưa có thay đổi nào.</Empty>
+          <Empty>Chưa có thay đổi nào trong nhóm này.</Empty>
         ) : (
           <>
             <ol className="timeline">
@@ -100,24 +106,32 @@ export default function ManagerAuditLogsPage() {
                         <ul className="changes">
                           {changes.map((change) => (
                             <li className="changes__row" key={change.field}>
-                              <span className="changes__field">{change.field}</span>
+                              <span className="changes__field">{change.field}:</span>
                               {change.before !== null ? (
                                 <>
-                                  <span className="changes__before">{change.before}</span>
+                                  <span className="changes__before" style={{ textDecoration: "line-through", color: "var(--text-muted)" }}>
+                                    {change.before}
+                                  </span>
                                   <span className="changes__arrow" aria-label="thành">
                                     →
                                   </span>
                                 </>
                               ) : null}
-                              <span className="changes__after">{change.after ?? "đã xoá"}</span>
+                              <span className="changes__after" style={{ color: "var(--color-cyan)", fontWeight: 600 }}>
+                                {change.after ?? "đã gỡ bỏ"}
+                              </span>
                             </li>
                           ))}
                         </ul>
                       ) : null}
 
-                      {entry.reason ? <p className="timeline__reason">Lý do: {entry.reason}</p> : null}
-                      <p className="event__meta">
-                        <Badge tone="neutral">{entry.actor_email}</Badge>
+                      {entry.reason ? (
+                        <p className="timeline__reason">
+                          Lý do: <strong>{entry.reason}</strong>
+                        </p>
+                      ) : null}
+                      <p className="event__meta" style={{ marginTop: 4 }}>
+                        Người thực hiện: <Badge tone="neutral">{entry.actor_email}</Badge>
                       </p>
                     </div>
                   </li>
@@ -127,13 +141,13 @@ export default function ManagerAuditLogsPage() {
 
             <div className="pagination">
               <Button variant="secondary" size="sm" disabled={page === 0} onClick={() => setPage(page - 1)}>
-                Trước
+                ← Trước
               </Button>
-              <span>
-                {page + 1} / {lastPage + 1}
+              <span className="mono">
+                Trang {page + 1} / {lastPage + 1} ({total} bản ghi)
               </span>
               <Button variant="secondary" size="sm" disabled={page >= lastPage} onClick={() => setPage(page + 1)}>
-                Sau
+                Sau →
               </Button>
             </div>
           </>
