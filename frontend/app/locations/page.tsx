@@ -17,17 +17,17 @@ interface Evaluated {
 }
 
 const DECISION_TEXT: Record<string, { label: string; tone: "success" | "warning" | "danger"; hint: string }> = {
-  ALLOW: { label: "Có thể check-in", tone: "success", hint: "Bạn đang trong phạm vi cho phép." },
+  ALLOW: { label: "Chấm công được", tone: "success", hint: "Bạn đang ở đủ gần nơi làm việc." },
   WARNING_REASON_REQUIRED: {
-    label: "Cần nhập lý do",
+    label: "Được, nhưng cần nêu lý do",
     tone: "warning",
-    hint: "Ngoài phạm vi chuẩn nhưng vẫn trong vùng cảnh báo.",
+    hint: "Bạn hơi xa nơi làm việc, hệ thống sẽ hỏi lý do khi bạn chấm công.",
   },
-  BLOCK: { label: "Không thể check-in", tone: "danger", hint: "Bạn ở quá xa địa điểm này." },
+  BLOCK: { label: "Chưa chấm công được", tone: "danger", hint: "Bạn đang ở quá xa. Hãy tới gần hơn." },
   GPS_ACCURACY_LOW: {
-    label: "Tín hiệu định vị yếu",
+    label: "Chưa xác định được vị trí",
     tone: "warning",
-    hint: "Cần định vị chính xác hơn mới ghi nhận được.",
+    hint: "Bật Wi-Fi hoặc ra chỗ thoáng để máy xác định vị trí chính xác hơn.",
   },
 };
 
@@ -85,11 +85,11 @@ export default function MemberLocationsPage() {
 
       <div className="page-header">
         <div>
-          <h1 className="page-title">Địa điểm của bạn</h1>
-          <p className="page-lead">Địa điểm được phân công, phạm vi cho phép và khoảng cách hiện tại.</p>
+          <h1 className="page-title">Nơi làm việc của bạn</h1>
+          <p className="page-lead">Xem bạn đang cách nơi làm việc bao xa và có chấm công được không.</p>
         </div>
         <Button onClick={() => void measure()} loading={checking} disabled={!locations || locations.length === 0}>
-          Đo khoảng cách hiện tại
+          Kiểm tra xem tôi có chấm công được không
         </Button>
       </div>
 
@@ -99,8 +99,7 @@ export default function MemberLocationsPage() {
 
       {position ? (
         <Alert tone="info">
-          Đã lấy vị trí với độ chính xác ±{position.accuracyMeters.toFixed(0)} m. Khoảng cách bên dưới do máy chủ tính
-          lại, không lấy từ trình duyệt.
+          Đã xác định được vị trí của bạn. Khoảng cách bên dưới được hệ thống tính lại để đảm bảo chính xác.
         </Alert>
       ) : null}
 
@@ -110,7 +109,7 @@ export default function MemberLocationsPage() {
         </Card>
       ) : locations && locations.length === 0 ? (
         <Card>
-          <Empty>Bạn chưa được phân công địa điểm nào. Hãy liên hệ người quản lý.</Empty>
+          <Empty>Bạn chưa được phân nơi làm việc nào. Hãy nhắn cho người quản lý nhé.</Empty>
         </Card>
       ) : (
         (locations ?? []).map((location) => {
@@ -125,26 +124,25 @@ export default function MemberLocationsPage() {
             >
               <DataList
                 rows={[
-                  { key: "Phạm vi cho phép", value: `${location.allow_radius_meters} m` },
-                  { key: "Phạm vi cảnh báo", value: `${location.warning_radius_meters} m` },
+                  { key: "Chấm công được khi ở trong", value: `${location.allow_radius_meters} m` },
                   {
-                    key: "Khoảng cách hiện tại",
-                    value: result ? formatDistance(result.decision.distance_meters) : "Chưa đo",
+                    key: "Bạn đang cách đây",
+                    value: result ? formatDistance(result.decision.distance_meters) : "Bấm nút phía trên để kiểm tra",
                   },
                   {
-                    key: "Trạng thái",
+                    key: "Kết quả",
                     value: meta ? (
                       <Badge tone={meta.tone}>{meta.label}</Badge>
                     ) : (
-                      <Badge tone="neutral">Nhấn “Đo khoảng cách hiện tại”</Badge>
+                      <Badge tone="neutral">Chưa kiểm tra</Badge>
                     ),
                   },
                   {
-                    key: "Địa điểm đang bật",
+                    key: "Nơi này",
                     value: location.is_active ? (
-                      <Badge tone="success">Đang hoạt động</Badge>
+                      <Badge tone="success">Đang nhận chấm công</Badge>
                     ) : (
-                      <Badge tone="danger">Đã tắt</Badge>
+                      <Badge tone="danger">Tạm ngừng</Badge>
                     ),
                   },
                 ]}

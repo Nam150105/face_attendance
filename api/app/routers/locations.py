@@ -32,6 +32,8 @@ class LocationRequest(BaseModel):
     expected_check_in: time | None = None
     expected_check_out: time | None = None
     grace_minutes: int = Field(default=10, ge=0, le=240)
+    # Off: late arrivals are recorded and reported. On: they are refused.
+    enforce_hours: bool = False
 
 
 class AssignmentRequest(BaseModel):

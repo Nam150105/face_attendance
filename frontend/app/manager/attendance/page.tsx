@@ -19,6 +19,7 @@ import {
 import { api } from "../../../lib/api";
 import { formatDateTime, formatDistance } from "../../../lib/geo";
 import { describeError, describeFailure } from "../../../lib/messages";
+import { describeMinutes } from "../../../lib/member";
 import type {
   AttendanceFilters,
   AttendanceStatus,
@@ -188,7 +189,7 @@ export default function ManagerAttendancePage() {
       <div className="page-header">
         <div>
           <h1 className="page-title">Bản ghi</h1>
-          <p className="page-lead">Toàn bộ lượt check-in và check-out của những thành viên bạn quản lý.</p>
+          <p className="page-lead">Toàn bộ lượt vào ra của những người bạn đang quản lý.</p>
         </div>
         <div className="row">
           <Button
@@ -356,12 +357,12 @@ export default function ManagerAttendancePage() {
 
       {/* Side-by-Side Face Evidence & Adjustment Modal */}
       {selected ? (
-        <Dialog title="Chi tiết bản ghi" onClose={() => setSelected(null)}>
+        <Dialog title="Chi tiết lượt chấm công" onClose={() => setSelected(null)}>
           <div className="stack">
             {/* Image Preview Box */}
             {selected.has_image ? (
               <div className="evidence-box">
-                <span className="evidence-box__label">Ảnh chụp lúc ghi nhận</span>
+                <span className="evidence-box__label">Ảnh chụp lúc chấm công</span>
                 <div className="evidence-img-wrap">
                   {imageUrl ? (
                     <img src={imageUrl} alt="Ảnh chụp lúc ghi nhận" className="evidence-img" />
@@ -373,7 +374,7 @@ export default function ManagerAttendancePage() {
                 </div>
               </div>
             ) : (
-              <Alert tone="info">Bản ghi này không có ảnh đính kèm.</Alert>
+              <Alert tone="info">Lượt này không có ảnh kèm theo.</Alert>
             )}
 
             <DataList
@@ -382,10 +383,30 @@ export default function ManagerAttendancePage() {
                 { key: "Sự kiện", value: selected.event_type === "CHECK_IN" ? "Check-in" : "Check-out" },
                 { key: "Địa điểm", value: selected.location_name },
                 { key: "Thời điểm ghi nhận", value: formatDateTime(selected.server_time) },
-                { key: "Khoảng cách", value: `${selected.distance_meters.toFixed(1)} m · độ chính xác ±${selected.gps_accuracy_meters.toFixed(0)} m` },
+                { key: "Cách địa điểm", value: `${selected.distance_meters.toFixed(1)} m (sai số định vị khoảng ${selected.gps_accuracy_meters.toFixed(0)} m)` },
                 { key: "Trạng thái", value: <Badge tone={STATUS_TONE[selected.status]}>{STATUS_LABELS[selected.status] ?? selected.status}</Badge> },
-                { key: "Lý do", value: selected.reason ?? "Không có" },
-                { key: "Thời điểm tạo bản ghi", value: formatDateTime(selected.created_at) },
+                // Two different things were both called "lý do": why the system
+                // refused, and what the member typed. They are separate rows now.
+                ...(selected.failure_code
+                  ? [
+                      {
+                        key: "Vì sao không hợp lệ",
+                        value: (
+                          <span style={{ color: "var(--color-danger)" }}>
+                            {describeFailure(selected.failure_code)}
+                          </span>
+                        ),
+                      },
+                    ]
+                  : []),
+                ...(selected.minutes_late
+                  ? [{ key: "Vào muộn", value: describeMinutes(selected.minutes_late) }]
+                  : []),
+                ...(selected.minutes_early_leave
+                  ? [{ key: "Ra sớm", value: describeMinutes(selected.minutes_early_leave) }]
+                  : []),
+                { key: "Giải trình của thành viên", value: selected.reason ?? "Không có" },
+                { key: "Lưu vào hệ thống lúc", value: formatDateTime(selected.created_at) },
               ]}
             />
 

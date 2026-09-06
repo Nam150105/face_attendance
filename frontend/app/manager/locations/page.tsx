@@ -8,6 +8,7 @@ import { ManagerShell } from "../../../components/ManagerShell";
 import { Alert, Badge, Button, Card, Checkbox, Empty, Field, LoadingRows } from "../../../components/ui";
 import { api } from "../../../lib/api";
 import { describeError } from "../../../lib/messages";
+import { shortTime } from "../../../lib/member";
 import type { LocationInput, ManagerLocation } from "../../../lib/types";
 
 const EMPTY_FORM: LocationInput = {
@@ -21,6 +22,7 @@ const EMPTY_FORM: LocationInput = {
   expected_check_in: null,
   expected_check_out: null,
   grace_minutes: 10,
+  enforce_hours: false,
 };
 
 export default function ManagerLocationsPage() {
@@ -31,6 +33,7 @@ export default function ManagerLocationsPage() {
   const [form, setForm] = useState<LocationInput>(EMPTY_FORM);
   const [formError, setFormError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const [foundAddress, setFoundAddress] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     try {
@@ -47,6 +50,7 @@ export default function ManagerLocationsPage() {
 
   function openCreate() {
     setForm(EMPTY_FORM);
+    setFoundAddress(null);
     setEditing(null);
     setCreating(true);
     setFormError(null);
@@ -64,10 +68,12 @@ export default function ManagerLocationsPage() {
       expected_check_in: location.expected_check_in,
       expected_check_out: location.expected_check_out,
       grace_minutes: location.grace_minutes,
+      enforce_hours: location.enforce_hours,
     });
     setEditing(location);
     setCreating(false);
     setFormError(null);
+    setFoundAddress(null);
   }
 
   const closeDialog = useCallback(() => {
@@ -77,10 +83,6 @@ export default function ManagerLocationsPage() {
 
   const setPoint = useCallback((point: { latitude: number; longitude: number }) => {
     setForm((current) => ({ ...current, ...point }));
-  }, []);
-
-  const setAddress = useCallback((address: string) => {
-    setForm((current) => ({ ...current, address: address || null }));
   }, []);
 
   async function save(event: React.FormEvent) {
@@ -142,6 +144,7 @@ export default function ManagerLocationsPage() {
           expected_check_in: location.expected_check_in,
           expected_check_out: location.expected_check_out,
           grace_minutes: location.grace_minutes,
+          enforce_hours: location.enforce_hours,
         });
       }
       await load();
@@ -156,7 +159,7 @@ export default function ManagerLocationsPage() {
         <div>
           <h1 className="page-title">Địa điểm</h1>
           <p className="page-lead">
-            Thiết lập toạ độ và phạm vi cho phép ghi nhận tại từng địa điểm.
+            Đặt vị trí trên bản đồ, khu vực cho phép chấm công và giờ làm việc của từng nơi.
           </p>
         </div>
         <Button onClick={openCreate} icon={<span>+</span>}>
@@ -170,15 +173,15 @@ export default function ManagerLocationsPage() {
         {locations === null ? (
           <LoadingRows count={3} />
         ) : locations.length === 0 ? (
-          <Empty>Chưa có địa điểm nào. Nhấn &quot;Thêm địa điểm&quot; để bắt đầu.</Empty>
+          <Empty>Chưa có nơi làm việc nào. Nhấn &quot;Thêm địa điểm&quot; để tạo nơi đầu tiên.</Empty>
         ) : (
           <div className="table-wrap">
             <table className="table">
               <thead>
                 <tr>
-                  <th>Tên địa điểm</th>
-                  <th>Toạ độ</th>
-                  <th>Phạm vi (chuẩn / cảnh báo)</th>
+                  <th>Địa điểm</th>
+                  <th>Giờ làm việc</th>
+                  <th>Khu vực cho phép</th>
                   <th>Trạng thái</th>
                   <th aria-label="Thao tác" />
                 </tr>
@@ -186,17 +189,31 @@ export default function ManagerLocationsPage() {
               <tbody>
                 {locations.map((location) => (
                   <tr key={location.id}>
-                    <td data-label="Tên">
+                    <td data-label="Địa điểm">
                       <p className="event__label">{location.name}</p>
-                      {location.address ? <p className="event__meta">{location.address}</p> : null}
+                      <p className="event__meta">{location.address ?? "Chưa có địa chỉ"}</p>
                     </td>
-                    <td data-label="Toạ độ" className="numeric mono" style={{ fontSize: "13px" }}>
-                      {location.latitude.toFixed(5)}, {location.longitude.toFixed(5)}
+                    <td data-label="Giờ làm việc">
+                      {location.expected_check_in ? (
+                        <>
+                          <p className="event__label">
+                            {shortTime(location.expected_check_in)} – {shortTime(location.expected_check_out)}
+                          </p>
+                          <p className="event__meta">
+                            {location.enforce_hours
+                              ? `Khoá cửa sau ${location.grace_minutes} phút`
+                              : `Cho phép trễ ${location.grace_minutes} phút`}
+                          </p>
+                        </>
+                      ) : (
+                        <p className="event__meta">Chưa đặt giờ</p>
+                      )}
                     </td>
-                    <td data-label="Phạm vi" className="numeric">
-                      <span style={{ color: "var(--color-success)", fontWeight: 600 }}>{location.allow_radius_meters}m</span>
-                      {" / "}
-                      <span style={{ color: "var(--color-warning)" }}>{location.warning_radius_meters}m</span>
+                    <td data-label="Khu vực cho phép">
+                      <p className="event__label">Trong {location.allow_radius_meters}m</p>
+                      <p className="event__meta">
+                        Xa hơn {location.warning_radius_meters}m thì không chấm công được
+                      </p>
                     </td>
                     <td data-label="Trạng thái">
                       <Badge tone={location.is_active ? "success" : "neutral"}>
@@ -251,12 +268,32 @@ export default function ManagerLocationsPage() {
 
             <LocationPicker
               point={{ latitude: form.latitude, longitude: form.longitude }}
-              address={form.address ?? ""}
               onPointChange={setPoint}
-              onAddressChange={setAddress}
+              onFound={setFoundAddress}
               allowRadiusMeters={form.allow_radius_meters}
               warningRadiusMeters={form.warning_radius_meters}
             />
+
+            <Field
+              label="Địa chỉ hiển thị"
+              placeholder="Ví dụ: 313 Trần Đại Nghĩa, Hai Bà Trưng, Hà Nội"
+              maxLength={500}
+              value={form.address ?? ""}
+              onChange={(e) => setForm({ ...form, address: e.target.value || null })}
+              hint="Địa chỉ này chỉ để mọi người dễ nhận ra nơi làm việc, không ảnh hưởng tới việc chấm công."
+            />
+            {foundAddress && foundAddress !== form.address ? (
+              <div className="row row--between">
+                <span className="field__hint">Tìm thấy: {foundAddress}</span>
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  onClick={() => setForm({ ...form, address: foundAddress })}
+                >
+                  Dùng địa chỉ này
+                </Button>
+              </div>
+            ) : null}
 
             <div className="field-pair">
               <Field
@@ -298,14 +335,25 @@ export default function ManagerLocationsPage() {
               />
             </div>
             <Field
-              label="Cho phép muộn (phút)"
+              label="Được phép vào trễ (phút)"
               type="number"
               min={0}
               max={240}
               value={form.grace_minutes ?? 10}
               onChange={(e) => setForm({ ...form, grace_minutes: parseInt(e.target.value, 10) || 0 })}
-              hint="Dùng để đánh giá sớm hay muộn khi thành viên chưa có ca riêng."
+              hint="Sau giờ vào bao nhiêu phút thì mới tính là muộn."
             />
+
+            <Checkbox
+              label="Không cho vào sau khi đã quá giờ"
+              checked={form.enforce_hours}
+              onChange={(checked) => setForm({ ...form, enforce_hours: checked })}
+            />
+            <p className="field__hint">
+              {form.enforce_hours
+                ? "Quá giờ cho phép, người đến muộn sẽ không chấm công vào được và bạn vẫn thấy lần thử đó trong danh sách."
+                : "Người đến muộn vẫn chấm công được. Hệ thống sẽ báo cho bạn muộn bao nhiêu, và ra sớm bao nhiêu."}
+            </p>
 
             <Checkbox
               label="Bật địa điểm này ngay sau khi lưu"

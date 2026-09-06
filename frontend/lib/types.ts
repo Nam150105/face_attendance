@@ -164,6 +164,7 @@ export interface ManagerLocation {
   expected_check_in: string | null;
   expected_check_out: string | null;
   grace_minutes: number;
+  enforce_hours: boolean;
 }
 
 export interface LocationInput {
@@ -177,6 +178,7 @@ export interface LocationInput {
   expected_check_in: string | null;
   expected_check_out: string | null;
   grace_minutes: number;
+  enforce_hours: boolean;
 }
 
 export interface ManagerAttendanceEvent {
@@ -199,6 +201,8 @@ export interface ManagerAttendanceEvent {
   reason: string | null;
   created_at: string;
   failure_code: string | null;
+  minutes_late: number | null;
+  minutes_early_leave: number | null;
 }
 
 export interface AttendanceFilters {

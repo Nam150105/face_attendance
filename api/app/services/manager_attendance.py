@@ -17,6 +17,7 @@ EVENT_COLUMNS = """
     e.id, e.member_id, u.email, mp.full_name, e.event_type::text, e.status::text, e.server_time,
     e.location_id, l.name, e.latitude, e.longitude, e.gps_accuracy_meters, e.distance_meters,
     e.face_match_score, e.liveness_score, e.image_object_key IS NOT NULL, e.reason, e.created_at,
+    e.minutes_late, e.minutes_early_leave,
     e.failure_code
 """
 
@@ -41,7 +42,9 @@ def _event(row: tuple) -> dict:
         "has_image": row[15],
         "reason": row[16],
         "created_at": row[17],
-        "failure_code": row[18],
+        "failure_code": row[20],
+        "minutes_late": row[18],
+        "minutes_early_leave": row[19],
     }
 
 

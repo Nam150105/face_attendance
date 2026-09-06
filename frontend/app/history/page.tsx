@@ -103,7 +103,11 @@ export default function HistoryPage() {
           </SelectField>
 
           {mode === "month" ? (
-            <Field label="Tháng" type="month" value={month} onChange={(e) => setMonth(e.target.value)} />
+            // The native month value ("September 2026") needs more room than a
+            // half-width cell gives it on a phone.
+            <div className="filters-bar__wide">
+              <Field label="Tháng" type="month" value={month} onChange={(e) => setMonth(e.target.value)} />
+            </div>
           ) : (
             <>
               <Field label="Từ ngày" type="date" value={from} onChange={(e) => setFrom(e.target.value)} />
@@ -162,53 +166,25 @@ export default function HistoryPage() {
         ) : days.length === 0 ? (
           <Empty>Không có ngày nào khớp với bộ lọc hiện tại.</Empty>
         ) : (
-          <div className="table-wrap">
-            <table className="table">
-              <thead>
-                <tr>
-                  <th>Ngày</th>
-                  <th>Check-in</th>
-                  <th>Check-out</th>
-                  <th>Tổng thời gian</th>
-                  <th>Địa điểm</th>
-                  <th>Trạng thái</th>
-                  <th>Chi tiết</th>
-                </tr>
-              </thead>
-              <tbody>
-                {days.map((day) => {
-                  const meta = DAY_STATUS[day.status as DayStatus];
-                  return (
-                    <tr key={day.work_date}>
-                      <td data-label="Ngày">
-                        <p className="event__label">{dayLabel(day.work_date)}</p>
-                        {day.scheduled_start ? (
-                          <p className="event__meta">
-                            Ca {shortTime(day.scheduled_start)}–{shortTime(day.scheduled_end)}
-                          </p>
-                        ) : null}
-                      </td>
-                      <td data-label="Check-in" className="numeric">{clockOf(day.check_in)}</td>
-                      <td data-label="Check-out" className="numeric">{clockOf(day.check_out)}</td>
-                      <td data-label="Tổng thời gian" className="numeric">{formatMinutes(day.worked_minutes)}</td>
-                      <td data-label="Địa điểm">{day.location_name ?? "—"}</td>
-                      <td data-label="Trạng thái">
-                        <Badge tone={meta.tone}>{meta.label}</Badge>
-                        {day.rejected_count > 0 ? (
-                          <p className="event__meta">{day.rejected_count} lượt bị từ chối</p>
-                        ) : null}
-                      </td>
-                      <td data-label="Chi tiết">
-                        <Button size="sm" variant="secondary" onClick={() => void openDetail(day.work_date)}>
-                          Xem
-                        </Button>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
+          <ul className="daylist">
+            {days.map((day) => {
+              const meta = DAY_STATUS[day.status as DayStatus];
+              return (
+                <li className="daylist__row" key={day.work_date}>
+                  <div className="daylist__main">
+                    <p className="daylist__date">{dayLabel(day.work_date)}</p>
+                    <p className="daylist__times">
+                      Vào {clockOf(day.check_in)} · Ra {clockOf(day.check_out)} · {formatMinutes(day.worked_minutes)}
+                    </p>
+                  </div>
+                  <Badge tone={meta.tone}>{meta.label}</Badge>
+                  <Button size="sm" variant="secondary" onClick={() => void openDetail(day.work_date)}>
+                    Chi tiết
+                  </Button>
+                </li>
+              );
+            })}
+          </ul>
         )}
       </Card>
 
@@ -259,15 +235,34 @@ export default function HistoryPage() {
               ))
             )}
 
-            <DataList
-              rows={[
-                { key: "Ngày", value: openDay },
-                {
-                  key: "Tổng thời gian",
-                  value: formatMinutes(data?.days.find((d) => d.work_date === openDay)?.worked_minutes ?? null),
-                },
-              ]}
-            />
+            {(() => {
+              const day = data?.days.find((d) => d.work_date === openDay);
+              if (!day) {
+                return null;
+              }
+              return (
+                <DataList
+                  rows={[
+                    { key: "Giờ vào", value: clockOf(day.check_in) },
+                    { key: "Giờ ra", value: clockOf(day.check_out) },
+                    { key: "Tổng thời gian", value: formatMinutes(day.worked_minutes) },
+                    { key: "Nơi chấm công", value: day.location_name ?? "—" },
+                    ...(day.scheduled_start
+                      ? [
+                          {
+                            key: "Ca được phân",
+                            value: `${shortTime(day.scheduled_start)} – ${shortTime(day.scheduled_end)}`,
+                          },
+                        ]
+                      : []),
+                    {
+                      key: "Kết quả",
+                      value: <Badge tone={DAY_STATUS[day.status].tone}>{DAY_STATUS[day.status].label}</Badge>,
+                    },
+                  ]}
+                />
+              );
+            })()}
 
             <Button variant="secondary" onClick={() => router.push(`/corrections?date=${openDay}`)} block>
               Gửi yêu cầu chỉnh công cho ngày này

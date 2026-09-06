@@ -16,9 +16,10 @@ export interface PickedPoint {
 
 interface LocationPickerProps {
   point: PickedPoint;
-  address: string;
   onPointChange: (point: PickedPoint) => void;
-  onAddressChange: (address: string) => void;
+  /** Address of the place that was found. The form decides whether to use it —
+   *  searching no longer overwrites what the manager typed. */
+  onFound?: (label: string) => void;
   allowRadiusMeters: number;
   warningRadiusMeters: number;
 }
@@ -27,9 +28,8 @@ const FALLBACK: PickedPoint = { latitude: 21.0285, longitude: 105.8048 };
 
 export function LocationPicker({
   point,
-  address,
   onPointChange,
-  onAddressChange,
+  onFound,
   allowRadiusMeters,
   warningRadiusMeters,
 }: LocationPickerProps) {
@@ -44,6 +44,8 @@ export function LocationPicker({
   const [notice, setNotice] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState<"search" | "gps" | null>(null);
+  // Transient: used only to look a place up, never stored on the location.
+  const [query, setQuery] = useState("");
   const [ready, setReady] = useState(false);
 
   useEffect(() => {
@@ -149,17 +151,17 @@ export function LocationPicker({
   }, [allowRadiusMeters, warningRadiusMeters]);
 
   const search = useCallback(async () => {
-    if (!address.trim()) {
+    if (!query.trim()) {
       return;
     }
     setBusy("search");
     setError(null);
     setNotice(null);
     try {
-      const result = await api.resolvePlace(address.trim());
+      const result = await api.resolvePlace(query.trim());
       onPointChange({ latitude: result.latitude, longitude: result.longitude });
       if (result.label) {
-        onAddressChange(result.label);
+        onFound?.(result.label);
       }
       setNotice(result.label ? `Đã tìm thấy: ${result.label}` : "Đã đặt ghim trên bản đồ.");
     } catch (cause) {
@@ -167,7 +169,7 @@ export function LocationPicker({
     } finally {
       setBusy(null);
     }
-  }, [address, onAddressChange, onPointChange]);
+  }, [query, onFound, onPointChange]);
 
   const useGps = useCallback(async () => {
     setBusy("gps");
@@ -188,15 +190,15 @@ export function LocationPicker({
     <div className="stack">
       <div className="field">
         <label className="field__label" htmlFor="location-address-input">
-          Tìm địa điểm
+          Tìm trên bản đồ
         </label>
         <div className="picker-search">
           <input
             id="location-address-input"
             className="input"
             placeholder="Nhập địa chỉ hoặc dán liên kết Google Maps"
-            value={address}
-            onChange={(e) => onAddressChange(e.target.value)}
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
             onKeyDown={(e) => {
               if (e.key === "Enter") {
                 // Enter inside a form would submit it; here it only searches.
@@ -216,7 +218,7 @@ export function LocationPicker({
           Tìm theo tên thường không chính xác bằng toạ độ.{" "}
           <a
             className="link"
-            href={`https://www.google.com/maps/search/${encodeURIComponent(address || "")}`}
+            href={`https://www.google.com/maps/search/${encodeURIComponent(query || "")}`}
             target="_blank"
             rel="noreferrer noopener"
           >

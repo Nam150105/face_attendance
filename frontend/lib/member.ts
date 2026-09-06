@@ -84,3 +84,16 @@ export function currentMonthValue(): string {
   const now = new Date();
   return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
 }
+
+/** "95" -> "1 giờ 35 phút". Mirrors describe_duration on the server. */
+export function describeMinutes(minutes: number | null): string {
+  if (!minutes) {
+    return "—";
+  }
+  const hours = Math.floor(Math.abs(minutes) / 60);
+  const rest = Math.abs(minutes) % 60;
+  if (hours && rest) {
+    return `${hours} giờ ${rest} phút`;
+  }
+  return hours ? `${hours} giờ` : `${rest} phút`;
+}

@@ -55,6 +55,83 @@ def _location_for_member(connection: psycopg.Connection, member_id: uuid.UUID, l
     ).fetchone()
 
 
+def _hour_rule(connection: psycopg.Connection, member_id: uuid.UUID, location_id: uuid.UUID) -> tuple | None:
+    """
+    The working hours that apply to this person today, and whether they are a
+    hard rule. A personal shift wins; otherwise the location's own hours apply.
+    Returns (start, end, grace_minutes, enforce).
+    """
+    today = _utc_now().astimezone(LOCAL_ZONE).date()
+    personal = connection.execute(
+        """
+        SELECT start_time, end_time, grace_minutes FROM schedules
+        WHERE member_id = %s AND is_active
+          AND (work_date = %s OR (work_date IS NULL AND weekday = %s))
+        ORDER BY work_date NULLS LAST LIMIT 1
+        """,
+        (member_id, today, (today.weekday() + 1) % 7),
+    ).fetchone()
+    if personal is not None:
+        # A personal shift is guidance, never a hard block: only the location
+        # owner opts into refusing late arrivals.
+        return (personal[0], personal[1], personal[2] or 0, False)
+    row = connection.execute(
+        "SELECT expected_check_in, expected_check_out, grace_minutes, enforce_hours "
+        "FROM locations WHERE id = %s",
+        (location_id,),
+    ).fetchone()
+    if row is None or row[0] is None:
+        return None
+    return (row[0], row[1], row[2] or 0, row[3])
+
+
+def _minutes_late(rule: tuple | None, moment: datetime) -> int:
+    """Minutes past the allowed start, 0 when on time or when no rule applies."""
+    if rule is None or rule[0] is None:
+        return 0
+    local_moment = moment.astimezone(LOCAL_ZONE)
+    deadline = datetime.combine(local_moment.date(), rule[0], tzinfo=LOCAL_ZONE) + timedelta(minutes=rule[2])
+    delta = (local_moment - deadline).total_seconds() // 60
+    return int(delta) if delta > 0 else 0
+
+
+def _minutes_early_leave(rule: tuple | None, moment: datetime) -> int:
+    """Minutes before the expected end, 0 when leaving on time or later."""
+    if rule is None or rule[1] is None:
+        return 0
+    local_moment = moment.astimezone(LOCAL_ZONE)
+    expected_end = datetime.combine(local_moment.date(), rule[1], tzinfo=LOCAL_ZONE)
+    delta = (expected_end - local_moment).total_seconds() // 60
+    return int(delta) if delta > 0 else 0
+
+
+def describe_duration(minutes: int) -> str:
+    hours, rest = divmod(abs(int(minutes)), 60)
+    if hours and rest:
+        return f"{hours} giờ {rest} phút"
+    if hours:
+        return f"{hours} giờ"
+    return f"{rest} phút"
+
+
+def _notify_managers(
+    connection: psycopg.Connection,
+    member_id: uuid.UUID,
+    category: str,
+    title: str,
+    body: str,
+    payload: dict,
+) -> None:
+    """Send one notification to every manager currently responsible for a member."""
+    managers = connection.execute(
+        "SELECT manager_user_id FROM manager_memberships "
+        "WHERE member_user_id = %s AND status = 'ACTIVE'",
+        (member_id,),
+    ).fetchall()
+    for (manager_id,) in managers:
+        notify(connection, manager_id, category, title, body, payload)
+
+
 def _location_name(connection: psycopg.Connection, location_id: uuid.UUID) -> str:
     row = connection.execute("SELECT name FROM locations WHERE id = %s", (location_id,)).fetchone()
     return row[0] if row else "địa điểm"
@@ -80,28 +157,46 @@ def _is_late(connection: psycopg.Connection, member_id: uuid.UUID, moment: datet
     return local_moment > latest_ok
 
 
+def _member_label(connection: psycopg.Connection, member_id: uuid.UUID) -> str:
+    row = connection.execute(
+        "SELECT COALESCE(mp.full_name, u.email) FROM users u "
+        "LEFT JOIN member_profiles mp ON mp.user_id = u.id WHERE u.id = %s",
+        (member_id,),
+    ).fetchone()
+    return row[0] if row else "Thành viên"
+
+
 def _notify_check_in(
     connection: psycopg.Connection,
     member_id: uuid.UUID,
     location_id: uuid.UUID,
     distance_meters: float,
     event_status: str,
+    late_minutes: int = 0,
 ) -> None:
     name = _location_name(connection, location_id)
-    moment = _utc_now()
+    moment = _utc_now().astimezone(LOCAL_ZONE)
     notify(
         connection, member_id, "CHECK_IN",
-        "Check-in thành công",
-        f"{name} · cách {distance_meters:.0f} m"
-        + (" · đã ghi lý do" if event_status == "WARNING_CONFIRMED" else ""),
+        "Đã ghi nhận giờ vào",
+        f"{name} lúc {moment.strftime('%H:%M')}"
+        + (" · có ghi lý do về vị trí" if event_status == "WARNING_CONFIRMED" else ""),
         {"location_id": str(location_id), "distance_meters": round(distance_meters, 1)},
     )
-    if _is_late(connection, member_id, moment):
+    if late_minutes > 0:
+        gap = describe_duration(late_minutes)
         notify(
             connection, member_id, "LATE",
-            "Bạn check-in muộn so với ca làm việc",
-            f"Thời điểm ghi nhận {moment.astimezone(LOCAL_ZONE).strftime('%H:%M')} tại {name}",
-            {"location_id": str(location_id)},
+            f"Bạn vào muộn {gap}",
+            f"Ghi nhận lúc {moment.strftime('%H:%M')} tại {name}.",
+            {"location_id": str(location_id), "minutes_late": late_minutes},
+        )
+        # The manager needs the number too, not just the fact.
+        _notify_managers(
+            connection, member_id, "LATE",
+            f"{_member_label(connection, member_id)} vào muộn {gap}",
+            f"Ghi nhận lúc {moment.strftime('%H:%M')} tại {name}.",
+            {"member_id": str(member_id), "location_id": str(location_id), "minutes_late": late_minutes},
         )
 
 
@@ -110,13 +205,30 @@ def _notify_check_out(
     member_id: uuid.UUID,
     location_id: uuid.UUID,
     distance_meters: float,
+    early_minutes: int = 0,
 ) -> None:
+    name = _location_name(connection, location_id)
+    moment = _utc_now().astimezone(LOCAL_ZONE)
     notify(
         connection, member_id, "CHECK_OUT",
-        "Check-out thành công",
-        f"{_location_name(connection, location_id)} · cách {distance_meters:.0f} m",
+        "Đã ghi nhận giờ ra",
+        f"{name} lúc {moment.strftime('%H:%M')}",
         {"location_id": str(location_id), "distance_meters": round(distance_meters, 1)},
     )
+    if early_minutes > 0:
+        gap = describe_duration(early_minutes)
+        notify(
+            connection, member_id, "EARLY_LEAVE",
+            f"Bạn ra sớm {gap}",
+            f"Ghi nhận lúc {moment.strftime('%H:%M')} tại {name}.",
+            {"location_id": str(location_id), "minutes_early_leave": early_minutes},
+        )
+        _notify_managers(
+            connection, member_id, "EARLY_LEAVE",
+            f"{_member_label(connection, member_id)} ra sớm {gap}",
+            f"Ghi nhận lúc {moment.strftime('%H:%M')} tại {name}.",
+            {"member_id": str(member_id), "location_id": str(location_id), "minutes_early_leave": early_minutes},
+        )
 
 
 def _open_state(connection: psycopg.Connection, member_id: uuid.UUID) -> tuple | None:
@@ -247,6 +359,17 @@ def check_in(
         if decision.status == GeofenceStatus.WARNING_REASON_REQUIRED and not reason:
             raise _reject(422, "WARNING_REASON_REQUIRED")
 
+        # Working-hour rule is checked before the camera work: refusing early
+        # costs the member nothing and saves a pointless face comparison.
+        rule = _hour_rule(connection, user.id, location_id)
+        late_minutes = _minutes_late(rule, _utc_now())
+        if rule is not None and rule[3] and late_minutes > 0:
+            _record_rejection(
+                connection, user, location_id, "CHECK_IN", "BLOCKED", "CHECK_IN_TOO_LATE",
+                latitude, longitude, gps_accuracy_meters, decision.distance_meters, idempotency_key,
+            )
+            raise _reject(403, "CHECK_IN_TOO_LATE")
+
         reference_embedding = _reference_embedding(connection, user.id)
         if reference_embedding is None:
             raise _reject(409, "FACE_NOT_ENROLLED")
@@ -269,13 +392,13 @@ def check_in(
         event_status = "WARNING_CONFIRMED" if decision.status == GeofenceStatus.WARNING_REASON_REQUIRED else "SUCCESS"
         row = connection.execute(
             """
-            INSERT INTO attendance_events (member_id, location_id, event_type, status, server_time, latitude, longitude, gps_accuracy_meters, distance_meters, face_match_score, liveness_score, image_object_key, reason, idempotency_key)
-            VALUES (%s, %s, 'CHECK_IN', %s::attendance_status, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            INSERT INTO attendance_events (member_id, location_id, event_type, status, server_time, latitude, longitude, gps_accuracy_meters, distance_meters, face_match_score, liveness_score, image_object_key, reason, idempotency_key, minutes_late)
+            VALUES (%s, %s, 'CHECK_IN', %s::attendance_status, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
             RETURNING status::text, id, distance_meters
             """,
-            (user.id, location_id, event_status, _utc_now(), latitude, longitude, gps_accuracy_meters, decision.distance_meters, face_result.get("face_match_score"), face_result.get("liveness_score"), object_key, reason, idempotency_key),
+            (user.id, location_id, event_status, _utc_now(), latitude, longitude, gps_accuracy_meters, decision.distance_meters, face_result.get("face_match_score"), face_result.get("liveness_score"), object_key, reason, idempotency_key, late_minutes or None),
         ).fetchone()
-        _notify_check_in(connection, user.id, location[0], decision.distance_meters, event_status)
+        _notify_check_in(connection, user.id, location[0], decision.distance_meters, event_status, late_minutes)
         connection.commit()
     return {"status": row[0], "event_id": row[1], "distance_meters": float(row[2]), "message": "Check-in thành công"}
 
@@ -338,6 +461,9 @@ def check_out(
         if _face_ai_not_configured(face_result):
             raise _reject(503, "FACE_MODEL_NOT_CONFIGURED")
 
+        rule = _hour_rule(connection, user.id, location_id)
+        early_minutes = _minutes_early_leave(rule, _utc_now())
+
         object_key = f"attendance/{user.id}/{uuid.uuid4()}.jpg"
         PrivateObjectStorage().put_private(object_key, image, content_type)
 
@@ -352,13 +478,13 @@ def check_out(
 
         row = connection.execute(
             """
-            INSERT INTO attendance_events (member_id, location_id, event_type, status, server_time, latitude, longitude, gps_accuracy_meters, distance_meters, face_match_score, liveness_score, image_object_key, idempotency_key)
-            VALUES (%s, %s, 'CHECK_OUT', 'SUCCESS', %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            INSERT INTO attendance_events (member_id, location_id, event_type, status, server_time, latitude, longitude, gps_accuracy_meters, distance_meters, face_match_score, liveness_score, image_object_key, idempotency_key, minutes_early_leave)
+            VALUES (%s, %s, 'CHECK_OUT', 'SUCCESS', %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
             RETURNING status::text, id, distance_meters
             """,
-            (user.id, location_id, _utc_now(), latitude, longitude, gps_accuracy_meters, decision.distance_meters, face_result.get("face_match_score"), face_result.get("liveness_score"), object_key, idempotency_key),
+            (user.id, location_id, _utc_now(), latitude, longitude, gps_accuracy_meters, decision.distance_meters, face_result.get("face_match_score"), face_result.get("liveness_score"), object_key, idempotency_key, early_minutes or None),
         ).fetchone()
-        _notify_check_out(connection, user.id, location_id, decision.distance_meters)
+        _notify_check_out(connection, user.id, location_id, decision.distance_meters, early_minutes)
         connection.commit()
     return {"status": row[0], "event_id": row[1], "distance_meters": float(row[2]), "message": "Check-out thành công"}
 

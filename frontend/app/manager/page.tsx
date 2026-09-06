@@ -71,7 +71,7 @@ export default function ManagerHomePage() {
       <div className="page-header">
         <div>
           <h1 className="page-title">Tổng quan</h1>
-          <p className="page-lead">Theo dõi hoạt động ghi nhận và tình trạng thành viên theo thời gian thực.</p>
+          <p className="page-lead">Ai đang có mặt, ai đến muộn và tình hình chấm công hôm nay.</p>
         </div>
         <div className="row">
           <Link href="/manager/attendance">

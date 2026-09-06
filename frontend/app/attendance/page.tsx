@@ -20,11 +20,11 @@ import { describeError, isRetryableTransport } from "../../lib/messages";
 import type { AttendanceState, CurrentUser, MemberLocation } from "../../lib/types";
 
 const LABELS: PhaseLabels = {
-  framing: "Đưa khuôn mặt vào giữa khung",
+  framing: "Đưa khuôn mặt vào giữa vòng tròn",
   holding: "Giữ yên thiết bị…",
-  working: "Đang xác thực khuôn mặt và vị trí…",
+  working: "Đang kiểm tra khuôn mặt và vị trí…",
   done: "Đã ghi nhận",
-  failed: "Chưa ghi nhận được",
+  failed: "Chưa xong, xem hướng dẫn bên dưới",
 };
 
 const RETRYABLE = new Set([
@@ -261,14 +261,14 @@ export default function AttendancePage() {
             }`}
           />
           <div className="readiness__text">
-            <p className="readiness__label">Định vị</p>
+            <p className="readiness__label">Vị trí</p>
             <p className="readiness__value">
               {gpsPhase === "ready" && fix
-                ? `±${fix.accuracyMeters.toFixed(0)} m`
+                ? "Đã xác định"
                 : gpsPhase === "locating"
-                  ? "Đang lấy vị trí…"
+                  ? "Đang tìm…"
                   : gpsPhase === "failed"
-                    ? "Không lấy được"
+                    ? "Chưa lấy được"
                     : "Chưa đo"}
             </p>
           </div>
@@ -277,9 +277,13 @@ export default function AttendancePage() {
         <div className="readiness__item">
           <span className={`readiness__dot ${distance === null ? "" : "readiness__dot--ok"}`} />
           <div className="readiness__text">
-            <p className="readiness__label">Khoảng cách</p>
+            <p className="readiness__label">Cách nơi làm việc</p>
             <p className="readiness__value">
-              {distance !== null ? formatDistance(distance) : activeLocation ? `Giới hạn ${activeLocation.allow_radius_meters} m` : "—"}
+              {distance !== null
+                ? formatDistance(distance)
+                : activeLocation
+                  ? `Cần trong ${activeLocation.allow_radius_meters} m`
+                  : "—"}
             </p>
           </div>
         </div>
@@ -291,14 +295,14 @@ export default function AttendancePage() {
             }`}
           />
           <div className="readiness__text">
-            <p className="readiness__label">Nhận diện</p>
+            <p className="readiness__label">Khuôn mặt</p>
             <p className="readiness__value">
               {phase === "done"
-                ? "Đã khớp"
+                ? "Đã nhận ra bạn"
                 : phase === "working"
                   ? "Đang đối chiếu…"
                   : phase === "failed"
-                    ? "Chưa đạt"
+                    ? "Chưa nhận ra"
                     : "Chờ chụp ảnh"}
             </p>
           </div>
@@ -309,8 +313,8 @@ export default function AttendancePage() {
         title="Xác thực khuôn mặt"
         subtitle={
           activeLocation
-            ? `${activeLocation.name} · phạm vi chuẩn ${activeLocation.allow_radius_meters}m`
-            : "Giữ thiết bị ngang tầm mắt."
+            ? `${activeLocation.name} · chấm công được khi ở trong ${activeLocation.allow_radius_meters}m`
+            : "Giữ điện thoại ngang tầm mắt."
         }
       >
         <div className="stack">
@@ -384,10 +388,10 @@ export default function AttendancePage() {
               }}
             >
               <h3 style={{ fontSize: "var(--text-md)", fontWeight: 700, color: "var(--color-warning)", marginBottom: "8px" }}>
-                Cần lý do cho vị trí này
+                Bạn đang đứng hơi xa
               </h3>
               <p style={{ fontSize: "var(--text-xs)", color: "var(--text-secondary)", marginBottom: "12px" }}>
-                Bạn đang ở ngoài phạm vi chuẩn của địa điểm. Chọn một lý do có sẵn hoặc tự nhập bên dưới.
+                Chọn một lý do có sẵn hoặc tự ghi để người quản lý nắm được.
               </p>
 
               <div className="filter-pills" style={{ marginBottom: "12px" }}>

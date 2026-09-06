@@ -1525,6 +1525,43 @@ body {
   color: var(--text-muted);
 }
 
+/* Compact day list: one line per day, detail lives behind the button. */
+.daylist {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.daylist__row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+  padding: 10px 14px;
+  background: var(--surface-card);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+}
+
+.daylist__main {
+  flex: 1 1 180px;
+  min-width: 0;
+}
+
+.daylist__date {
+  font-size: var(--text-sm);
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.daylist__times {
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+  margin-top: 2px;
+  overflow-wrap: anywhere;
+}
+
 /* Filter Controls & Search Bar --------------------------------------------- */
 .filters-bar {
   display: grid;
@@ -1540,6 +1577,11 @@ body {
   grid-template-columns: repeat(auto-fit, minmax(min(100%, 150px), 1fr));
   gap: var(--space-1) 10px;
   margin-bottom: 0;
+}
+
+/* A control whose value is too long for half a row. */
+.filters-bar__wide {
+  grid-column: 1 / -1;
 }
 
 .search-input-wrap {

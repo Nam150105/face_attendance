@@ -13,13 +13,13 @@ from app.domain.geofence import GeofencePolicy, evaluate_geofence
 LOCATION_COLUMNS = """
     id, manager_user_id, name, address, latitude, longitude,
     allow_radius_meters, warning_radius_meters, is_active,
-    created_at, updated_at, expected_check_in, expected_check_out, grace_minutes
+    created_at, updated_at, expected_check_in, expected_check_out, grace_minutes, enforce_hours
 """
 
 LOCATION_JOIN_COLUMNS = """
     l.id, l.manager_user_id, l.name, l.address, l.latitude, l.longitude,
     l.allow_radius_meters, l.warning_radius_meters, l.is_active,
-    l.created_at, l.updated_at, l.expected_check_in, l.expected_check_out, l.grace_minutes
+    l.created_at, l.updated_at, l.expected_check_in, l.expected_check_out, l.grace_minutes, l.enforce_hours
 """
 
 
@@ -39,6 +39,7 @@ def _location(row: tuple) -> dict:
         "expected_check_in": row[11].isoformat() if row[11] else None,
         "expected_check_out": row[12].isoformat() if row[12] else None,
         "grace_minutes": row[13],
+        "enforce_hours": row[14],
     }
 
 
@@ -78,10 +79,10 @@ def create_location(manager_id: uuid.UUID, payload: dict) -> dict:
             f"""
             INSERT INTO locations (manager_user_id, name, address, latitude, longitude,
                                    allow_radius_meters, warning_radius_meters,
-                                   expected_check_in, expected_check_out, grace_minutes)
+                                   expected_check_in, expected_check_out, grace_minutes, enforce_hours)
             VALUES (%(manager_user_id)s, %(name)s, %(address)s, %(latitude)s, %(longitude)s,
                     %(allow_radius_meters)s, %(warning_radius_meters)s,
-                    %(expected_check_in)s, %(expected_check_out)s, %(grace_minutes)s)
+                    %(expected_check_in)s, %(expected_check_out)s, %(grace_minutes)s, %(enforce_hours)s)
             RETURNING {LOCATION_COLUMNS}
             """,
             {"manager_user_id": manager_id, **payload},
@@ -113,7 +114,7 @@ def update_location(manager_id: uuid.UUID, location_id: uuid.UUID, payload: dict
                 longitude = %(longitude)s, allow_radius_meters = %(allow_radius_meters)s,
                 warning_radius_meters = %(warning_radius_meters)s, is_active = %(is_active)s,
                 expected_check_in = %(expected_check_in)s, expected_check_out = %(expected_check_out)s,
-                grace_minutes = %(grace_minutes)s, updated_at = now()
+                grace_minutes = %(grace_minutes)s, enforce_hours = %(enforce_hours)s, updated_at = now()
             WHERE manager_user_id = %(manager_id)s AND id = %(location_id)s
             RETURNING {LOCATION_COLUMNS}
             """,

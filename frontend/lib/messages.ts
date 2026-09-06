@@ -28,6 +28,7 @@ const CODE_MESSAGES: Record<string, string> = {
   SCHEDULE_NEEDS_WEEKDAY_OR_DATE: "Ca làm việc phải chọn thứ trong tuần hoặc một ngày cụ thể, không chọn cả hai.",
   SCHEDULE_END_BEFORE_START: "Giờ kết thúc phải sau giờ bắt đầu.",
   SCHEDULE_NOT_FOUND: "Không tìm thấy ca làm việc này.",
+  CHECK_IN_TOO_LATE: "Đã quá giờ vào cho phép của nơi làm việc này nên bạn chưa chấm công vào được. Bạn báo người quản lý để được hỗ trợ nhé.",
   EMPLOYEE_CODE_TAKEN: "Mã định danh này đã được dùng cho thành viên khác. Vui lòng chọn mã khác.",
   LOCATION_HAS_ATTENDANCE: "Địa điểm đã có bản ghi chấm công nên không xoá được. Hãy tắt địa điểm thay vì xoá.",
   // Backend trả "Invalid email or password" khi sai thông tin đăng nhập, còn
@@ -42,24 +43,24 @@ const CODE_MESSAGES: Record<string, string> = {
   "Invalid or expired password reset token": "Liên kết đặt lại mật khẩu đã hết hạn. Vui lòng yêu cầu lại.",
 
   // Camera & Face AI
-  IMAGE_INVALID: "Ảnh chụp chưa rõ hoặc không đọc được. Vui lòng chụp lại.",
-  IMAGE_TOO_SMALL: "Độ phân giải ảnh chưa đạt yêu cầu. Vui lòng đưa thiết bị lại gần hơn.",
-  FACE_NOT_FOUND: "Không phát hiện khuôn mặt trong khung hình. Vui lòng nhìn thẳng vào camera.",
-  MULTIPLE_FACES: "Có nhiều người trong khung hình. Vui lòng chỉ để một người trước camera.",
-  FACE_QUALITY_LOW: "Ảnh bị mờ hoặc thiếu sáng. Hãy di chuyển đến nơi đủ sáng và giữ yên thiết bị.",
-  FACE_MODEL_NOT_CONFIGURED: "Dịch vụ nhận diện khuôn mặt chưa sẵn sàng. Vui lòng liên hệ người quản lý.",
-  FACE_REFERENCE_NOT_FOUND: "Chưa có dữ liệu khuôn mặt tham chiếu. Vui lòng hoàn tất bước đăng ký khuôn mặt trước.",
-  FACE_NOT_ENROLLED: "Bạn chưa đăng ký khuôn mặt. Hãy đăng ký để bắt đầu sử dụng.",
-  FACE_NOT_MATCHED: "Khuôn mặt chưa khớp với hồ sơ đã đăng ký. Vui lòng bỏ kính râm hoặc khẩu trang rồi thử lại.",
-  "Face AI service unavailable": "Dịch vụ nhận diện khuôn mặt đang bận. Vui lòng thử lại sau vài giây.",
+  IMAGE_INVALID: "Ảnh chưa đọc được. Bạn chụp lại giúp nhé.",
+  IMAGE_TOO_SMALL: "Khuôn mặt trong ảnh hơi nhỏ. Bạn đưa điện thoại lại gần hơn rồi chụp lại nhé.",
+  FACE_NOT_FOUND: "Chưa thấy khuôn mặt trong khung hình. Bạn đưa mặt vào giữa vòng tròn và nhìn thẳng vào camera nhé.",
+  MULTIPLE_FACES: "Có nhiều người trong khung hình. Bạn nhờ mọi người tránh ra để chỉ còn một mình nhé.",
+  FACE_QUALITY_LOW: "Ảnh bị mờ hoặc nơi bạn đứng hơi tối. Bạn ra chỗ sáng hơn, lau ống kính và giữ yên máy khoảng 2 giây rồi chụp lại nhé.",
+  FACE_MODEL_NOT_CONFIGURED: "Hệ thống nhận diện đang tạm nghỉ. Bạn báo người quản lý giúp nhé.",
+  FACE_REFERENCE_NOT_FOUND: "Chưa có ảnh khuôn mặt của bạn để đối chiếu. Bạn vào mục Hồ sơ để đăng ký trước nhé.",
+  FACE_NOT_ENROLLED: "Bạn chưa đăng ký khuôn mặt. Vào mục Hồ sơ để đăng ký, chỉ mất chưa tới một phút.",
+  FACE_NOT_MATCHED: "Chưa nhận ra bạn. Bạn bỏ khẩu trang, kính râm hoặc mũ che mặt, đứng ở nơi đủ sáng rồi chụp lại nhé.",
+  "Face AI service unavailable": "Hệ thống nhận diện đang bận. Bạn đợi vài giây rồi thử lại nhé.",
   "Invalid or expired enrollment challenge": "Phiên đăng ký đã hết hạn do chờ quá lâu. Vui lòng chụp lại.",
   "Face AI returned an invalid embedding": "Không phân tích được đặc trưng khuôn mặt. Vui lòng chụp lại ở nơi đủ sáng.",
   "Only members can enroll a face": "Chỉ tài khoản thành viên mới đăng ký được khuôn mặt.",
 
   // GPS & Geofence
-  GPS_ACCURACY_LOW: "Tín hiệu định vị chưa đủ chính xác. Hãy bật Wi-Fi hoặc di chuyển ra nơi thoáng để cải thiện.",
-  OUTSIDE_ALLOWED_ZONE: "Bạn đang ở ngoài phạm vi cho phép của địa điểm này. Vui lòng di chuyển lại gần hơn.",
-  WARNING_REASON_REQUIRED: "Bạn đang ở ngoài phạm vi chuẩn của địa điểm. Vui lòng nhập lý do để ghi nhận.",
+  GPS_ACCURACY_LOW: "Chưa xác định được chính xác bạn đang ở đâu. Bạn bật Wi-Fi hoặc ra chỗ thoáng, tránh trong nhà kín, rồi thử lại nhé.",
+  OUTSIDE_ALLOWED_ZONE: "Bạn đang ở quá xa nơi làm việc nên chưa chấm công được. Bạn tới gần hơn rồi thử lại nhé.",
+  WARNING_REASON_REQUIRED: "Bạn đang đứng hơi xa nơi làm việc. Cho biết lý do để người quản lý nắm được nhé.",
   "Location is not assigned to this member": "Bạn chưa được phân công tại địa điểm này.",
   "Checkout location is inactive": "Địa điểm bạn đã check-in hiện đã ngừng hoạt động.",
   "Invalid latitude or longitude": "Toạ độ gửi lên không hợp lệ.",
@@ -128,6 +129,7 @@ export function isRetryableTransport(code: string): boolean {
 }
 
 const FAILURE_LABELS: Record<string, string> = {
+  CHECK_IN_TOO_LATE: "Quá giờ vào cho phép",
   OUTSIDE_ALLOWED_ZONE: "Ngoài phạm vi cho phép",
   GPS_ACCURACY_LOW: "Tín hiệu định vị yếu",
   FACE_NOT_MATCHED: "Khuôn mặt chưa khớp",

@@ -223,7 +223,7 @@ export default function ManagerMembersPage() {
       <div className="page-header">
         <div>
           <h1 className="page-title">Thành viên</h1>
-          <p className="page-lead">Danh sách người bạn quản lý, trạng thái hồ sơ và phân công địa điểm.</p>
+          <p className="page-lead">Những người bạn đang quản lý, nơi làm việc và ca của từng người.</p>
         </div>
       </div>
 
