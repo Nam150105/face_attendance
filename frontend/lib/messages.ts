@@ -1,6 +1,12 @@
 import { ApiError } from "./api";
 
 const CODE_MESSAGES: Record<string, string> = {
+  // Mạng: statusCode 0, request chưa từng tới được máy chủ.
+  NETWORK_OFFLINE: "Thiết bị đang mất kết nối mạng. Hãy bật Wi-Fi hoặc dữ liệu di động rồi thử lại.",
+  NETWORK_TIMEOUT: "Máy chủ phản hồi quá lâu. Kiểm tra kết nối mạng rồi thử lại.",
+  NETWORK_ERROR: "Không kết nối được tới máy chủ. Vui lòng kiểm tra mạng rồi thử lại.",
+
+  NOT_AUTHENTICATED: "Bạn cần đăng nhập để tiếp tục.",
   // Backend trả "Invalid email or password" khi sai thông tin đăng nhập, còn
   // "Invalid or expired credentials" là mặc định của unauthorized() khi token hết hạn.
   "Invalid email or password": "Email hoặc mật khẩu chưa chính xác. Vui lòng kiểm tra lại.",
@@ -91,6 +97,11 @@ export function describeError(error: unknown): string {
     return error.message;
   }
   return "Đã xảy ra lỗi không xác định. Vui lòng thử lại.";
+}
+
+/** Lỗi mạng thì thao tác cũ vẫn còn nguyên giá trị, chỉ cần gửi lại. */
+export function isRetryableTransport(code: string): boolean {
+  return code === "NETWORK_OFFLINE" || code === "NETWORK_TIMEOUT" || code === "NETWORK_ERROR";
 }
 
 const FAILURE_LABELS: Record<string, string> = {

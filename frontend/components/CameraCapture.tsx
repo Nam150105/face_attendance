@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 
+import { PermissionHelp } from "./PermissionHelp";
 import { Alert, Button, playChime } from "./ui";
 
 export interface CapturedImage {
@@ -44,6 +45,7 @@ export function CameraCapture({ captureLabel, labels, onCaptured, phase = "idle"
   const timerRef = useRef<number | null>(null);
 
   const [error, setError] = useState<string | null>(null);
+  const [denied, setDenied] = useState(false);
   const [starting, setStarting] = useState(false);
   const [streaming, setStreaming] = useState(false);
   const [countdown, setCountdown] = useState<number | null>(null);
@@ -75,6 +77,7 @@ export function CameraCapture({ captureLabel, labels, onCaptured, phase = "idle"
 
   const start = useCallback(async () => {
     setError(null);
+    setDenied(false);
     if (typeof window !== "undefined" && !window.isSecureContext) {
       setError("Trình duyệt cần kết nối HTTPS để mở camera.");
       return;
@@ -97,10 +100,35 @@ export function CameraCapture({ captureLabel, labels, onCaptured, phase = "idle"
       setStreaming(true);
     } catch (cause) {
       const name = cause instanceof DOMException ? cause.name : "";
+      setDenied(name === "NotAllowedError" || name === "SecurityError");
       setError(PERMISSION_MESSAGES[name] ?? "Không mở được camera. Vui lòng kiểm tra quyền truy cập thiết bị.");
     } finally {
       setStarting(false);
     }
+  }, []);
+
+  // Chrome and Edge remember a denial, so getUserMedia never prompts again and
+  // the instructions are the only way forward. Safari has no camera query yet.
+  useEffect(() => {
+    const permissions = navigator.permissions;
+    if (!permissions?.query) {
+      return;
+    }
+    let cancelled = false;
+    permissions
+      .query({ name: "camera" as PermissionName })
+      .then((status) => {
+        if (!cancelled && status.state === "denied") {
+          setDenied(true);
+          setError(PERMISSION_MESSAGES.NotAllowedError);
+        }
+      })
+      .catch(() => {
+        // Browsers without a "camera" descriptor simply reject; not an error.
+      });
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   const grabFrame = useCallback(() => {
@@ -234,7 +262,12 @@ export function CameraCapture({ captureLabel, labels, onCaptured, phase = "idle"
         </div>
       </div>
 
-      {error ? <Alert tone="danger">{error}</Alert> : null}
+      {error ? (
+        <div className="stack stack--tight">
+          <Alert tone="danger">{error}</Alert>
+          {denied ? <PermissionHelp kind="camera" /> : null}
+        </div>
+      ) : null}
 
       <div className="row">
         {preview ? (

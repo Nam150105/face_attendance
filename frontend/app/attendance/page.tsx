@@ -5,10 +5,17 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { AppShell } from "../../components/AppShell";
 import { CameraCapture, type CapturePhase, type CapturedImage, type PhaseLabels } from "../../components/CameraCapture";
+import { PermissionHelp } from "../../components/PermissionHelp";
 import { Alert, Badge, Button, Card, SelectField, TextAreaField, playChime } from "../../components/ui";
 import { ApiError, api } from "../../lib/api";
-import { formatDistance, newIdempotencyKey, readPosition, type FixedPosition } from "../../lib/geo";
-import { describeError } from "../../lib/messages";
+import {
+  GeolocationUnavailableError,
+  formatDistance,
+  newIdempotencyKey,
+  readPosition,
+  type FixedPosition,
+} from "../../lib/geo";
+import { describeError, isRetryableTransport } from "../../lib/messages";
 import type { AttendanceState, CurrentUser, MemberLocation } from "../../lib/types";
 
 const LABELS: PhaseLabels = {
@@ -49,6 +56,8 @@ export default function AttendancePage() {
   const [needsReason, setNeedsReason] = useState(false);
   const [reason, setReason] = useState("");
   const [blocked, setBlocked] = useState(false);
+  const [retryable, setRetryable] = useState(false);
+  const [locationDenied, setLocationDenied] = useState(false);
   const [successInfo, setSuccessInfo] = useState<{ distance: number; locationName: string; time: string } | null>(null);
 
   const pendingRef = useRef<{ image: Blob; position: FixedPosition } | null>(null);
@@ -121,6 +130,7 @@ export default function AttendancePage() {
         });
         setNeedsReason(false);
         setReason("");
+        setRetryable(false);
         pendingRef.current = null;
         setState(await api.attendanceState());
       } catch (cause) {
@@ -135,7 +145,11 @@ export default function AttendancePage() {
         setPhase("failed");
         setTone("danger");
         setMessage(describeError(cause));
-        setBlocked(BLOCKING.has(code) || !RETRYABLE.has(code));
+        // The photo and the fix are still in hand, so a transport failure only
+        // needs re-sending — not a whole new capture.
+        const transport = isRetryableTransport(code);
+        setRetryable(transport && pendingRef.current !== null);
+        setBlocked(!transport && (BLOCKING.has(code) || !RETRYABLE.has(code)));
       }
     },
     [activeLocation?.name, send],
@@ -149,11 +163,14 @@ export default function AttendancePage() {
         setMessage(null);
         setNeedsReason(false);
         setBlocked(false);
+        setRetryable(false);
+        setLocationDenied(false);
         setSuccessInfo(null);
         return;
       }
       setPhase("working");
       setMessage(null);
+      setLocationDenied(false);
       void readPosition()
         .then((position) => {
           pendingRef.current = { image: image.blob, position };
@@ -162,6 +179,8 @@ export default function AttendancePage() {
         .catch((cause) => {
           setPhase("failed");
           setTone("danger");
+          const denied = cause instanceof GeolocationUnavailableError && cause.reason === "DENIED";
+          setLocationDenied(denied);
           setBlocked(true);
           setMessage(describeError(cause));
         });
@@ -175,6 +194,15 @@ export default function AttendancePage() {
       return;
     }
     void run(pending.image, pending.position, reason.trim());
+  }, [reason, run]);
+
+  const resend = useCallback(() => {
+    const pending = pendingRef.current;
+    if (!pending) {
+      return;
+    }
+    setRetryable(false);
+    void run(pending.image, pending.position, reason.trim() || undefined);
   }, [reason, run]);
 
   const actionName = checkedIn ? "Check-out" : "Check-in";
@@ -270,6 +298,14 @@ export default function AttendancePage() {
           )}
 
           {message && !successInfo ? <Alert tone={tone}>{message}</Alert> : null}
+
+          {locationDenied ? <PermissionHelp kind="location" /> : null}
+
+          {retryable ? (
+            <Button variant="secondary" onClick={resend} loading={phase === "working"} block>
+              Gửi lại — ảnh vừa chụp vẫn được giữ
+            </Button>
+          ) : null}
 
           {/* Quick Reason Form for Warning Geofence Area */}
           {needsReason ? (

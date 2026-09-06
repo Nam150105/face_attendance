@@ -5,6 +5,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { type ReactNode, useEffect, useState } from "react";
 
 import { ApiError, api } from "../lib/api";
+import { NetworkBanner } from "./NetworkBanner";
 import { Alert, Button, LoadingRows } from "./ui";
 
 const LINKS = [
@@ -182,6 +183,8 @@ export function ManagerShell({ children }: { children: ReactNode }) {
           );
         })}
       </nav>
+
+      <NetworkBanner />
 
       <main>{email ? children : <LoadingRows count={4} />}</main>
     </div>

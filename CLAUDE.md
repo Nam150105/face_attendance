@@ -90,8 +90,8 @@ Tài khoản demo do migration `002_seed_local_demo` tạo ra chỉ dùng cho m�
 
 ## 8. Trạng thái hiện tại
 
-- **Xong:** Phase 0–7 (hạ tầng, schema, auth/RBAC, membership, location/geofence, face enrollment, check-in/check-out, quản lý chấm công cho Manager) + model ArcFace thật + frontend cho cả MEMBER và MANAGER.
-- **Tiếp theo:** Phase 8 (responsive/mobile hardening) hoặc Phase 9 (security hardening: rate limit, IDOR test, upload validation).
+- **Xong:** Phase 0–8 (hạ tầng, schema, auth/RBAC, membership, location/geofence, face enrollment, check-in/check-out, quản lý chấm công cho Manager, responsive/mobile hardening) + model ArcFace thật + frontend cho cả MEMBER và MANAGER.
+- **Tiếp theo:** Phase 9 (security hardening: rate limit, IDOR test, upload validation).
 - **Đã deploy:** https://namnangno.click, chạy từ máy dev qua Cloudflare Tunnel (service `tunnel` trong compose).
 - **Nợ kỹ thuật đã biết:** xem mục "Known issues" trong [README.md](README.md).
 
@@ -99,5 +99,7 @@ Tài khoản demo do migration `002_seed_local_demo` tạo ra chỉ dùng cho m�
 
 - Liveness / anti-spoofing: **không có**. Ảnh chụp lại màn hình vẫn qua được. Đang chờ chọn provider thương mại.
 - Rate limiting: Redis đã chạy nhưng **chưa dùng**.
-- Test tự động: mới chỉ có `api/tests/test_geofence.py`.
+- Test tự động: mới chỉ có `api/tests/test_geofence.py`. Frontend chưa có test trong repo — kiểm chứng giao diện đang làm thủ công bằng Playwright ngoài repo.
+- Service worker (`frontend/public/sw.js`) chỉ cache app shell và asset tĩnh. **Không cache `/api/*`** — dữ liệu chấm công và ảnh bằng chứng không bao giờ được ghi xuống cache trình duyệt. Đổi chiến lược thì phải tăng `CACHE_VERSION`.
+- Offline chỉ mở được app và báo lỗi tử tế; **không có hàng đợi chấm công offline** — mọi lượt check-in/check-out đều cần mạng vì server mới là nơi xác thực.
 - `FACE_MATCH_THRESHOLD` hiện là **giá trị tạm** chưa qua đánh giá FAR/FRR.

@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { type ReactNode, useEffect, useState } from "react";
 
 import { api } from "../lib/api";
+import { NetworkBanner } from "./NetworkBanner";
 import { Button } from "./ui";
 
 function initials(email: string): string {
@@ -70,6 +71,7 @@ export function AppShell({ email, children }: { email?: string | null; children:
           </div>
         ) : null}
       </header>
+      <NetworkBanner />
       <main>{children}</main>
     </div>
   );

@@ -59,16 +59,45 @@ async function toApiError(response: Response): Promise<ApiError> {
   return new ApiError(response.status, code, code);
 }
 
+/** Requests that never come back must fail loudly instead of hanging forever. */
+const REQUEST_TIMEOUT_MS = 30000;
+
+/**
+ * fetch rejects with a bare TypeError for every transport failure, which would
+ * otherwise surface to the user as the English string "Failed to fetch".
+ * statusCode 0 marks "the request never reached the server".
+ */
+function toNetworkError(cause: unknown): ApiError {
+  if (cause instanceof DOMException && cause.name === "AbortError") {
+    return new ApiError(0, "NETWORK_TIMEOUT", "NETWORK_TIMEOUT");
+  }
+  const offline = typeof navigator !== "undefined" && navigator.onLine === false;
+  const code = offline ? "NETWORK_OFFLINE" : "NETWORK_ERROR";
+  return new ApiError(0, code, code);
+}
+
+/** True when the request failed in transit, so retrying the same call is safe. */
+export function isNetworkError(error: unknown): boolean {
+  return error instanceof ApiError && error.statusCode === 0;
+}
+
 async function refreshTokens(): Promise<TokenPair | null> {
   const tokens = readTokens();
   if (!tokens) {
     return null;
   }
-  const response = await fetch(`${API_BASE_URL}/auth/refresh`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ refresh_token: tokens.refresh_token }),
-  });
+  let response: Response;
+  try {
+    response = await fetch(`${API_BASE_URL}/auth/refresh`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ refresh_token: tokens.refresh_token }),
+    });
+  } catch {
+    // A dropped connection is not proof the session is invalid: keep the tokens
+    // so the caller can retry once the network is back.
+    return null;
+  }
   if (!response.ok) {
     clearTokens();
     return null;
@@ -114,11 +143,21 @@ async function request<T>(path: string, options: RequestOptions = {}): Promise<T
     }
     headers["X-API-Key"] = tokens.access_token;
   }
-  const response = await fetch(`${API_BASE_URL}${path}`, {
-    method,
-    headers,
-    body: form ?? (json !== undefined ? JSON.stringify(json) : undefined),
-  });
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+  let response: Response;
+  try {
+    response = await fetch(`${API_BASE_URL}${path}`, {
+      method,
+      headers,
+      body: form ?? (json !== undefined ? JSON.stringify(json) : undefined),
+      signal: controller.signal,
+    });
+  } catch (cause) {
+    throw toNetworkError(cause);
+  } finally {
+    clearTimeout(timer);
+  }
   if (response.status === 401 && auth && retryOnUnauthorized) {
     const refreshed = await refreshTokens();
     if (refreshed) {

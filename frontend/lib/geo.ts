@@ -5,17 +5,22 @@ export interface FixedPosition {
   timestamp: number;
 }
 
+export type GeolocationFailure = "UNSUPPORTED" | "DENIED" | "UNAVAILABLE" | "TIMEOUT";
+
 export class GeolocationUnavailableError extends Error {
-  constructor(message: string) {
+  readonly reason: GeolocationFailure;
+
+  constructor(message: string, reason: GeolocationFailure) {
     super(message);
     this.name = "GeolocationUnavailableError";
+    this.reason = reason;
   }
 }
 
 export function readPosition(timeoutMs = 15000): Promise<FixedPosition> {
   return new Promise((resolve, reject) => {
     if (typeof navigator === "undefined" || !navigator.geolocation) {
-      reject(new GeolocationUnavailableError("Trình duyệt không hỗ trợ định vị."));
+      reject(new GeolocationUnavailableError("Trình duyệt không hỗ trợ định vị.", "UNSUPPORTED"));
       return;
     }
     navigator.geolocation.getCurrentPosition(
@@ -28,11 +33,21 @@ export function readPosition(timeoutMs = 15000): Promise<FixedPosition> {
         }),
       (error) => {
         const messages: Record<number, string> = {
-          1: "Bạn đã từ chối quyền truy cập vị trí. Hãy bật lại trong cài đặt trình duyệt.",
+          1: "Bạn đã từ chối quyền truy cập vị trí. Hãy bật lại rồi thử lại.",
           2: "Không lấy được vị trí. Kiểm tra GPS hoặc kết nối mạng.",
           3: "Quá thời gian chờ khi lấy vị trí. Thử lại ở nơi thoáng hơn.",
         };
-        reject(new GeolocationUnavailableError(messages[error.code] ?? error.message));
+        const reasons: Record<number, GeolocationFailure> = {
+          1: "DENIED",
+          2: "UNAVAILABLE",
+          3: "TIMEOUT",
+        };
+        reject(
+          new GeolocationUnavailableError(
+            messages[error.code] ?? error.message,
+            reasons[error.code] ?? "UNAVAILABLE",
+          ),
+        );
       },
       { enableHighAccuracy: true, timeout: timeoutMs, maximumAge: 0 },
     );
