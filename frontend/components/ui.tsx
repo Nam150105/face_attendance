@@ -1,3 +1,5 @@
+"use client";
+
 import type {
   ButtonHTMLAttributes,
   InputHTMLAttributes,
@@ -6,29 +8,41 @@ import type {
   TextareaHTMLAttributes,
 } from "react";
 
-type ButtonVariant = "primary" | "secondary" | "ghost" | "danger";
+type ButtonVariant = "primary" | "secondary" | "ghost" | "danger" | "success";
 
 interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
   variant?: ButtonVariant;
   block?: boolean;
   loading?: boolean;
-  size?: "md" | "sm";
+  size?: "md" | "sm" | "lg";
+  icon?: ReactNode;
 }
 
-export function Button({ variant = "primary", block, loading, size = "md", children, disabled, ...rest }: ButtonProps) {
+export function Button({
+  variant = "primary",
+  block,
+  loading,
+  size = "md",
+  icon,
+  children,
+  disabled,
+  ...rest
+}: ButtonProps) {
   const classes = ["button"];
   if (variant !== "primary") {
     classes.push(`button--${variant}`);
   }
   if (size === "sm") {
     classes.push("button--sm");
+  } else if (size === "lg") {
+    classes.push("button--lg");
   }
   if (block) {
     classes.push("button--block");
   }
   return (
     <button className={classes.join(" ")} disabled={disabled || loading} {...rest}>
-      {loading ? <span className="spinner" aria-hidden="true" /> : null}
+      {loading ? <span className="spinner" aria-hidden="true" /> : icon ? <span aria-hidden="true">{icon}</span> : null}
       {children}
     </button>
   );
@@ -38,15 +52,19 @@ export function Card({
   title,
   subtitle,
   action,
+  glow,
   children,
+  className,
 }: {
   title?: string;
   subtitle?: string;
   action?: ReactNode;
+  glow?: boolean;
   children: ReactNode;
+  className?: string;
 }) {
   return (
-    <section className="card">
+    <section className={`card ${glow ? "card--glow" : ""} ${className ?? ""}`}>
       {title ? (
         <header className="card__header">
           <div>
@@ -64,9 +82,10 @@ export function Card({
 interface FieldProps extends InputHTMLAttributes<HTMLInputElement> {
   label: string;
   hint?: string;
+  error?: string;
 }
 
-export function Field({ label, hint, id, ...rest }: FieldProps) {
+export function Field({ label, hint, error, id, ...rest }: FieldProps) {
   const inputId = id ?? `f-${label.replace(/\s+/g, "-").toLowerCase()}`;
   const hintId = hint ? `${inputId}-hint` : undefined;
   return (
@@ -75,7 +94,11 @@ export function Field({ label, hint, id, ...rest }: FieldProps) {
         {label}
       </label>
       <input className="input" id={inputId} aria-describedby={hintId} {...rest} />
-      {hint ? (
+      {error ? (
+        <span className="field__hint" style={{ color: "var(--color-danger)" }}>
+          {error}
+        </span>
+      ) : hint ? (
         <span className="field__hint" id={hintId}>
           {hint}
         </span>
@@ -155,34 +178,114 @@ export function Alert({ tone = "info", children }: { tone?: Tone; children: Reac
   );
 }
 
-export function Badge({ tone = "neutral", children }: { tone?: Tone | "neutral"; children: ReactNode }) {
+export function Badge({
+  tone = "neutral",
+  children,
+}: {
+  tone?: Tone | "neutral";
+  children: ReactNode;
+}) {
   return <span className={`badge badge--${tone}`}>{children}</span>;
 }
 
-export function DataList({ rows }: { rows: Array<{ key: string; value: ReactNode }> }) {
+export function DataList({
+  rows,
+}: {
+  rows: Array<{ key: string; value: ReactNode }>;
+}) {
   return (
-    <dl className="datalist">
-      {rows.map((row) => (
-        <div className="datalist__row" key={row.key}>
-          <dt className="datalist__key">{row.key}</dt>
-          <dd className="datalist__value">{row.value}</dd>
+    <div className="datalist">
+      {rows.map((row, index) => (
+        <div className="datalist__row" key={index}>
+          <span className="datalist__key">{row.key}</span>
+          <span className="datalist__value">{row.value}</span>
         </div>
       ))}
-    </dl>
+    </div>
   );
 }
 
 export function Empty({ children }: { children: ReactNode }) {
-  return <p className="empty">{children}</p>;
+  return (
+    <div className="empty">
+      <svg
+        style={{ margin: "0 auto 12px", display: "block", color: "var(--text-muted)", opacity: 0.6 }}
+        width="40"
+        height="40"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.5"
+      >
+        <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z" />
+        <polyline points="3.27 6.96 12 12.01 20.73 6.96" />
+        <line x1="12" y1="22.08" x2="12" y2="12" />
+      </svg>
+      {children}
+    </div>
+  );
 }
 
 export function LoadingRows({ count = 3 }: { count?: number }) {
   return (
-    <div className="stack stack--tight" aria-busy="true" aria-live="polite">
-      <span className="visually-hidden">Đang tải</span>
-      {Array.from({ length: count }, (_, index) => (
-        <span className="skeleton" key={index} style={{ width: `${100 - index * 14}%` }} />
+    <div className="stack" aria-label="Đang tải dữ liệu...">
+      {Array.from({ length: count }).map((_, index) => (
+        <div className="skeleton skeleton-row" key={index} />
       ))}
     </div>
   );
+}
+
+/** Synthesize a pleasant feedback chime with Web Audio API */
+export function playChime(type: "success" | "shutter" | "click" = "success") {
+  if (typeof window === "undefined") return;
+  try {
+    const AudioContext = window.AudioContext || (window as unknown as { webkitAudioContext: typeof window.AudioContext }).webkitAudioContext;
+    if (!AudioContext) return;
+    const ctx = new AudioContext();
+
+    if (type === "success") {
+      const now = ctx.currentTime;
+      const osc1 = ctx.createOscillator();
+      const osc2 = ctx.createOscillator();
+      const gain = ctx.createGain();
+
+      osc1.type = "sine";
+      osc2.type = "triangle";
+      osc1.frequency.setValueAtTime(523.25, now); // C5
+      osc1.frequency.exponentialRampToValueAtTime(659.25, now + 0.1); // E5
+      osc1.frequency.exponentialRampToValueAtTime(783.99, now + 0.2); // G5
+      osc2.frequency.setValueAtTime(1046.5, now + 0.1); // C6
+
+      gain.gain.setValueAtTime(0.12, now);
+      gain.gain.exponentialRampToValueAtTime(0.001, now + 0.45);
+
+      osc1.connect(gain);
+      osc2.connect(gain);
+      gain.connect(ctx.destination);
+
+      osc1.start(now);
+      osc2.start(now + 0.1);
+      osc1.stop(now + 0.45);
+      osc2.stop(now + 0.45);
+    } else if (type === "shutter") {
+      const now = ctx.currentTime;
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+
+      osc.type = "sine";
+      osc.frequency.setValueAtTime(800, now);
+      osc.frequency.exponentialRampToValueAtTime(400, now + 0.08);
+
+      gain.gain.setValueAtTime(0.1, now);
+      gain.gain.exponentialRampToValueAtTime(0.001, now + 0.1);
+
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.start(now);
+      osc.stop(now + 0.1);
+    }
+  } catch {
+    // Audio feedback is purely non-critical enhancement.
+  }
 }
