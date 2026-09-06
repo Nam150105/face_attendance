@@ -8,6 +8,7 @@ __pycache__/
 .ruff_cache/
 .next/
 node_modules/
+*.tsbuildinfo
 coverage/
 dist/
 *.log

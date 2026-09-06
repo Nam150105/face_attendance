@@ -12,6 +12,9 @@ const ACTION_LABELS: Record<string, string> = {
   LOCATION_UNASSIGNED: "Gỡ địa điểm",
   ATTENDANCE_MANUALLY_ADJUSTED: "Điều chỉnh bản ghi",
   FACE_ENROLLED: "Đăng ký lại khuôn mặt",
+  CORRECTION_REVIEWED: "Duyệt yêu cầu chỉnh công",
+  SCHEDULE_CREATED: "Thêm ca làm việc",
+  SCHEDULE_REMOVED: "Gỡ ca làm việc",
 };
 
 const FIELD_LABELS: Record<string, string> = {

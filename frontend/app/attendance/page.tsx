@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { AppShell } from "../../components/AppShell";
+import { MemberNav } from "../../components/MemberNav";
 import { CameraCapture, type CapturePhase, type CapturedImage, type PhaseLabels } from "../../components/CameraCapture";
 import { PermissionHelp } from "../../components/PermissionHelp";
 import { Alert, Badge, Button, Card, SelectField, TextAreaField, playChime } from "../../components/ui";
@@ -58,6 +59,9 @@ export default function AttendancePage() {
   const [blocked, setBlocked] = useState(false);
   const [retryable, setRetryable] = useState(false);
   const [locationDenied, setLocationDenied] = useState(false);
+  const [fix, setFix] = useState<FixedPosition | null>(null);
+  const [distance, setDistance] = useState<number | null>(null);
+  const [gpsPhase, setGpsPhase] = useState<"idle" | "locating" | "ready" | "failed">("idle");
   const [successInfo, setSuccessInfo] = useState<{ distance: number; locationName: string; time: string } | null>(null);
 
   const pendingRef = useRef<{ image: Blob; position: FixedPosition } | null>(null);
@@ -131,6 +135,7 @@ export default function AttendancePage() {
         setNeedsReason(false);
         setReason("");
         setRetryable(false);
+        setDistance(response.distance_meters);
         pendingRef.current = null;
         setState(await api.attendanceState());
       } catch (cause) {
@@ -166,14 +171,20 @@ export default function AttendancePage() {
         setRetryable(false);
         setLocationDenied(false);
         setSuccessInfo(null);
+        setGpsPhase("idle");
+        setFix(null);
+        setDistance(null);
         return;
       }
       setPhase("working");
       setMessage(null);
       setLocationDenied(false);
+      setGpsPhase("locating");
       void readPosition()
         .then((position) => {
           pendingRef.current = { image: image.blob, position };
+          setFix(position);
+          setGpsPhase("ready");
           return run(image.blob, position);
         })
         .catch((cause) => {
@@ -181,6 +192,7 @@ export default function AttendancePage() {
           setTone("danger");
           const denied = cause instanceof GeolocationUnavailableError && cause.reason === "DENIED";
           setLocationDenied(denied);
+          setGpsPhase("failed");
           setBlocked(true);
           setMessage(describeError(cause));
         });
@@ -209,6 +221,8 @@ export default function AttendancePage() {
 
   return (
     <AppShell email={user?.email}>
+      <MemberNav />
+
       <div className="page-header">
         <div>
           <h1 className="page-title">{actionName}</h1>
@@ -238,6 +252,58 @@ export default function AttendancePage() {
           </SelectField>
         </Card>
       ) : null}
+
+      <div className="readiness">
+        <div className="readiness__item">
+          <span
+            className={`readiness__dot ${
+              gpsPhase === "ready" ? "readiness__dot--ok" : gpsPhase === "locating" ? "readiness__dot--busy" : gpsPhase === "failed" ? "readiness__dot--bad" : ""
+            }`}
+          />
+          <div className="readiness__text">
+            <p className="readiness__label">Định vị</p>
+            <p className="readiness__value">
+              {gpsPhase === "ready" && fix
+                ? `±${fix.accuracyMeters.toFixed(0)} m`
+                : gpsPhase === "locating"
+                  ? "Đang lấy vị trí…"
+                  : gpsPhase === "failed"
+                    ? "Không lấy được"
+                    : "Chưa đo"}
+            </p>
+          </div>
+        </div>
+
+        <div className="readiness__item">
+          <span className={`readiness__dot ${distance === null ? "" : "readiness__dot--ok"}`} />
+          <div className="readiness__text">
+            <p className="readiness__label">Khoảng cách</p>
+            <p className="readiness__value">
+              {distance !== null ? formatDistance(distance) : activeLocation ? `Giới hạn ${activeLocation.allow_radius_meters} m` : "—"}
+            </p>
+          </div>
+        </div>
+
+        <div className="readiness__item">
+          <span
+            className={`readiness__dot ${
+              phase === "done" ? "readiness__dot--ok" : phase === "working" ? "readiness__dot--busy" : phase === "failed" ? "readiness__dot--bad" : ""
+            }`}
+          />
+          <div className="readiness__text">
+            <p className="readiness__label">Nhận diện</p>
+            <p className="readiness__value">
+              {phase === "done"
+                ? "Đã khớp"
+                : phase === "working"
+                  ? "Đang đối chiếu…"
+                  : phase === "failed"
+                    ? "Chưa đạt"
+                    : "Chờ chụp ảnh"}
+            </p>
+          </div>
+        </div>
+      </div>
 
       <Card
         title="Xác thực khuôn mặt"

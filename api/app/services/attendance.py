@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 import httpx
 import psycopg
@@ -10,6 +10,7 @@ from fastapi import HTTPException
 
 from app.auth import CurrentUser, DATABASE_URL
 from app.domain.geofence import GeofencePolicy, GeofenceStatus, evaluate_geofence
+from app.services.member_portal import LOCAL_ZONE, notify
 from app.services.storage import PrivateObjectStorage
 
 
@@ -52,6 +53,70 @@ def _location_for_member(connection: psycopg.Connection, member_id: uuid.UUID, l
         """,
         (member_id, location_id),
     ).fetchone()
+
+
+def _location_name(connection: psycopg.Connection, location_id: uuid.UUID) -> str:
+    row = connection.execute("SELECT name FROM locations WHERE id = %s", (location_id,)).fetchone()
+    return row[0] if row else "địa điểm"
+
+
+def _is_late(connection: psycopg.Connection, member_id: uuid.UUID, moment: datetime) -> bool:
+    """Late only means something when a shift is defined for that day. Shifts are
+    local wall-clock times, so the comparison has to happen in that zone."""
+    local_moment = moment.astimezone(LOCAL_ZONE)
+    work_date = local_moment.date()
+    row = connection.execute(
+        """
+        SELECT start_time, grace_minutes FROM schedules
+        WHERE member_id = %s AND is_active
+          AND (work_date = %s OR (work_date IS NULL AND weekday = %s))
+        ORDER BY work_date NULLS LAST LIMIT 1
+        """,
+        (member_id, work_date, (work_date.weekday() + 1) % 7),
+    ).fetchone()
+    if row is None:
+        return False
+    latest_ok = datetime.combine(work_date, row[0], tzinfo=LOCAL_ZONE) + timedelta(minutes=row[1] or 0)
+    return local_moment > latest_ok
+
+
+def _notify_check_in(
+    connection: psycopg.Connection,
+    member_id: uuid.UUID,
+    location_id: uuid.UUID,
+    distance_meters: float,
+    event_status: str,
+) -> None:
+    name = _location_name(connection, location_id)
+    moment = _utc_now()
+    notify(
+        connection, member_id, "CHECK_IN",
+        "Check-in thành công",
+        f"{name} · cách {distance_meters:.0f} m"
+        + (" · đã ghi lý do" if event_status == "WARNING_CONFIRMED" else ""),
+        {"location_id": str(location_id), "distance_meters": round(distance_meters, 1)},
+    )
+    if _is_late(connection, member_id, moment):
+        notify(
+            connection, member_id, "LATE",
+            "Bạn check-in muộn so với ca làm việc",
+            f"Thời điểm ghi nhận {moment.astimezone(LOCAL_ZONE).strftime('%H:%M')} tại {name}",
+            {"location_id": str(location_id)},
+        )
+
+
+def _notify_check_out(
+    connection: psycopg.Connection,
+    member_id: uuid.UUID,
+    location_id: uuid.UUID,
+    distance_meters: float,
+) -> None:
+    notify(
+        connection, member_id, "CHECK_OUT",
+        "Check-out thành công",
+        f"{_location_name(connection, location_id)} · cách {distance_meters:.0f} m",
+        {"location_id": str(location_id), "distance_meters": round(distance_meters, 1)},
+    )
 
 
 def _open_state(connection: psycopg.Connection, member_id: uuid.UUID) -> tuple | None:
@@ -210,6 +275,7 @@ def check_in(
             """,
             (user.id, location_id, event_status, _utc_now(), latitude, longitude, gps_accuracy_meters, decision.distance_meters, face_result.get("face_match_score"), face_result.get("liveness_score"), object_key, reason, idempotency_key),
         ).fetchone()
+        _notify_check_in(connection, user.id, location[0], decision.distance_meters, event_status)
         connection.commit()
     return {"status": row[0], "event_id": row[1], "distance_meters": float(row[2]), "message": "Check-in thành công"}
 
@@ -292,6 +358,7 @@ def check_out(
             """,
             (user.id, location_id, _utc_now(), latitude, longitude, gps_accuracy_meters, decision.distance_meters, face_result.get("face_match_score"), face_result.get("liveness_score"), object_key, idempotency_key),
         ).fetchone()
+        _notify_check_out(connection, user.id, location_id, decision.distance_meters)
         connection.commit()
     return {"status": row[0], "event_id": row[1], "distance_meters": float(row[2]), "message": "Check-out thành công"}
 

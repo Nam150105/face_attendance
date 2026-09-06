@@ -233,3 +233,113 @@ export interface BulkAddResult {
   failed: number;
   results: Array<{ email: string; status: BulkAddStatus }>;
 }
+
+// --- Member portal ---------------------------------------------------------
+
+export type DayStatus = "VALID" | "LATE" | "MISSING_CHECK_OUT" | "INVALID" | "ABSENT";
+
+export interface AttendanceDay {
+  work_date: string;
+  check_in: string | null;
+  check_out: string | null;
+  worked_minutes: number | null;
+  status: DayStatus;
+  rejected_count: number;
+  warning_count: number;
+  event_count: number;
+  location_name: string | null;
+  scheduled_start: string | null;
+  scheduled_end: string | null;
+}
+
+export interface AttendanceDaysResponse {
+  date_from: string;
+  date_to: string;
+  days: AttendanceDay[];
+  summary: {
+    days_present: number;
+    days_late: number;
+    days_missing_check_out: number;
+    days_invalid: number;
+    total_worked_minutes: number;
+  };
+}
+
+export interface AttendanceDayEvent {
+  id: string;
+  event_type: "CHECK_IN" | "CHECK_OUT";
+  status: AttendanceStatus;
+  server_time: string;
+  distance_meters: number;
+  gps_accuracy_meters: number;
+  failure_code: string | null;
+  reason: string | null;
+  location_name: string;
+  has_image: boolean;
+}
+
+export interface Shift {
+  id: string;
+  weekday: number | null;
+  work_date: string | null;
+  start_time: string;
+  end_time: string;
+  timezone: string;
+  grace_minutes: number;
+  location_name: string | null;
+  location_address: string | null;
+  location_id: string | null;
+}
+
+export interface ScheduleResponse {
+  date_from: string;
+  date_to: string;
+  shifts: Shift[];
+  today: {
+    date: string;
+    has_shift: boolean;
+    start_time: string | null;
+    end_time: string | null;
+    grace_minutes: number | null;
+    checked_in_at: string | null;
+  };
+}
+
+export interface AppNotification {
+  id: string;
+  category: string;
+  title: string;
+  body: string | null;
+  payload: Record<string, unknown> | null;
+  read_at: string | null;
+  created_at: string;
+}
+
+export interface NotificationsResponse {
+  total: number;
+  unread: number;
+  items: AppNotification[];
+}
+
+export type CorrectionType = "MISSING_CHECK_IN" | "MISSING_CHECK_OUT" | "WRONG_TIME" | "OTHER";
+export type CorrectionStatus = "PENDING" | "APPROVED" | "REJECTED";
+
+export interface CorrectionRequest {
+  id: string;
+  work_date: string;
+  request_type: CorrectionType;
+  requested_check_in: string | null;
+  requested_check_out: string | null;
+  reason: string;
+  status: CorrectionStatus;
+  review_note: string | null;
+  reviewed_at: string | null;
+  created_at: string;
+  member_name?: string | null;
+  member_email?: string | null;
+}
+
+export interface CorrectionsResponse {
+  total: number;
+  items: CorrectionRequest[];
+}

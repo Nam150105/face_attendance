@@ -1,0 +1,8 @@
+# COPY . . runs after node_modules is copied from the dependencies stage, so a
+# node_modules directory left on the host would overwrite the one built for the
+# image. Keep the build context to source only.
+node_modules
+.next
+npm-debug.log*
+.env
+.env.*

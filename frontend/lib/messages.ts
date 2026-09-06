@@ -11,6 +11,22 @@ const CODE_MESSAGES: Record<string, string> = {
   UNSUPPORTED_IMAGE_TYPE: "Tệp gửi lên không phải ảnh JPEG hoặc PNG hợp lệ. Vui lòng chụp lại.",
   IDEMPOTENCY_KEY_CONFLICT: "Yêu cầu bị trùng mã xử lý. Vui lòng thử lại.",
   PLACE_LINK_HOST_NOT_ALLOWED: "Chỉ chấp nhận liên kết từ Google Maps hoặc Apple Maps.",
+
+  // Member portal
+  DATE_RANGE_INVALID: "Khoảng thời gian không hợp lệ: ngày bắt đầu sau ngày kết thúc.",
+  DATE_RANGE_TOO_WIDE: "Khoảng thời gian quá dài. Vui lòng chọn tối đa một năm.",
+  CORRECTION_REASON_REQUIRED: "Vui lòng nhập lý do cho yêu cầu chỉnh công.",
+  CORRECTION_DATE_IN_FUTURE: "Không thể yêu cầu chỉnh công cho ngày trong tương lai.",
+  CORRECTION_ALREADY_PENDING: "Ngày này đã có một yêu cầu đang chờ duyệt.",
+  CORRECTION_NOT_FOUND_OR_REVIEWED: "Yêu cầu không còn tồn tại hoặc đã được xử lý.",
+  CORRECTION_ALREADY_REVIEWED: "Yêu cầu này đã được xử lý trước đó.",
+  CORRECTION_OUTSIDE_MANAGER_SCOPE: "Yêu cầu không thuộc phạm vi bạn quản lý.",
+  INVALID_CORRECTION_TYPE: "Loại yêu cầu chỉnh công không hợp lệ.",
+  INVALID_CORRECTION_DECISION: "Quyết định duyệt không hợp lệ.",
+  NOTIFICATION_NOT_FOUND: "Không tìm thấy thông báo này.",
+  SCHEDULE_NEEDS_WEEKDAY_OR_DATE: "Ca làm việc phải chọn thứ trong tuần hoặc một ngày cụ thể, không chọn cả hai.",
+  SCHEDULE_END_BEFORE_START: "Giờ kết thúc phải sau giờ bắt đầu.",
+  SCHEDULE_NOT_FOUND: "Không tìm thấy ca làm việc này.",
   // Backend trả "Invalid email or password" khi sai thông tin đăng nhập, còn
   // "Invalid or expired credentials" là mặc định của unauthorized() khi token hết hạn.
   "Invalid email or password": "Email hoặc mật khẩu chưa chính xác. Vui lòng kiểm tra lại.",

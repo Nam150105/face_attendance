@@ -14,7 +14,19 @@ function initials(email: string): string {
   return (letters.length > 1 ? letters[0][0] + letters[1][0] : namePart.slice(0, 2)).toUpperCase();
 }
 
-export function AppShell({ email, children }: { email?: string | null; children: ReactNode }) {
+/**
+ * `wide` is for the data-dense member pages (history, corrections). The focused
+ * flows — login, enrolment, check-in — read better in the narrow column.
+ */
+export function AppShell({
+  email,
+  wide,
+  children,
+}: {
+  email?: string | null;
+  wide?: boolean;
+  children: ReactNode;
+}) {
   const router = useRouter();
   const [time, setTime] = useState<string>("");
 
@@ -40,7 +52,7 @@ export function AppShell({ email, children }: { email?: string | null; children:
   }
 
   return (
-    <div className="shell">
+    <div className={`shell ${wide ? "shell--wide" : ""}`}>
       <header className="topbar">
         <Link href="/" className="topbar__brand">
           <img src="/logo.svg" alt="Logo Face Attendance" className="topbar__logo" />

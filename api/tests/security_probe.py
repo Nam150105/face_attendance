@@ -16,6 +16,7 @@ import io
 import os
 import sys
 import uuid
+from datetime import date
 
 import psycopg
 import urllib.error
@@ -105,6 +106,9 @@ def register(role: str, created: list[str]) -> tuple[str, str]:
 
 # Every table that points at users, in the order that satisfies the FKs.
 _DEPENDENTS = (
+    ("notifications", "user_id"),
+    ("attendance_correction_requests", "member_id"),
+    ("attendance_correction_requests", "reviewed_by"),
     ("attendance_summary", "member_id"),
     ("attendance_events", "member_id"),
     ("schedules", "member_id"),
@@ -325,7 +329,54 @@ def main() -> int:
               own_status == 200 and own_message == "Request already processed",
               f"HTTP {own_status} {own_message}")
 
-        # --- 9. Rate limiting ------------------------------------------------
+        # --- 9. Member portal isolation --------------------------------------
+        # Member A files a correction; Member B must not see, cancel or review it.
+        status, correction = call("POST", "/attendance/corrections", member_a, {
+            "work_date": date.today().isoformat(),
+            "request_type": "MISSING_CHECK_OUT",
+            "reason": "probe correction",
+        })
+        correction_id = correction.get("id") if status == 201 else None
+        check("Portal: thành viên gửi được yêu cầu chỉnh công", status == 201, f"HTTP {status} {correction}")
+
+        if correction_id:
+            status, listing = call("GET", "/attendance/corrections", member_b)
+            ids_seen = {row["id"] for row in listing.get("items", [])} if isinstance(listing, dict) else set()
+            check("Portal: thành viên khác không thấy yêu cầu chỉnh công của người kia",
+                  correction_id not in ids_seen, f"{len(ids_seen)} bản ghi")
+
+            status, _ = call("DELETE", f"/attendance/corrections/{correction_id}", member_b)
+            check("Portal: thành viên khác không thu hồi được yêu cầu", status == 404, f"HTTP {status}")
+
+            # Manager B does not manage Member A, so the queue and the review must
+            # both refuse.
+            status, queue_b = call("GET", "/manager/corrections", manager_b)
+            queue_ids = {row["id"] for row in queue_b.get("items", [])} if isinstance(queue_b, dict) else set()
+            check("Portal: manager ngoài phạm vi không thấy yêu cầu trong hàng đợi",
+                  correction_id not in queue_ids, f"{len(queue_ids)} bản ghi")
+
+            status, _ = call("POST", f"/manager/corrections/{correction_id}/review", manager_b,
+                             {"decision": "APPROVED", "note": "hijack"})
+            check("Portal: manager ngoài phạm vi không duyệt được yêu cầu", status == 404, f"HTTP {status}")
+
+            status, _ = call("POST", f"/manager/corrections/{correction_id}/review", manager_a,
+                             {"decision": "APPROVED", "note": "ok"})
+            check("Portal: manager đúng phạm vi duyệt được", status == 200, f"HTTP {status}")
+
+        # Approving notifies the member; that notification is theirs alone.
+        status, notes_a = call("GET", "/notifications", member_a)
+        note_ids = [row["id"] for row in notes_a.get("items", [])] if isinstance(notes_a, dict) else []
+        check("Portal: thành viên nhận được thông báo kết quả", len(note_ids) > 0, f"{len(note_ids)} thông báo")
+        if note_ids:
+            status, _ = call("POST", f"/notifications/{note_ids[0]}/read", member_b)
+            check("Portal: thành viên khác không đánh dấu đọc được thông báo của người kia",
+                  status == 404, f"HTTP {status}")
+
+        status, _ = call("GET", "/manager/members/%s/schedules" % (next(iter(ids_b)) if ids_b else uuid.uuid4()), manager_a)
+        check("Portal: manager không đọc được lịch làm việc của thành viên ngoài phạm vi",
+              status == 404, f"HTTP {status}")
+
+        # --- 10. Rate limiting ------------------------------------------------
         codes = []
         for _ in range(14):
             code, _ = call("POST", "/auth/login", body={"email": member_b_email, "password": "WrongPassword1!"})

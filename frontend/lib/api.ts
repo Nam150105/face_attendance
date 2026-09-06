@@ -1,5 +1,8 @@
 import { clearTokens, readTokens, writeTokens } from "./session";
 import type {
+  AppNotification,
+  AttendanceDayEvent,
+  AttendanceDaysResponse,
   AttendanceEvent,
   AttendanceFilters,
   AttendanceResult,
@@ -15,10 +18,15 @@ import type {
   ManagedMember,
   ManagerAttendanceEvent,
   ManagerDashboard,
+  CorrectionsResponse,
+  CorrectionType,
   ManagerLocation,
   MemberLocation,
   MemberProfile,
+  NotificationsResponse,
   Paged,
+  ScheduleResponse,
+  Shift,
   TokenPair,
   UserRole,
 } from "./types";
@@ -228,6 +236,68 @@ export const api = {
   attendanceHistory(limit = 20) {
     return request<AttendanceEvent[]>(`/attendance/me?limit=${limit}`);
   },
+  // --- Member portal -------------------------------------------------------
+  attendanceDays(range: { date_from?: string; date_to?: string } = {}) {
+    return request<AttendanceDaysResponse>(`/attendance/me/daily${queryString(range)}`);
+  },
+  attendanceDay(workDate: string) {
+    return request<AttendanceDayEvent[]>(`/attendance/me/day/${workDate}`);
+  },
+  mySchedule() {
+    return request<ScheduleResponse>("/members/me/schedule");
+  },
+  notifications(options: { unread_only?: boolean; limit?: number } = {}) {
+    return request<NotificationsResponse>(`/notifications${queryString(options)}`);
+  },
+  markNotificationRead(id: string) {
+    return request<{ id: string }>(`/notifications/${id}/read`, { method: "POST" });
+  },
+  markAllNotificationsRead() {
+    return request<{ marked: number }>("/notifications/read-all", { method: "POST" });
+  },
+  myCorrections() {
+    return request<CorrectionsResponse>("/attendance/corrections");
+  },
+  submitCorrection(payload: {
+    work_date: string;
+    request_type: CorrectionType;
+    requested_check_in?: string | null;
+    requested_check_out?: string | null;
+    reason: string;
+  }) {
+    return request<{ id: string; status: string }>("/attendance/corrections", { method: "POST", json: payload });
+  },
+  cancelCorrection(id: string) {
+    return request<{ id: string }>(`/attendance/corrections/${id}`, { method: "DELETE" });
+  },
+
+  // --- Manager side of the member portal ------------------------------------
+  correctionsQueue(status?: string) {
+    return request<CorrectionsResponse>(`/manager/corrections${queryString({ status })}`);
+  },
+  reviewCorrection(id: string, decision: "APPROVED" | "REJECTED", note?: string) {
+    return request<{ id: string; status: string }>(`/manager/corrections/${id}/review`, {
+      method: "POST",
+      json: { decision, note: note ?? null },
+    });
+  },
+  memberSchedules(memberId: string) {
+    return request<Shift[]>(`/manager/members/${memberId}/schedules`);
+  },
+  createMemberSchedule(memberId: string, payload: {
+    weekday?: number | null;
+    work_date?: string | null;
+    start_time: string;
+    end_time: string;
+    grace_minutes?: number;
+    location_id?: string | null;
+  }) {
+    return request<{ id: string }>(`/manager/members/${memberId}/schedules`, { method: "POST", json: payload });
+  },
+  deleteMemberSchedule(memberId: string, scheduleId: string) {
+    return request<{ id: string }>(`/manager/members/${memberId}/schedules/${scheduleId}`, { method: "DELETE" });
+  },
+
   evaluateGeofence(locationId: string, position: { latitude: number; longitude: number; gps_accuracy_meters: number }) {
     return request<GeofenceDecision>(`/locations/${locationId}/evaluate`, { method: "POST", json: position });
   },

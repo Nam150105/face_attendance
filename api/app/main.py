@@ -12,7 +12,16 @@ from app.observability import (
     readiness,
     request_id_var,
 )
-from app.routers import attendance, auth, faces, locations, manager, manager_attendance, members
+from app.routers import (
+    attendance,
+    auth,
+    faces,
+    locations,
+    manager,
+    manager_attendance,
+    member_portal,
+    members,
+)
 
 
 CORS_ALLOW_ORIGINS = [origin.strip() for origin in os.environ.get("CORS_ALLOW_ORIGINS", "").split(",") if origin.strip()]
@@ -93,6 +102,8 @@ app.include_router(locations.assignment_router, prefix="/api/v1")
 app.include_router(locations.member_router, prefix="/api/v1")
 app.include_router(faces.router, prefix="/api/v1")
 app.include_router(attendance.router, prefix="/api/v1")
+app.include_router(member_portal.member_router, prefix="/api/v1")
+app.include_router(member_portal.manager_router, prefix="/api/v1")
 
 
 @app.get("/health", tags=["system"])

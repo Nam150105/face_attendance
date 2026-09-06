@@ -361,6 +361,68 @@ body {
   font-weight: 600;
 }
 
+.nav__badge {
+  display: inline-grid;
+  place-items: center;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  margin-left: 2px;
+  border-radius: var(--radius-full);
+  background: var(--color-danger);
+  color: #fff;
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1;
+}
+
+/* GPS / face readiness strip on the check-in screen ------------------------ */
+.readiness {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 150px), 1fr));
+  gap: var(--space-1);
+  margin-bottom: var(--space-2);
+}
+
+.readiness__item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  background: var(--surface-card);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+}
+
+.readiness__dot {
+  flex: 0 0 auto;
+  width: 10px;
+  height: 10px;
+  border-radius: var(--radius-full);
+  background: var(--text-muted);
+}
+
+.readiness__dot--ok { background: var(--color-success); box-shadow: 0 0 8px var(--color-success-glow); }
+.readiness__dot--warn { background: var(--color-warning); }
+.readiness__dot--bad { background: var(--color-danger); }
+.readiness__dot--busy { background: var(--color-cyan); animation: netPulse 1.2s ease-in-out infinite; }
+
+.readiness__text { min-width: 0; }
+
+.readiness__label {
+  font-size: var(--text-xs);
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.readiness__value {
+  font-size: var(--text-sm);
+  font-weight: 600;
+  color: var(--text-primary);
+  overflow-wrap: anywhere;
+}
+
 /* Typography Hierarchy ----------------------------------------------------- */
 .page-title {
   font-size: var(--text-2xl);
