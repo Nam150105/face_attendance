@@ -1,4 +1,4 @@
-import { clearTokens, readTokens, writeTokens } from "./session";
+import { clearTokens, deviceId, readTokens, rememberSessionEnded, writeTokens } from "./session";
 import type {
   AppNotification,
   AttendanceDayEvent,
@@ -82,6 +82,23 @@ function toNetworkError(cause: unknown): ApiError {
   const offline = typeof navigator !== "undefined" && navigator.onLine === false;
   const code = offline ? "NETWORK_OFFLINE" : "NETWORK_ERROR";
   return new ApiError(0, code, code);
+}
+
+export const SESSION_REVOKED = "SESSION_REVOKED";
+
+/**
+ * The server closed this session — another device logged in, the account was
+ * suspended, or the user logged out elsewhere. Nothing local can recover it, so
+ * drop the credentials and hand the user to the login screen with a reason.
+ * A full navigation is deliberate: it guarantees no stale state survives.
+ */
+function endRevokedSession(): void {
+  clearTokens();
+  if (typeof window === "undefined" || window.location.pathname === "/login") {
+    return;
+  }
+  rememberSessionEnded(SESSION_REVOKED);
+  window.location.replace("/login");
 }
 
 /** True when the request failed in transit, so retrying the same call is safe. */
@@ -173,7 +190,11 @@ async function request<T>(path: string, options: RequestOptions = {}): Promise<T
     }
   }
   if (!response.ok) {
-    throw await toApiError(response);
+    const error = await toApiError(response);
+    if (auth && error.statusCode === 401 && error.code === SESSION_REVOKED) {
+      endRevokedSession();
+    }
+    throw error;
   }
   if (response.status === 204) {
     return undefined as T;
@@ -183,10 +204,18 @@ async function request<T>(path: string, options: RequestOptions = {}): Promise<T
 
 export const api = {
   register(email: string, password: string, role: UserRole) {
-    return request<TokenPair>("/auth/register", { method: "POST", json: { email, password, role }, auth: false });
+    return request<TokenPair>("/auth/register", {
+      method: "POST",
+      json: { email, password, role, device_id: deviceId() },
+      auth: false,
+    });
   },
   login(email: string, password: string) {
-    return request<TokenPair>("/auth/login", { method: "POST", json: { email, password }, auth: false });
+    return request<TokenPair>("/auth/login", {
+      method: "POST",
+      json: { email, password, device_id: deviceId() },
+      auth: false,
+    });
   },
   async logout() {
     const tokens = readTokens();

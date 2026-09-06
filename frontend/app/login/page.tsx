@@ -1,13 +1,13 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 import { AppShell } from "../../components/AppShell";
 import { Alert, Button, Card, Field, SelectField } from "../../components/ui";
 import { api } from "../../lib/api";
-import { describeError } from "../../lib/messages";
-import { writeTokens } from "../../lib/session";
+import { describeCode, describeError } from "../../lib/messages";
+import { takeSessionEndedReason, writeTokens } from "../../lib/session";
 import type { UserRole } from "../../lib/types";
 
 type Mode = "login" | "register";
@@ -28,7 +28,16 @@ export default function LoginPage() {
   const [role, setRole] = useState<UserRole>("MEMBER");
   const [profile, setProfile] = useState(EMPTY_PROFILE);
   const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+
+  useEffect(() => {
+    // Set by the API client when the server closed the session mid-use.
+    const reason = takeSessionEndedReason();
+    if (reason) {
+      setNotice(describeCode(reason));
+    }
+  }, []);
 
   function setProfileField(key: keyof typeof EMPTY_PROFILE, value: string) {
     setProfile((current) => ({ ...current, [key]: value }));
@@ -206,6 +215,7 @@ export default function LoginPage() {
             </>
           ) : null}
 
+          {notice ? <Alert tone="warning">{notice}</Alert> : null}
           {error ? <Alert tone="danger">{error}</Alert> : null}
 
           <Button type="submit" size="lg" loading={submitting} block>

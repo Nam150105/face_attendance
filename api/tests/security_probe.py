@@ -173,9 +173,13 @@ def main() -> int:
         status, _ = call("GET", "/auth/me", "not-a-real-token")
         check("Auth: token rác bị từ chối", status == 401, f"HTTP {status}")
 
-        # A refresh token must not be usable as an access token.
+        # A refresh token must not be usable as an access token. Logging in again
+        # replaces the member's single active session, so the token from this
+        # login becomes the valid one for the rest of the probe.
         status, tokens = call("POST", "/auth/login", body={"email": member_a_email, "password": PASSWORD})
         refresh_token = tokens["refresh_token"] if status == 200 else ""
+        if status == 200:
+            member_a = tokens["access_token"]
         status, _ = call("GET", "/auth/me", refresh_token)
         check("JWT: refresh token không dùng được thay cho access token", status == 401, f"HTTP {status}")
 

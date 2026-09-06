@@ -6,6 +6,7 @@ import psycopg
 
 from app.auth import (
     AUTH_DEBUG_RETURN_RESET_TOKEN,
+    SESSION_REVOKED,
     CurrentUser,
     ForgotPasswordRequest,
     ForgotPasswordResponse,
@@ -19,8 +20,12 @@ from app.auth import (
     decode_refresh_token,
     digest_token,
     get_current_user,
+    create_access_token,
+    create_refresh_token,
     issue_tokens,
+    lock_user,
     password_context,
+    revoke_user_sessions,
     unauthorized,
     validate_password,
     DATABASE_URL,
@@ -49,7 +54,9 @@ def register(request: RegisterRequest, http_request: Request) -> TokenResponse:
                 "INSERT INTO users (email, password_hash, role, status, email_verified_at) VALUES (%s, %s, %s::user_role, 'ACTIVE', now()) RETURNING id, role::text",
                 (str(request.email).lower(), password_context.hash(request.password), request.role),
             ).fetchone()
-            return issue_tokens(connection, row[0], row[1])
+            return issue_tokens(
+                connection, row[0], row[1], request.device_id, http_request.headers.get("user-agent")
+            )
     except psycopg.errors.UniqueViolation as error:
         raise HTTPException(status_code=409, detail="Email is already registered") from error
 
@@ -66,38 +73,71 @@ def login(request: LoginRequest, http_request: Request) -> TokenResponse:
         ).fetchone()
         if row is None or row[3] != "ACTIVE" or not password_context.verify(request.password, row[1]):
             raise unauthorized("Invalid email or password")
+        # Hold the account row for the rest of the transaction: two logins racing
+        # each other are serialised, so the loser revokes and re-inserts cleanly
+        # instead of both believing they created the only active session.
+        lock_user(connection, row[0])
         connection.execute("UPDATE users SET last_login_at = now() WHERE id = %s", (row[0],))
-        connection.commit()
         # A correct password clears the brake so one typo streak does not lock
         # out a legitimate user for the rest of the window.
         clear_rate_limit("login-account", email, LOGIN_WINDOW_SECONDS)
         clear_rate_limit("login-ip", address, LOGIN_WINDOW_SECONDS)
-        return issue_tokens(connection, row[0], row[2])
+        return issue_tokens(
+            connection, row[0], row[2], request.device_id, http_request.headers.get("user-agent")
+        )
 
 
 @router.post("/refresh", response_model=TokenResponse)
 def refresh(request: RefreshRequest, http_request: Request) -> TokenResponse:
     enforce_rate_limit("refresh-ip", client_ip(http_request), limit=60, window_seconds=300)
     payload = decode_refresh_token(request.refresh_token)
+    session_id = payload.get("sid")
+    if not session_id:
+        raise unauthorized(SESSION_REVOKED)
     with psycopg.connect(DATABASE_URL) as connection:
+        # FOR UPDATE stops two parallel refreshes from both rotating the same
+        # token; the loser finds the hash already changed and is refused.
         row = connection.execute(
-            "SELECT id, user_id FROM refresh_sessions WHERE token_hash = %s AND revoked_at IS NULL AND expires_at > now()",
-            (digest_token(request.refresh_token),),
+            """
+            SELECT id, user_id FROM refresh_sessions
+            WHERE id = %s AND token_hash = %s AND revoked_at IS NULL AND expires_at > now()
+            FOR UPDATE
+            """,
+            (session_id, digest_token(request.refresh_token)),
         ).fetchone()
         if row is None:
-            raise unauthorized("Refresh token has been revoked or expired")
-        connection.execute("UPDATE refresh_sessions SET revoked_at = now(), last_used_at = now() WHERE id = %s", (row[0],))
+            raise unauthorized(SESSION_REVOKED)
         user = connection.execute("SELECT role::text, status::text FROM users WHERE id = %s", (row[1],)).fetchone()
         if user is None or user[1] != "ACTIVE":
             raise unauthorized("User is not active")
+
+        # Rotate the secret but keep the session: the device stays the same one.
+        new_refresh_token, expires_at = create_refresh_token(str(row[1]), user[0], str(row[0]))
+        connection.execute(
+            """
+            UPDATE refresh_sessions
+            SET token_hash = %s, expires_at = %s, last_used_at = now(), last_active_at = now()
+            WHERE id = %s
+            """,
+            (digest_token(new_refresh_token), expires_at, row[0]),
+        )
         connection.commit()
-        return issue_tokens(connection, row[1], user[0])
+        return TokenResponse(
+            access_token=create_access_token(str(row[1]), user[0], str(row[0])),
+            refresh_token=new_refresh_token,
+        )
 
 
 @router.post("/logout", status_code=status.HTTP_204_NO_CONTENT)
 def logout(request: LogoutRequest) -> None:
     with psycopg.connect(DATABASE_URL) as connection:
-        connection.execute("UPDATE refresh_sessions SET revoked_at = COALESCE(revoked_at, now()) WHERE token_hash = %s", (digest_token(request.refresh_token),))
+        # Scoped by the token hash, so a logout can only ever end the session
+        # whose refresh token the caller actually holds.
+        connection.execute(
+            "UPDATE refresh_sessions SET revoked_at = COALESCE(revoked_at, now()), "
+            "revoked_reason = COALESCE(revoked_reason, 'LOGOUT') WHERE token_hash = %s",
+            (digest_token(request.refresh_token),),
+        )
         connection.commit()
 
 
@@ -140,7 +180,8 @@ def reset_password(request: ResetPasswordRequest, http_request: Request) -> None
             (password_context.hash(request.new_password), token[1]),
         )
         connection.execute("UPDATE password_reset_tokens SET used_at = now() WHERE id = %s", (token[0],))
-        connection.execute("UPDATE refresh_sessions SET revoked_at = COALESCE(revoked_at, now()) WHERE user_id = %s", (token[1],))
+        # A password change invalidates every device, not just this one.
+        revoke_user_sessions(connection, token[1], "PASSWORD_RESET")
         connection.commit()
 
 
