@@ -11,10 +11,10 @@ import psycopg
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
 
 from app.auth import CurrentUser, DATABASE_URL, get_current_user
+from app.security import MAX_IMAGE_BYTES, enforce_rate_limit, validate_image_upload
 
 
 FACE_AI_URL = os.environ.get("FACE_AI_URL", "http://face-ai:8001")
-MAX_IMAGE_BYTES = 10 * 1024 * 1024
 router = APIRouter(prefix="/faces", tags=["faces"])
 
 
@@ -62,9 +62,9 @@ async def verify_enrollment(
 ) -> dict:
     if user.role != "MEMBER":
         raise HTTPException(status_code=403, detail="Only members can enroll a face")
+    enforce_rate_limit("enroll", str(user.id), limit=10, window_seconds=300)
     image_bytes = await image.read(MAX_IMAGE_BYTES + 1)
-    if len(image_bytes) > MAX_IMAGE_BYTES:
-        raise HTTPException(status_code=413, detail="Image exceeds 10 MB limit")
+    validate_image_upload(image_bytes)
     with psycopg.connect(DATABASE_URL) as connection:
         row = connection.execute(
             "SELECT id FROM face_enrollment_challenges WHERE id = %s AND member_id = %s AND challenge_hash = %s AND consumed_at IS NULL AND expires_at > now()",
@@ -88,15 +88,32 @@ async def verify_enrollment(
             (uuid.uuid4(), user.id, json.dumps(embedding), response.get("model_name", "arcface"), response.get("model_version", "unknown"), response.get("blur_score")),
         )
         connection.execute("UPDATE face_enrollment_challenges SET consumed_at = now() WHERE id = %s", (challenge_id,))
+        # 07_SECURITY_PRIVACY.md §5 requires face re-enrollment to be auditable.
+        connection.execute(
+            """
+            INSERT INTO audit_logs (actor_user_id, action, entity_type, entity_id, after_json)
+            VALUES (%s, 'FACE_ENROLLED', 'face_embedding', %s, %s::jsonb)
+            """,
+            (
+                user.id,
+                user.id,
+                json.dumps(
+                    {
+                        "model_name": response.get("model_name", "arcface"),
+                        "model_version": response.get("model_version", "unknown"),
+                    }
+                ),
+            ),
+        )
         connection.commit()
     return response
 
 
 @router.post("/verify")
 async def verify_face(image: UploadFile = File(...), user: CurrentUser = Depends(get_current_user)) -> dict:
+    enforce_rate_limit("face-verify", str(user.id), limit=20, window_seconds=60)
     image_bytes = await image.read(MAX_IMAGE_BYTES + 1)
-    if len(image_bytes) > MAX_IMAGE_BYTES:
-        raise HTTPException(status_code=413, detail="Image exceeds 10 MB limit")
+    validate_image_upload(image_bytes)
     try:
         response = await _face_ai_verify(image_bytes, image.filename or "attendance.jpg", str(user.id))
     except httpx.HTTPError as error:

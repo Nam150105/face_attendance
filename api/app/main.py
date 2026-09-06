@@ -1,6 +1,6 @@
 import os
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.routers import attendance, auth, faces, locations, manager, manager_attendance, members
@@ -9,6 +9,23 @@ from app.routers import attendance, auth, faces, locations, manager, manager_att
 CORS_ALLOW_ORIGINS = [origin.strip() for origin in os.environ.get("CORS_ALLOW_ORIGINS", "").split(",") if origin.strip()]
 
 app = FastAPI(title="Face Attendance API", version="0.1.0")
+
+
+@app.middleware("http")
+async def security_headers(request: Request, call_next):
+    """
+    The API serves evidence photos from its own origin, so anything it returns
+    must not be sniffed into an active content type or framed by another site.
+    """
+    response = await call_next(request)
+    response.headers.setdefault("X-Content-Type-Options", "nosniff")
+    response.headers.setdefault("X-Frame-Options", "DENY")
+    response.headers.setdefault("Content-Security-Policy", "default-src 'none'; frame-ancestors 'none'")
+    response.headers.setdefault("Referrer-Policy", "no-referrer")
+    response.headers.setdefault("Cross-Origin-Resource-Policy", "same-site")
+    return response
+
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=CORS_ALLOW_ORIGINS,

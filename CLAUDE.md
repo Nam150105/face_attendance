@@ -69,7 +69,18 @@ Theo skill `design-system` (dark cloud-platform aesthetic):
 - Touch target tối thiểu 44px, focus-visible luôn hiện, tôn trọng `prefers-reduced-motion`, WCAG 2.2 AA.
 - Mọi màn hình phải xử lý đủ 4 trạng thái: empty / loading / error / success.
 
-## 7. Lệnh hay dùng
+## 7. Bảo mật đã có (đừng gỡ khi refactor)
+
+- **Rate limit** qua Redis ở `api/app/security.py`. Login giới hạn theo cả IP lẫn email; đăng ký/quên mật khẩu theo IP; chấm công và nhận diện theo user. Fail-open khi Redis lỗi — đây là phanh chống brute-force, không phải cổng phân quyền.
+- **Upload ảnh** xác thực bằng magic byte, không tin `Content-Type` của client. Ảnh trả về luôn qua `safe_image_content_type()`; nếu bỏ bước này thì một tệp HTML tải lên sẽ được phục vụ lại từ origin của API và thành stored XSS.
+- **Link bản đồ** chỉ được fetch nếu host nằm trong allowlist ở `places.py`, kiểm lại từng bước redirect. Bỏ ra là mở lại SSRF vào mạng nội bộ.
+- **Idempotency key** phải lọc kèm `member_id`; cột này unique toàn cục nên truy vấn không lọc sẽ trả bản ghi của người khác.
+- Chạy lại bộ kiểm bảo mật:
+  ```powershell
+  docker compose run --rm -v "D:ace-attendancepi:/src:ro" -w /src -e PROBE_BASE_URL=http://api:8000/api/v1 api python -m tests.security_probe
+  ```
+
+## 8. Lệnh hay dùng
 
 ```powershell
 docker compose up -d --build
@@ -88,17 +99,17 @@ docker compose build frontend
 
 Tài khoản demo do migration `002_seed_local_demo` tạo ra chỉ dùng cho máy local. Mật khẩu trên môi trường public đã được đổi và **không được ghi vào repo** — hỏi người dùng nếu cần.
 
-## 8. Trạng thái hiện tại
+## 9. Trạng thái hiện tại
 
-- **Xong:** Phase 0–8 (hạ tầng, schema, auth/RBAC, membership, location/geofence, face enrollment, check-in/check-out, quản lý chấm công cho Manager, responsive/mobile hardening) + model ArcFace thật + frontend cho cả MEMBER và MANAGER.
-- **Tiếp theo:** Phase 9 (security hardening: rate limit, IDOR test, upload validation).
+- **Xong:** Phase 0–9 (hạ tầng, schema, auth/RBAC, membership, location/geofence, face enrollment, check-in/check-out, quản lý chấm công cho Manager, responsive/mobile hardening, security hardening) + model ArcFace thật + frontend cho cả MEMBER và MANAGER.
+- **Tiếp theo:** Phase 10 (observability, backup/restore, cấu hình production).
 - **Đã deploy:** https://namnangno.click, chạy từ máy dev qua Cloudflare Tunnel (service `tunnel` trong compose).
 - **Nợ kỹ thuật đã biết:** xem mục "Known issues" trong [README.md](README.md).
 
-## 9. Những thứ CHƯA có — đừng giả định là đã có
+## 10. Những thứ CHƯA có — đừng giả định là đã có
 
 - Liveness / anti-spoofing: **không có**. Ảnh chụp lại màn hình vẫn qua được. Đang chờ chọn provider thương mại.
-- Rate limiting: Redis đã chạy nhưng **chưa dùng**.
+- Retention dữ liệu sinh trắc học: **chưa có**. `07_SECURITY_PRIVACY.md` §6 yêu cầu thời hạn lưu cấu hình được và không giữ vô hạn — hiện ảnh bằng chứng và embedding được giữ mãi, chưa có job dọn.
 - Test tự động: mới chỉ có `api/tests/test_geofence.py`. Frontend chưa có test trong repo — kiểm chứng giao diện đang làm thủ công bằng Playwright ngoài repo.
 - Service worker (`frontend/public/sw.js`) chỉ cache app shell và asset tĩnh. **Không cache `/api/*`** — dữ liệu chấm công và ảnh bằng chứng không bao giờ được ghi xuống cache trình duyệt. Đổi chiến lược thì phải tăng `CACHE_VERSION`.
 - Offline chỉ mở được app và báo lỗi tử tế; **không có hàng đợi chấm công offline** — mọi lượt check-in/check-out đều cần mạng vì server mới là nơi xác thực.

@@ -146,12 +146,20 @@ def check_in(
     if gps_accuracy_meters < 0:
         raise _reject(422, "GPS accuracy must be non-negative")
     with psycopg.connect(DATABASE_URL) as connection:
+        # Scoped to the member: the key is globally unique, so an unscoped lookup
+        # would hand somebody else's event back to whoever replayed their key.
         existing = connection.execute(
-            "SELECT status::text, id, distance_meters, 'Request already processed' FROM attendance_events WHERE idempotency_key = %s",
-            (idempotency_key,),
+            "SELECT status::text, id, distance_meters, 'Request already processed' FROM attendance_events WHERE idempotency_key = %s AND member_id = %s",
+            (idempotency_key, user.id),
         ).fetchone()
         if existing is not None:
             return _event_response(existing)
+        # The column is globally unique, so a key already owned by someone else
+        # would blow up on INSERT. Refuse it explicitly instead.
+        if connection.execute(
+            "SELECT 1 FROM attendance_events WHERE idempotency_key = %s", (idempotency_key,)
+        ).fetchone() is not None:
+            raise _reject(409, "IDEMPOTENCY_KEY_CONFLICT")
         connection.execute("SELECT id FROM users WHERE id = %s FOR UPDATE", (user.id,)).fetchone()
         if _open_state(connection, user.id) is not None:
             raise _reject(409, "CHECK_IN_ALREADY_EXISTS")
@@ -218,12 +226,20 @@ def check_out(
     if gps_accuracy_meters < 0:
         raise _reject(422, "GPS accuracy must be non-negative")
     with psycopg.connect(DATABASE_URL) as connection:
+        # Scoped to the member: the key is globally unique, so an unscoped lookup
+        # would hand somebody else's event back to whoever replayed their key.
         existing = connection.execute(
-            "SELECT status::text, id, distance_meters, 'Request already processed' FROM attendance_events WHERE idempotency_key = %s",
-            (idempotency_key,),
+            "SELECT status::text, id, distance_meters, 'Request already processed' FROM attendance_events WHERE idempotency_key = %s AND member_id = %s",
+            (idempotency_key, user.id),
         ).fetchone()
         if existing is not None:
             return _event_response(existing)
+        # The column is globally unique, so a key already owned by someone else
+        # would blow up on INSERT. Refuse it explicitly instead.
+        if connection.execute(
+            "SELECT 1 FROM attendance_events WHERE idempotency_key = %s", (idempotency_key,)
+        ).fetchone() is not None:
+            raise _reject(409, "IDEMPOTENCY_KEY_CONFLICT")
         connection.execute("SELECT id FROM users WHERE id = %s FOR UPDATE", (user.id,)).fetchone()
         open_event = _open_state(connection, user.id)
         if open_event is None:

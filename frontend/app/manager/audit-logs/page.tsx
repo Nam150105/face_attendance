@@ -18,6 +18,7 @@ const ENTITY_LABELS: Array<{ value: string; label: string }> = [
   { value: "location", label: "Địa điểm" },
   { value: "member_location", label: "Phân công địa điểm" },
   { value: "manager_membership", label: "Thành viên" },
+  { value: "face_embedding", label: "Đăng ký khuôn mặt" },
 ];
 
 export default function ManagerAuditLogsPage() {

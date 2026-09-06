@@ -11,9 +11,12 @@ const ACTION_LABELS: Record<string, string> = {
   LOCATION_ASSIGNED: "Gán địa điểm",
   LOCATION_UNASSIGNED: "Gỡ địa điểm",
   ATTENDANCE_MANUALLY_ADJUSTED: "Điều chỉnh bản ghi",
+  FACE_ENROLLED: "Đăng ký lại khuôn mặt",
 };
 
 const FIELD_LABELS: Record<string, string> = {
+  model_name: "Mô hình",
+  model_version: "Phiên bản mô hình",
   status: "Trạng thái",
   server_time: "Thời gian",
   name: "Tên",

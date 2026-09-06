@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import re
 
+from urllib.parse import urlparse
+
 import httpx
 from fastapi import HTTPException
 
@@ -42,12 +44,52 @@ def _from_url(url: str) -> tuple[float, float] | None:
     return None
 
 
+# Only map providers may be fetched. Without this the endpoint is a blind SSRF:
+# a manager could make the API request any host it can reach, including the
+# internal services on the backend network and cloud metadata endpoints.
+_ALLOWED_LINK_HOSTS = frozenset(
+    {
+        "maps.app.goo.gl",
+        "goo.gl",
+        "maps.google.com",
+        "www.google.com",
+        "google.com",
+        "g.co",
+        "maps.apple.com",
+    }
+)
+_MAX_REDIRECTS = 5
+
+
+def _is_allowed_link(url: str) -> bool:
+    parsed = urlparse(url)
+    if parsed.scheme != "https":
+        return False
+    host = (parsed.hostname or "").lower()
+    return host in _ALLOWED_LINK_HOSTS
+
+
 def _expand(url: str) -> str:
+    """
+    Follow a map short link by hand so every hop is checked. httpx would happily
+    follow a redirect off the allowlist and onto an internal address.
+    """
+    if not _is_allowed_link(url):
+        raise HTTPException(status_code=422, detail="PLACE_LINK_HOST_NOT_ALLOWED")
+    current = url
     try:
-        with httpx.Client(timeout=TIMEOUT, follow_redirects=True, headers={"User-Agent": USER_AGENT}) as client:
-            return str(client.get(url).url)
+        with httpx.Client(timeout=TIMEOUT, follow_redirects=False, headers={"User-Agent": USER_AGENT}) as client:
+            for _ in range(_MAX_REDIRECTS):
+                response = client.get(current)
+                location = response.headers.get("location")
+                if response.status_code not in (301, 302, 303, 307, 308) or not location:
+                    return current
+                current = str(httpx.URL(current).join(location))
+                if not _is_allowed_link(current):
+                    raise HTTPException(status_code=422, detail="PLACE_LINK_HOST_NOT_ALLOWED")
     except httpx.HTTPError as error:
         raise HTTPException(status_code=502, detail="PLACE_LINK_UNREACHABLE") from error
+    return current
 
 
 def _photon_label(properties: dict) -> str:

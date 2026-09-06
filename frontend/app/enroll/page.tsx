@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 
 import { AppShell } from "../../components/AppShell";
+import { BiometricConsent } from "../../components/BiometricConsent";
 import { CameraCapture, type CapturePhase, type CapturedImage, type PhaseLabels } from "../../components/CameraCapture";
 import { Alert, Badge, Button, Card, DataList, playChime } from "../../components/ui";
 import { ApiError, api } from "../../lib/api";
@@ -108,6 +109,8 @@ export default function EnrollPage() {
           />
         </Card>
       ) : null}
+
+      <BiometricConsent />
 
       <Card
         title="Chụp ảnh khuôn mặt"

@@ -7,6 +7,10 @@ const CODE_MESSAGES: Record<string, string> = {
   NETWORK_ERROR: "Không kết nối được tới máy chủ. Vui lòng kiểm tra mạng rồi thử lại.",
 
   NOT_AUTHENTICATED: "Bạn cần đăng nhập để tiếp tục.",
+  RATE_LIMIT_EXCEEDED: "Bạn đã thử quá nhiều lần. Vui lòng đợi vài phút rồi thử lại.",
+  UNSUPPORTED_IMAGE_TYPE: "Tệp gửi lên không phải ảnh JPEG hoặc PNG hợp lệ. Vui lòng chụp lại.",
+  IDEMPOTENCY_KEY_CONFLICT: "Yêu cầu bị trùng mã xử lý. Vui lòng thử lại.",
+  PLACE_LINK_HOST_NOT_ALLOWED: "Chỉ chấp nhận liên kết từ Google Maps hoặc Apple Maps.",
   // Backend trả "Invalid email or password" khi sai thông tin đăng nhập, còn
   // "Invalid or expired credentials" là mặc định của unauthorized() khi token hết hạn.
   "Invalid email or password": "Email hoặc mật khẩu chưa chính xác. Vui lòng kiểm tra lại.",

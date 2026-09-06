@@ -3,6 +3,7 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, File, Form, Query, UploadFile
 
 from app.auth import CurrentUser, require_role
+from app.security import MAX_IMAGE_BYTES, enforce_rate_limit, validate_image_upload
 from app.services.attendance import check_in, check_out, my_history, my_state
 
 
@@ -20,7 +21,13 @@ async def check_in_route(
     image: UploadFile = File(...),
     user: CurrentUser = Depends(require_role("MEMBER")),
 ) -> dict:
-    return check_in(user, location_id, latitude, longitude, gps_accuracy_meters, idempotency_key, reason, await image.read(10 * 1024 * 1024 + 1), image.content_type or "image/jpeg")
+    enforce_rate_limit("attendance", str(user.id), limit=20, window_seconds=60)
+    content = await image.read(MAX_IMAGE_BYTES + 1)
+    media_type = validate_image_upload(content)
+    return check_in(
+        user, location_id, latitude, longitude, gps_accuracy_meters,
+        idempotency_key, reason, content, media_type,
+    )
 
 
 @router.post("/check-out")
@@ -32,7 +39,10 @@ async def check_out_route(
     image: UploadFile = File(...),
     user: CurrentUser = Depends(require_role("MEMBER")),
 ) -> dict:
-    return check_out(user, latitude, longitude, gps_accuracy_meters, idempotency_key, await image.read(10 * 1024 * 1024 + 1), image.content_type or "image/jpeg")
+    enforce_rate_limit("attendance", str(user.id), limit=20, window_seconds=60)
+    content = await image.read(MAX_IMAGE_BYTES + 1)
+    media_type = validate_image_upload(content)
+    return check_out(user, latitude, longitude, gps_accuracy_meters, idempotency_key, content, media_type)
 
 
 @router.get("/me/state")

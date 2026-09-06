@@ -1486,6 +1486,63 @@ body {
   }
 }
 
+/* Biometric Consent Notice ------------------------------------------------- */
+.consent {
+  background: var(--surface-panel);
+  border: 1px solid rgba(59, 130, 246, 0.28);
+  border-radius: var(--radius-lg);
+  padding: var(--space-2);
+  margin-bottom: var(--space-3);
+}
+
+.consent__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-1);
+  width: 100%;
+  min-height: var(--touch-target);
+  padding: 0;
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-family: var(--font-sans);
+  color: var(--text-primary);
+  text-align: left;
+}
+
+.consent__title {
+  font-size: var(--text-md);
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+
+.consent__chevron {
+  flex: 0 0 auto;
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.consent__list {
+  margin-top: var(--space-1);
+  font-size: var(--text-sm);
+  line-height: 1.55;
+}
+
+.consent__list dt {
+  margin-top: 12px;
+  font-weight: 700;
+  color: var(--color-cyan);
+  font-size: var(--text-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.consent__list dd {
+  margin: 2px 0 0;
+  color: var(--text-secondary);
+}
+
 /* Dialog & Modals ---------------------------------------------------------- */
 .dialog-backdrop {
   position: fixed;

@@ -1,7 +1,7 @@
 import secrets
 import uuid
 
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, HTTPException, Request, status
 import psycopg
 
 from app.auth import (
@@ -25,14 +25,23 @@ from app.auth import (
     validate_password,
     DATABASE_URL,
 )
+from app.security import clear_rate_limit, client_ip, enforce_rate_limit
 from fastapi import Depends
 
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
+# Login is limited per address *and* per account: per-IP alone lets a botnet
+# spray one password across many accounts, per-account alone lets one host walk
+# a password list against many accounts.
+LOGIN_WINDOW_SECONDS = 300
+
 
 @router.post("/register", response_model=TokenResponse, status_code=status.HTTP_201_CREATED)
-def register(request: RegisterRequest) -> TokenResponse:
+def register(request: RegisterRequest, http_request: Request) -> TokenResponse:
+    # 30/hour/IP: an organisation onboarding a class or a shift all sit behind
+    # one NAT address, so a tighter cap would block legitimate sign-ups.
+    enforce_rate_limit("register-ip", client_ip(http_request), limit=30, window_seconds=3600)
     validate_password(request.password)
     try:
         with psycopg.connect(DATABASE_URL) as connection:
@@ -46,20 +55,29 @@ def register(request: RegisterRequest) -> TokenResponse:
 
 
 @router.post("/login", response_model=TokenResponse)
-def login(request: LoginRequest) -> TokenResponse:
+def login(request: LoginRequest, http_request: Request) -> TokenResponse:
+    email = str(request.email).lower()
+    address = client_ip(http_request)
+    enforce_rate_limit("login-ip", address, limit=20, window_seconds=LOGIN_WINDOW_SECONDS)
+    enforce_rate_limit("login-account", email, limit=10, window_seconds=LOGIN_WINDOW_SECONDS)
     with psycopg.connect(DATABASE_URL) as connection:
         row = connection.execute(
-            "SELECT id, password_hash, role::text, status::text FROM users WHERE email = %s", (str(request.email).lower(),)
+            "SELECT id, password_hash, role::text, status::text FROM users WHERE email = %s", (email,)
         ).fetchone()
         if row is None or row[3] != "ACTIVE" or not password_context.verify(request.password, row[1]):
             raise unauthorized("Invalid email or password")
         connection.execute("UPDATE users SET last_login_at = now() WHERE id = %s", (row[0],))
         connection.commit()
+        # A correct password clears the brake so one typo streak does not lock
+        # out a legitimate user for the rest of the window.
+        clear_rate_limit("login-account", email, LOGIN_WINDOW_SECONDS)
+        clear_rate_limit("login-ip", address, LOGIN_WINDOW_SECONDS)
         return issue_tokens(connection, row[0], row[2])
 
 
 @router.post("/refresh", response_model=TokenResponse)
-def refresh(request: RefreshRequest) -> TokenResponse:
+def refresh(request: RefreshRequest, http_request: Request) -> TokenResponse:
+    enforce_rate_limit("refresh-ip", client_ip(http_request), limit=60, window_seconds=300)
     payload = decode_refresh_token(request.refresh_token)
     with psycopg.connect(DATABASE_URL) as connection:
         row = connection.execute(
@@ -84,7 +102,9 @@ def logout(request: LogoutRequest) -> None:
 
 
 @router.post("/forgot-password", response_model=ForgotPasswordResponse)
-def forgot_password(request: ForgotPasswordRequest) -> ForgotPasswordResponse:
+def forgot_password(request: ForgotPasswordRequest, http_request: Request) -> ForgotPasswordResponse:
+    enforce_rate_limit("forgot-ip", client_ip(http_request), limit=10, window_seconds=3600)
+    enforce_rate_limit("forgot-account", str(request.email).lower(), limit=5, window_seconds=3600)
     raw_token = secrets.token_urlsafe(32)
     with psycopg.connect(DATABASE_URL) as connection:
         user = connection.execute("SELECT id FROM users WHERE email = %s", (str(request.email).lower(),)).fetchone()
@@ -105,7 +125,8 @@ def forgot_password(request: ForgotPasswordRequest) -> ForgotPasswordResponse:
 
 
 @router.post("/reset-password", status_code=status.HTTP_204_NO_CONTENT)
-def reset_password(request: ResetPasswordRequest) -> None:
+def reset_password(request: ResetPasswordRequest, http_request: Request) -> None:
+    enforce_rate_limit("reset-ip", client_ip(http_request), limit=20, window_seconds=3600)
     validate_password(request.new_password)
     with psycopg.connect(DATABASE_URL) as connection:
         token = connection.execute(

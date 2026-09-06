@@ -5,6 +5,7 @@ from fastapi import APIRouter, Depends, Query, Response
 from pydantic import BaseModel, Field
 
 from app.auth import CurrentUser, require_role
+from app.security import safe_image_content_type
 from app.services.manager_attendance import (
     attendance_image,
     get_attendance,
@@ -61,8 +62,12 @@ def attendance_evidence(event_id: UUID, user: CurrentUser = Depends(require_role
     content, content_type = attendance_image(user.id, event_id)
     return Response(
         content=content,
-        media_type=content_type,
-        headers={"Cache-Control": "private, no-store", "Content-Disposition": "inline"},
+        media_type=safe_image_content_type(content_type),
+        headers={
+            "Cache-Control": "private, no-store",
+            "Content-Disposition": "inline",
+            "X-Content-Type-Options": "nosniff",
+        },
     )
 
 
