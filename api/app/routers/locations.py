@@ -1,3 +1,4 @@
+from datetime import time
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, status
@@ -12,6 +13,7 @@ from app.services.locations import (
     get_location,
     list_assigned_locations,
     list_locations,
+    delete_location,
     remove_location,
     unassign_location,
     update_location,
@@ -26,6 +28,10 @@ class LocationRequest(BaseModel):
     allow_radius_meters: int = Field(default=100, gt=0)
     warning_radius_meters: int = Field(default=200, gt=0)
     is_active: bool = True
+    # Fallback shift for the site; a member's own schedule still takes priority.
+    expected_check_in: time | None = None
+    expected_check_out: time | None = None
+    grace_minutes: int = Field(default=10, ge=0, le=240)
 
 
 class AssignmentRequest(BaseModel):
@@ -101,6 +107,11 @@ def assigned(member_id: UUID, user: CurrentUser = Depends(require_role("MANAGER"
 @assignment_router.delete("/{member_id}/locations/{location_id}")
 def unassign(member_id: UUID, location_id: UUID, user: CurrentUser = Depends(require_role("MANAGER"))) -> dict:
     return unassign_location(user.id, member_id, location_id)
+
+
+@router.delete("/{location_id}/permanent")
+def destroy(location_id: UUID, user: CurrentUser = Depends(require_role("MANAGER"))) -> dict:
+    return delete_location(user.id, location_id)
 
 
 @router.post("/resolve-place")

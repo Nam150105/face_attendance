@@ -45,7 +45,6 @@ export function LocationPicker({
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState<"search" | "gps" | null>(null);
   const [ready, setReady] = useState(false);
-  const [manual, setManual] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -191,15 +190,16 @@ export function LocationPicker({
         <label className="field__label" htmlFor="location-address-input">
           Tìm địa điểm
         </label>
-        <div style={{ display: "flex", gap: "8px" }}>
+        <div className="picker-search">
           <input
             id="location-address-input"
             className="input"
-            placeholder="Nhập địa chỉ, toạ độ hoặc dán liên kết Google Maps"
+            placeholder="Nhập địa chỉ hoặc dán liên kết Google Maps"
             value={address}
             onChange={(e) => onAddressChange(e.target.value)}
             onKeyDown={(e) => {
               if (e.key === "Enter") {
+                // Enter inside a form would submit it; here it only searches.
                 e.preventDefault();
                 void search();
               }
@@ -208,10 +208,22 @@ export function LocationPicker({
           <Button variant="secondary" onClick={() => void search()} loading={busy === "search"} size="sm">
             Tìm
           </Button>
-          <Button variant="ghost" onClick={() => void useGps()} loading={busy === "gps"} size="sm" title="Dùng vị trí hiện tại">
-            GPS
+          <Button variant="ghost" onClick={() => void useGps()} loading={busy === "gps"} size="sm">
+            Vị trí của tôi
           </Button>
         </div>
+        <p className="field__hint">
+          Tìm theo tên thường không chính xác bằng toạ độ.{" "}
+          <a
+            className="link"
+            href={`https://www.google.com/maps/search/${encodeURIComponent(address || "")}`}
+            target="_blank"
+            rel="noreferrer noopener"
+          >
+            Mở Google Maps để lấy liên kết chính xác →
+          </a>{" "}
+          rồi dán vào ô trên.
+        </p>
       </div>
 
       {notice ? <Alert tone="success">{notice}</Alert> : null}
@@ -229,46 +241,20 @@ export function LocationPicker({
         }}
       />
 
-      <div className="row row--between" style={{ fontSize: "var(--text-xs)", color: "var(--text-secondary)" }}>
-        <div className="row">
-          <span style={{ display: "inline-block", width: 10, height: 10, borderRadius: "50%", background: "var(--color-success)" }} />
-          <span>Phạm vi chuẩn {allowRadiusMeters}m</span>
-          <span style={{ display: "inline-block", width: 10, height: 10, borderRadius: "50%", background: "var(--color-warning)", marginLeft: 8 }} />
-          <span>Phạm vi cảnh báo {warningRadiusMeters}m</span>
-        </div>
-        <button
-          type="button"
-          onClick={() => setManual(!manual)}
-          style={{ background: "none", border: "none", color: "var(--color-primary)", cursor: "pointer", fontSize: "12px", textDecoration: "underline" }}
-        >
-          {manual ? "Ẩn toạ độ thủ công" : "Nhập toạ độ thủ công"}
-        </button>
+      <div className="picker-legend">
+        <span className="picker-legend__item">
+          <span className="picker-legend__dot" style={{ background: "var(--color-success)" }} />
+          Phạm vi chuẩn {allowRadiusMeters}m
+        </span>
+        <span className="picker-legend__item">
+          <span className="picker-legend__dot" style={{ background: "var(--color-warning)" }} />
+          Phạm vi cảnh báo {warningRadiusMeters}m
+        </span>
+        <span className="picker-legend__coords mono">
+          {point.latitude.toFixed(5)}, {point.longitude.toFixed(5)}
+        </span>
       </div>
 
-      {manual ? (
-        <div className="row">
-          <div style={{ flex: 1 }}>
-            <label className="field__label">Vĩ độ (Latitude)</label>
-            <input
-              type="number"
-              step="any"
-              className="input mono"
-              value={point.latitude}
-              onChange={(e) => onPointChange({ ...point, latitude: parseFloat(e.target.value) || 0 })}
-            />
-          </div>
-          <div style={{ flex: 1 }}>
-            <label className="field__label">Kinh độ (Longitude)</label>
-            <input
-              type="number"
-              step="any"
-              className="input mono"
-              value={point.longitude}
-              onChange={(e) => onPointChange({ ...point, longitude: parseFloat(e.target.value) || 0 })}
-            />
-          </div>
-        </div>
-      ) : null}
     </div>
   );
 }

@@ -2,7 +2,7 @@ import type { MetadataRoute } from "next";
 
 export default function manifest(): MetadataRoute.Manifest {
   return {
-    name: "Face Attendance — Chấm công & Điểm danh",
+    name: "Face Attendance — Quản lý hiện diện",
     short_name: "Face Attendance",
     description:
       "Ghi nhận hiện diện bằng nhận diện khuôn mặt và định vị GPS, dùng chung cho doanh nghiệp, trường học và trung tâm đào tạo.",

@@ -83,7 +83,7 @@ export default function LoginPage() {
         <p className="page-lead">
           {registering
             ? "Chọn loại tài khoản phù hợp với vai trò của bạn trong tổ chức."
-            : "Chấm công và điểm danh bằng nhận diện khuôn mặt, xác thực bằng vị trí."}
+            : "Quản lý hiện diện bằng nhận diện khuôn mặt và xác thực vị trí."}
         </p>
 
         {/* Mode Switcher Tabs */}

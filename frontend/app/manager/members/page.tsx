@@ -186,6 +186,19 @@ export default function ManagerMembersPage() {
     }
   }
 
+  async function removeMember(member: ManagedMember) {
+    const label = member.full_name ?? member.email;
+    if (!window.confirm(`Gỡ ${label} khỏi danh sách bạn quản lý? Bản ghi chấm công cũ vẫn được giữ lại.`)) {
+      return;
+    }
+    try {
+      await api.removeMember(member.user_id);
+      await load();
+    } catch (cause) {
+      setError(describeError(cause));
+    }
+  }
+
   async function changeStatus(member: ManagedMember, status: string) {
     try {
       await api.updateMembership(member.user_id, status);
@@ -348,9 +361,17 @@ export default function ManagerMembersPage() {
                           size="sm"
                           variant="ghost"
                           onClick={() => void changeStatus(member, member.membership_status === "ACTIVE" ? "SUSPENDED" : "ACTIVE")}
-                          style={{ color: member.membership_status === "ACTIVE" ? "var(--color-danger)" : "var(--color-success)" }}
+                          style={{ color: member.membership_status === "ACTIVE" ? "var(--color-warning)" : "var(--color-success)" }}
                         >
                           {member.membership_status === "ACTIVE" ? "Tạm ngưng" : "Kích hoạt"}
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          onClick={() => void removeMember(member)}
+                          style={{ color: "var(--color-danger)" }}
+                        >
+                          Gỡ
                         </Button>
                       </div>
                     </td>

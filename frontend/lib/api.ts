@@ -406,6 +406,10 @@ export const api = {
   updateLocation(locationId: string, payload: LocationInput) {
     return request<ManagerLocation>(`/manager/locations/${locationId}`, { method: "PUT", json: payload });
   },
+  /** Permanent removal; only succeeds while no attendance record points at it. */
+  destroyLocation(locationId: string) {
+    return request<{ location_id: string }>(`/manager/locations/${locationId}/permanent`, { method: "DELETE" });
+  },
   deleteLocation(locationId: string) {
     return request<{ location_id: string }>(`/manager/locations/${locationId}`, { method: "DELETE" });
   },

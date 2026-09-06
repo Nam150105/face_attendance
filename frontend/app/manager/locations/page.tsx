@@ -18,6 +18,9 @@ const EMPTY_FORM: LocationInput = {
   allow_radius_meters: 100,
   warning_radius_meters: 200,
   is_active: true,
+  expected_check_in: null,
+  expected_check_out: null,
+  grace_minutes: 10,
 };
 
 export default function ManagerLocationsPage() {
@@ -58,6 +61,9 @@ export default function ManagerLocationsPage() {
       allow_radius_meters: location.allow_radius_meters,
       warning_radius_meters: location.warning_radius_meters,
       is_active: location.is_active,
+      expected_check_in: location.expected_check_in,
+      expected_check_out: location.expected_check_out,
+      grace_minutes: location.grace_minutes,
     });
     setEditing(location);
     setCreating(false);
@@ -104,6 +110,18 @@ export default function ManagerLocationsPage() {
     }
   }
 
+  async function destroy(location: ManagerLocation) {
+    if (!window.confirm(`Xoá vĩnh viễn địa điểm "${location.name}"? Thao tác này không hoàn tác được.`)) {
+      return;
+    }
+    try {
+      await api.destroyLocation(location.id);
+      await load();
+    } catch (cause) {
+      setError(describeError(cause));
+    }
+  }
+
   async function toggleDeactivate(location: ManagerLocation) {
     const actionName = location.is_active ? "tắt" : "bật lại";
     if (!window.confirm(`Bạn có chắc chắn muốn ${actionName} địa điểm "${location.name}"?`)) {
@@ -121,6 +139,9 @@ export default function ManagerLocationsPage() {
           allow_radius_meters: location.allow_radius_meters,
           warning_radius_meters: location.warning_radius_meters,
           is_active: true,
+          expected_check_in: location.expected_check_in,
+          expected_check_out: location.expected_check_out,
+          grace_minutes: location.grace_minutes,
         });
       }
       await load();
@@ -191,9 +212,17 @@ export default function ManagerLocationsPage() {
                           size="sm"
                           variant="ghost"
                           onClick={() => void toggleDeactivate(location)}
-                          style={{ color: location.is_active ? "var(--color-danger)" : "var(--color-success)" }}
+                          style={{ color: location.is_active ? "var(--color-warning)" : "var(--color-success)" }}
                         >
                           {location.is_active ? "Tắt" : "Bật"}
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          onClick={() => void destroy(location)}
+                          style={{ color: "var(--color-danger)" }}
+                        >
+                          Xoá
                         </Button>
                       </div>
                     </td>
@@ -229,32 +258,54 @@ export default function ManagerLocationsPage() {
               warningRadiusMeters={form.warning_radius_meters}
             />
 
-            <div className="row">
-              <div style={{ flex: 1 }}>
-                <Field
-                  label="Phạm vi chuẩn (mét)"
-                  type="number"
-                  min={10}
-                  max={5000}
-                  required
-                  hint="Trong phạm vi này, lượt ghi nhận là hợp lệ."
-                  value={form.allow_radius_meters}
-                  onChange={(e) => setForm({ ...form, allow_radius_meters: parseInt(e.target.value, 10) || 10 })}
-                />
-              </div>
-              <div style={{ flex: 1 }}>
-                <Field
-                  label="Phạm vi cảnh báo (mét)"
-                  type="number"
-                  min={form.allow_radius_meters + 1}
-                  max={10000}
-                  required
-                  hint="Ngoài phạm vi chuẩn nhưng trong mức này thì phải nhập lý do."
-                  value={form.warning_radius_meters}
-                  onChange={(e) => setForm({ ...form, warning_radius_meters: parseInt(e.target.value, 10) || 20 })}
-                />
-              </div>
+            <div className="field-pair">
+              <Field
+                label="Phạm vi chuẩn (mét)"
+                type="number"
+                min={10}
+                max={5000}
+                required
+                value={form.allow_radius_meters}
+                onChange={(e) => setForm({ ...form, allow_radius_meters: parseInt(e.target.value, 10) || 10 })}
+              />
+              <Field
+                label="Phạm vi cảnh báo (mét)"
+                type="number"
+                min={form.allow_radius_meters + 1}
+                max={10000}
+                required
+                value={form.warning_radius_meters}
+                onChange={(e) => setForm({ ...form, warning_radius_meters: parseInt(e.target.value, 10) || 20 })}
+              />
             </div>
+            <p className="field__hint">
+              Trong phạm vi chuẩn thì lượt ghi nhận hợp lệ. Ngoài phạm vi chuẩn nhưng trong mức cảnh báo thì
+              người dùng phải nhập lý do.
+            </p>
+
+            <div className="field-pair">
+              <Field
+                label="Giờ vào dự kiến"
+                type="time"
+                value={form.expected_check_in ?? ""}
+                onChange={(e) => setForm({ ...form, expected_check_in: e.target.value || null })}
+              />
+              <Field
+                label="Giờ ra dự kiến"
+                type="time"
+                value={form.expected_check_out ?? ""}
+                onChange={(e) => setForm({ ...form, expected_check_out: e.target.value || null })}
+              />
+            </div>
+            <Field
+              label="Cho phép muộn (phút)"
+              type="number"
+              min={0}
+              max={240}
+              value={form.grace_minutes ?? 10}
+              onChange={(e) => setForm({ ...form, grace_minutes: parseInt(e.target.value, 10) || 0 })}
+              hint="Dùng để đánh giá sớm hay muộn khi thành viên chưa có ca riêng."
+            />
 
             <Checkbox
               label="Bật địa điểm này ngay sau khi lưu"

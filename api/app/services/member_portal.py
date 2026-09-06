@@ -48,8 +48,12 @@ def _range(date_from: date | None, date_to: date | None) -> tuple[date, date]:
 # --------------------------------------------------------------- attendance
 
 def _schedule_for(connection: psycopg.Connection, member_id: uuid.UUID, work_date: date) -> tuple | None:
-    """A date-specific row wins over the weekly pattern for the same weekday."""
-    return connection.execute(
+    """
+    A date-specific row wins over the weekly pattern for the same weekday. If the
+    member has no shift at all, the hours configured on their default location
+    apply, so a site can set expectations once instead of per person.
+    """
+    personal = connection.execute(
         """
         SELECT start_time, end_time, grace_minutes, location_id
         FROM schedules
@@ -59,6 +63,18 @@ def _schedule_for(connection: psycopg.Connection, member_id: uuid.UUID, work_dat
         LIMIT 1
         """,
         (member_id, work_date, (work_date.weekday() + 1) % 7),
+    ).fetchone()
+    if personal is not None:
+        return personal
+    return connection.execute(
+        """
+        SELECT l.expected_check_in, l.expected_check_out, l.grace_minutes, l.id
+        FROM member_locations ml JOIN locations l ON l.id = ml.location_id
+        WHERE ml.member_id = %s AND l.is_active AND l.expected_check_in IS NOT NULL
+        ORDER BY ml.is_default DESC
+        LIMIT 1
+        """,
+        (member_id,),
     ).fetchone()
 
 

@@ -58,7 +58,7 @@ export function AppShell({
           <img src="/logo.svg" alt="Logo Face Attendance" className="topbar__logo" />
           <div className="topbar__brand-text">
             <span className="topbar__brand-title">Face Attendance</span>
-            <span className="topbar__brand-badge">Chấm công &amp; Điểm danh</span>
+            <span className="topbar__brand-badge">Quản lý hiện diện</span>
           </div>
         </Link>
         {email ? (

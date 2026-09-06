@@ -28,6 +28,8 @@ const CODE_MESSAGES: Record<string, string> = {
   SCHEDULE_NEEDS_WEEKDAY_OR_DATE: "Ca làm việc phải chọn thứ trong tuần hoặc một ngày cụ thể, không chọn cả hai.",
   SCHEDULE_END_BEFORE_START: "Giờ kết thúc phải sau giờ bắt đầu.",
   SCHEDULE_NOT_FOUND: "Không tìm thấy ca làm việc này.",
+  EMPLOYEE_CODE_TAKEN: "Mã định danh này đã được dùng cho thành viên khác. Vui lòng chọn mã khác.",
+  LOCATION_HAS_ATTENDANCE: "Địa điểm đã có bản ghi chấm công nên không xoá được. Hãy tắt địa điểm thay vì xoá.",
   // Backend trả "Invalid email or password" khi sai thông tin đăng nhập, còn
   // "Invalid or expired credentials" là mặc định của unauthorized() khi token hết hạn.
   "Invalid email or password": "Email hoặc mật khẩu chưa chính xác. Vui lòng kiểm tra lại.",

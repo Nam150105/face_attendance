@@ -239,14 +239,6 @@ export default function DashboardPage() {
             </Button>
           </div>
 
-          {face.enrolled ? (
-            <div className="row row--between">
-              <span className="field__hint">Diện mạo đã thay đổi?</span>
-              <Button variant="ghost" size="sm" onClick={() => router.push("/enroll")}>
-                Cập nhật khuôn mặt
-              </Button>
-            </div>
-          ) : null}
         </div>
       </Card>
 

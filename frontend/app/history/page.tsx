@@ -95,11 +95,11 @@ export default function HistoryPage() {
 
       {error ? <Alert tone="danger">{error}</Alert> : null}
 
-      <Card title="Khoảng thời gian">
-        <div className="filters-bar">
+      <Card className="filter-card">
+        <div className="filters-bar filters-bar--compact">
           <SelectField label="Xem theo" value={mode} onChange={(e) => setMode(e.target.value as Mode)}>
             <option value="month">Theo tháng</option>
-            <option value="range">Khoảng ngày tuỳ chọn</option>
+            <option value="range">Khoảng ngày</option>
           </SelectField>
 
           {mode === "month" ? (

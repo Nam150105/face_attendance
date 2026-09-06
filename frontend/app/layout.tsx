@@ -5,8 +5,8 @@ import { ServiceWorkerRegistrar } from "../components/ServiceWorkerRegistrar";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Face Attendance — Chấm công & Điểm danh bằng khuôn mặt",
-  description: "Nền tảng ghi nhận hiện diện bằng nhận diện khuôn mặt và định vị GPS, dùng chung cho doanh nghiệp, trường học và trung tâm đào tạo.",
+  title: "Face Attendance — Quản lý hiện diện bằng nhận diện khuôn mặt",
+  description: "Nền tảng quản lý hiện diện bằng nhận diện khuôn mặt và định vị GPS, dùng chung cho doanh nghiệp, trường học và trung tâm đào tạo.",
   applicationName: "Face Attendance",
   manifest: "/manifest.webmanifest",
   icons: {

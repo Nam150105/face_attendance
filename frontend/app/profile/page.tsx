@@ -200,7 +200,6 @@ export default function ProfilePage() {
                   key: "Thời điểm đăng ký",
                   value: face?.enrolled_at ? formatDateTime(face.enrolled_at) : "—",
                 },
-                { key: "Mô hình nhận diện", value: face?.model_name ?? "—" },
               ]}
             />
             {!face?.enrolled ? (

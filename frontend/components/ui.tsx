@@ -26,6 +26,11 @@ export function Button({
   icon,
   children,
   disabled,
+  // HTML defaults a <button> inside a form to type="submit", which made every
+  // secondary action in a form submit it — "Tim" on the location picker saved a
+  // half-filled location, "Huy" saved instead of closing. Submitting is now
+  // opt-in via type="submit".
+  type = "button",
   ...rest
 }: ButtonProps) {
   const classes = ["button"];
@@ -41,7 +46,7 @@ export function Button({
     classes.push("button--block");
   }
   return (
-    <button className={classes.join(" ")} disabled={disabled || loading} {...rest}>
+    <button type={type} className={classes.join(" ")} disabled={disabled || loading} {...rest}>
       {loading ? <span className="spinner" aria-hidden="true" /> : icon ? <span aria-hidden="true">{icon}</span> : null}
       {children}
     </button>

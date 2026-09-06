@@ -13,13 +13,13 @@ from app.domain.geofence import GeofencePolicy, evaluate_geofence
 LOCATION_COLUMNS = """
     id, manager_user_id, name, address, latitude, longitude,
     allow_radius_meters, warning_radius_meters, is_active,
-    created_at, updated_at
+    created_at, updated_at, expected_check_in, expected_check_out, grace_minutes
 """
 
 LOCATION_JOIN_COLUMNS = """
     l.id, l.manager_user_id, l.name, l.address, l.latitude, l.longitude,
     l.allow_radius_meters, l.warning_radius_meters, l.is_active,
-    l.created_at, l.updated_at
+    l.created_at, l.updated_at, l.expected_check_in, l.expected_check_out, l.grace_minutes
 """
 
 
@@ -36,6 +36,9 @@ def _location(row: tuple) -> dict:
         "is_active": row[8],
         "created_at": row[9],
         "updated_at": row[10],
+        "expected_check_in": row[11].isoformat() if row[11] else None,
+        "expected_check_out": row[12].isoformat() if row[12] else None,
+        "grace_minutes": row[13],
     }
 
 
@@ -73,15 +76,21 @@ def create_location(manager_id: uuid.UUID, payload: dict) -> dict:
     with psycopg.connect(DATABASE_URL) as connection:
         row = connection.execute(
             f"""
-            INSERT INTO locations (manager_user_id, name, address, latitude, longitude, allow_radius_meters, warning_radius_meters)
-            VALUES (%(manager_user_id)s, %(name)s, %(address)s, %(latitude)s, %(longitude)s, %(allow_radius_meters)s, %(warning_radius_meters)s)
+            INSERT INTO locations (manager_user_id, name, address, latitude, longitude,
+                                   allow_radius_meters, warning_radius_meters,
+                                   expected_check_in, expected_check_out, grace_minutes)
+            VALUES (%(manager_user_id)s, %(name)s, %(address)s, %(latitude)s, %(longitude)s,
+                    %(allow_radius_meters)s, %(warning_radius_meters)s,
+                    %(expected_check_in)s, %(expected_check_out)s, %(grace_minutes)s)
             RETURNING {LOCATION_COLUMNS}
             """,
             {"manager_user_id": manager_id, **payload},
         ).fetchone()
         connection.execute(
             "INSERT INTO audit_logs (actor_user_id, action, entity_type, entity_id, after_json) VALUES (%s, 'LOCATION_CREATED', 'location', %s, %s::jsonb)",
-            (manager_id, row[0], json.dumps(payload)),
+            # default=str: the payload now carries time values, which json cannot
+            # serialise on its own.
+            (manager_id, row[0], json.dumps(payload, default=str)),
         )
         connection.commit()
     return _location(row)
@@ -102,7 +111,9 @@ def update_location(manager_id: uuid.UUID, location_id: uuid.UUID, payload: dict
             f"""
             UPDATE locations SET name = %(name)s, address = %(address)s, latitude = %(latitude)s,
                 longitude = %(longitude)s, allow_radius_meters = %(allow_radius_meters)s,
-                warning_radius_meters = %(warning_radius_meters)s, is_active = %(is_active)s, updated_at = now()
+                warning_radius_meters = %(warning_radius_meters)s, is_active = %(is_active)s,
+                expected_check_in = %(expected_check_in)s, expected_check_out = %(expected_check_out)s,
+                grace_minutes = %(grace_minutes)s, updated_at = now()
             WHERE manager_user_id = %(manager_id)s AND id = %(location_id)s
             RETURNING {LOCATION_COLUMNS}
             """,
@@ -114,6 +125,37 @@ def update_location(manager_id: uuid.UUID, location_id: uuid.UUID, payload: dict
         )
         connection.commit()
     return _location(row)
+
+
+def delete_location(manager_id: uuid.UUID, location_id: uuid.UUID) -> dict:
+    """
+    Erase a location outright. Only allowed while nothing points at it: an
+    attendance record without its location would lose the distance it was
+    judged against, so a used location can only be switched off.
+    """
+    with psycopg.connect(DATABASE_URL) as connection:
+        owned = connection.execute(
+            "SELECT name FROM locations WHERE manager_user_id = %s AND id = %s",
+            (manager_id, location_id),
+        ).fetchone()
+        if owned is None:
+            raise HTTPException(status_code=404, detail="Location is outside manager scope")
+        used = connection.execute(
+            "SELECT 1 FROM attendance_events WHERE location_id = %s LIMIT 1", (location_id,)
+        ).fetchone()
+        if used is not None:
+            raise HTTPException(status_code=409, detail="LOCATION_HAS_ATTENDANCE")
+
+        connection.execute("DELETE FROM member_locations WHERE location_id = %s", (location_id,))
+        connection.execute("UPDATE schedules SET location_id = NULL WHERE location_id = %s", (location_id,))
+        connection.execute("DELETE FROM locations WHERE id = %s", (location_id,))
+        connection.execute(
+            "INSERT INTO audit_logs (actor_user_id, action, entity_type, entity_id, before_json) "
+            "VALUES (%s, 'LOCATION_DELETED', 'location', %s, %s::jsonb)",
+            (manager_id, location_id, json.dumps({"name": owned[0]})),
+        )
+        connection.commit()
+    return {"location_id": location_id, "deleted": True}
 
 
 def remove_location(manager_id: uuid.UUID, location_id: uuid.UUID) -> dict:

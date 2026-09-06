@@ -60,10 +60,22 @@ def get_member_profile(user_id: uuid.UUID) -> dict:
 
 
 def update_member_profile(user_id: uuid.UUID, payload: dict) -> dict:
+    # Treat a blank code as "no code" so several members without one do not
+    # collide on the unique index.
+    code = (payload.get("employee_code") or "").strip()
+    payload = {**payload, "employee_code": code or None}
     with psycopg.connect(DATABASE_URL) as connection:
         user = connection.execute("SELECT id FROM users WHERE id = %s AND role = 'MEMBER'", (user_id,)).fetchone()
         if user is None:
             raise HTTPException(status_code=404, detail="Member not found")
+        if code:
+            taken = connection.execute(
+                "SELECT 1 FROM member_profiles "
+                "WHERE lower(btrim(employee_code)) = lower(%s) AND user_id <> %s",
+                (code, user_id),
+            ).fetchone()
+            if taken is not None:
+                raise HTTPException(status_code=409, detail="EMPLOYEE_CODE_TAKEN")
         connection.execute(
             """
             INSERT INTO member_profiles (user_id, full_name, phone, birth_date, employee_code, position, department)
@@ -79,7 +91,10 @@ def update_member_profile(user_id: uuid.UUID, payload: dict) -> dict:
             """,
             {"user_id": user_id, **payload},
         )
-        connection.commit()
+        try:
+            connection.commit()
+        except psycopg.errors.UniqueViolation as error:
+            raise HTTPException(status_code=409, detail="EMPLOYEE_CODE_TAKEN") from error
     return get_member_profile(user_id)
 
 

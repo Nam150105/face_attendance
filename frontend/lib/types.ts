@@ -161,6 +161,9 @@ export interface ManagerLocation {
   created_at: string;
   updated_at: string;
   is_default?: boolean;
+  expected_check_in: string | null;
+  expected_check_out: string | null;
+  grace_minutes: number;
 }
 
 export interface LocationInput {
@@ -171,6 +174,9 @@ export interface LocationInput {
   allow_radius_meters: number;
   warning_radius_meters: number;
   is_active: boolean;
+  expected_check_in: string | null;
+  expected_check_out: string | null;
+  grace_minutes: number;
 }
 
 export interface ManagerAttendanceEvent {
