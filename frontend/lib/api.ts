@@ -19,6 +19,7 @@ import type {
   GeofenceDecision,
   LocationInput,
   ManagedMember,
+  AttendanceCalendar,
   ManagerAttendanceEvent,
   ManagerDashboard,
   CorrectionsResponse,
@@ -444,6 +445,9 @@ export const api = {
   },
   managerAttendance(filters: AttendanceFilters = {}) {
     return request<Paged<ManagerAttendanceEvent>>(`/manager/attendance${queryString(filters)}`);
+  },
+  managerAttendanceCalendar(month: string) {
+    return request<AttendanceCalendar>(`/manager/attendance/calendar?month=${month}`);
   },
   managerAttendanceDetail(eventId: string) {
     return request<ManagerAttendanceEvent>(`/manager/attendance/${eventId}`);

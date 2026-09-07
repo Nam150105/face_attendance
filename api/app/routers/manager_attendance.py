@@ -7,6 +7,7 @@ from pydantic import BaseModel, Field
 from app.auth import CurrentUser, require_role
 from app.security import safe_image_content_type
 from app.services.manager_attendance import (
+    attendance_calendar,
     attendance_image,
     delete_attendance,
     get_attendance,
@@ -51,6 +52,14 @@ def attendance(
             "offset": offset,
         },
     )
+
+
+@router.get("/attendance/calendar")
+def attendance_month(
+    month: str = Query(pattern=r"^\d{4}-\d{2}$"),
+    user: CurrentUser = Depends(require_role("MANAGER")),
+) -> dict:
+    return attendance_calendar(user.id, month)
 
 
 @router.get("/attendance/{event_id}")

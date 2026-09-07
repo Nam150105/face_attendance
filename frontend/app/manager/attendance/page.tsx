@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 
+import { AttendanceCalendar } from "../../../components/AttendanceCalendar";
 import { Dialog } from "../../../components/Dialog";
 import { ManagerShell } from "../../../components/ManagerShell";
 import {
@@ -89,6 +90,9 @@ function exportToCsv(events: ManagerAttendanceEvent[]) {
 }
 
 export default function ManagerAttendancePage() {
+  const [view, setView] = useState<"calendar" | "table">("calendar");
+  const [search, setSearch] = useState("");
+  const [refreshToken, setRefreshToken] = useState(0);
   const [filters, setFilters] = useState<AttendanceFilters>({});
   const [page, setPage] = useState(0);
   const [events, setEvents] = useState<ManagerAttendanceEvent[] | null>(null);
@@ -109,6 +113,9 @@ export default function ManagerAttendancePage() {
   const [deleting, setDeleting] = useState(false);
 
   const load = useCallback(async () => {
+    if (view !== "table") {
+      return;
+    }
     setEvents(null);
     try {
       const result = await api.managerAttendance({ ...filters, limit: PAGE_SIZE, offset: page * PAGE_SIZE });
@@ -119,7 +126,7 @@ export default function ManagerAttendancePage() {
       setError(describeError(cause));
       setEvents([]);
     }
-  }, [filters, page]);
+  }, [filters, page, view]);
 
   useEffect(() => {
     void load();
@@ -210,9 +217,34 @@ export default function ManagerAttendancePage() {
       <div className="page-header">
         <div>
           <h1 className="page-title">Bản ghi</h1>
-          <p className="page-lead">Toàn bộ lượt vào ra của những người bạn đang quản lý.</p>
+          <p className="page-lead">
+            {view === "calendar"
+              ? "Cả tháng trên một màn hình: ai đi làm ngày nào, ai muộn, ai chưa chấm ra."
+              : "Toàn bộ lượt vào ra của những người bạn đang quản lý."}
+          </p>
         </div>
         <div className="row">
+          <div className="segmented" role="tablist" aria-label="Kiểu xem">
+            <button
+              type="button"
+              role="tab"
+              aria-selected={view === "calendar"}
+              className={view === "calendar" ? "is-active" : undefined}
+              onClick={() => setView("calendar")}
+            >
+              Lịch
+            </button>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={view === "table"}
+              className={view === "table" ? "is-active" : undefined}
+              onClick={() => setView("table")}
+            >
+              Bảng
+            </button>
+          </div>
+          {view === "table" ? (
           <Button
             variant="secondary"
             size="sm"
@@ -228,7 +260,12 @@ export default function ManagerAttendancePage() {
           >
             Xuất CSV
           </Button>
-          <Button variant="ghost" size="sm" onClick={() => void load()}>
+          ) : null}
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => (view === "table" ? void load() : setRefreshToken((n) => n + 1))}
+          >
             Làm mới
           </Button>
         </div>
@@ -236,6 +273,20 @@ export default function ManagerAttendancePage() {
 
       {error ? <Alert tone="danger">{error}</Alert> : null}
 
+      {view === "calendar" ? (
+        <Card>
+          <Field
+            label="Tìm theo tên hoặc email"
+            placeholder="Lọc nhanh những người hiện trên lịch"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+          />
+          <AttendanceCalendar search={search} refreshToken={refreshToken} />
+        </Card>
+      ) : null}
+
+      {view === "table" ? (
+      <>
       {/* Advanced Filter Card */}
       <Card title="Bộ lọc">
         <div className="filters-bar">
@@ -375,6 +426,8 @@ export default function ManagerAttendancePage() {
           </>
         )}
       </Card>
+      </>
+      ) : null}
 
       {/* Side-by-Side Face Evidence & Adjustment Modal */}
       {selected ? (

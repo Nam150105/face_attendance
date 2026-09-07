@@ -181,6 +181,40 @@ export interface LocationInput {
   enforce_hours: boolean;
 }
 
+export type CalendarDayStatus = "ON_TIME" | "LATE" | "OPEN" | "REJECTED";
+
+export interface CalendarPerson {
+  member_id: string;
+  member_email: string;
+  member_name: string | null;
+  check_in: string | null;
+  check_out: string | null;
+  minutes_late: number;
+  minutes_early_leave: number;
+  rejected: number;
+  off_radius: number;
+  location_name: string | null;
+  status: CalendarDayStatus;
+}
+
+export interface CalendarDay {
+  date: string;
+  people: CalendarPerson[];
+}
+
+export interface AttendanceCalendar {
+  month: string;
+  summary: {
+    events: number;
+    attended: number;
+    late: number;
+    open_sessions: number;
+    off_radius: number;
+    rejected: number;
+  };
+  days: CalendarDay[];
+}
+
 export interface ManagerAttendanceEvent {
   id: string;
   member_id: string;

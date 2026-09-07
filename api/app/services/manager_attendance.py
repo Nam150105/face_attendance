@@ -8,6 +8,7 @@ import psycopg
 from fastapi import HTTPException
 
 from app.auth import DATABASE_URL
+from app.services.member_portal import APP_TIMEZONE
 from app.services.storage import PrivateObjectStorage
 
 
@@ -270,7 +271,7 @@ def manager_dashboard(manager_id: uuid.UUID) -> dict:
         ).fetchall()
         daily_rows = connection.execute(
             """
-            SELECT e.server_time::date AS day,
+            SELECT (e.server_time AT TIME ZONE %s)::date AS day,
                    count(*) FILTER (WHERE e.event_type = 'CHECK_IN') AS check_in,
                    count(*) FILTER (WHERE e.event_type = 'CHECK_OUT') AS check_out,
                    count(*) FILTER (WHERE e.status = 'WARNING_CONFIRMED') AS warnings
@@ -279,7 +280,7 @@ def manager_dashboard(manager_id: uuid.UUID) -> dict:
             WHERE mm.manager_user_id = %s AND mm.status = 'ACTIVE' AND e.server_time >= %s
             GROUP BY day
             """,
-            (manager_id, since),
+            (APP_TIMEZONE, manager_id, since),
         ).fetchall()
         events_today = connection.execute(
             """
@@ -324,6 +325,111 @@ def manager_dashboard(manager_id: uuid.UUID) -> dict:
         "currently_checked_in": sum(1 for item in member_rows if item["checked_in_at"] is not None),
         "members": member_rows,
         "daily": daily,
+    }
+
+
+
+def attendance_calendar(manager_id: uuid.UUID, month: str) -> dict:
+    """
+    One month of attendance shaped for a wall calendar: a row per member per
+    local day, so a manager sees who turned up and how the day went without
+    reading a table of raw events.
+
+    Days are cut in the organisation's own timezone. Grouping by UTC would file
+    an early-morning arrival under the day before.
+    """
+    try:
+        first = datetime.strptime(month, "%Y-%m").date()
+    except ValueError:
+        raise HTTPException(status_code=422, detail="MONTH_FORMAT_INVALID")
+    last = (first + timedelta(days=32)).replace(day=1)
+
+    with psycopg.connect(DATABASE_URL) as connection:
+        rows = connection.execute(
+            """
+            SELECT
+                (e.server_time AT TIME ZONE %s)::date AS work_date,
+                e.member_id,
+                u.email,
+                mp.full_name,
+                min(e.server_time) FILTER (
+                    WHERE e.event_type = 'CHECK_IN' AND e.status IN ('SUCCESS', 'WARNING_CONFIRMED')
+                ) AS first_check_in,
+                max(e.server_time) FILTER (
+                    WHERE e.event_type = 'CHECK_OUT' AND e.status IN ('SUCCESS', 'WARNING_CONFIRMED')
+                ) AS last_check_out,
+                max(e.minutes_late) FILTER (WHERE e.event_type = 'CHECK_IN') AS minutes_late,
+                max(e.minutes_early_leave) FILTER (WHERE e.event_type = 'CHECK_OUT') AS minutes_early,
+                count(*) FILTER (WHERE e.status IN ('SUCCESS', 'WARNING_CONFIRMED')) AS accepted,
+                count(*) FILTER (WHERE e.status IN ('BLOCKED', 'FAILED')) AS rejected,
+                count(*) FILTER (WHERE e.status = 'WARNING_CONFIRMED') AS off_radius,
+                (array_agg(l.name ORDER BY e.server_time))[1] AS location_name
+            FROM attendance_events e
+            JOIN manager_memberships mm ON mm.member_user_id = e.member_id
+            JOIN users u ON u.id = e.member_id
+            LEFT JOIN member_profiles mp ON mp.user_id = u.id
+            LEFT JOIN locations l ON l.id = e.location_id
+            WHERE mm.manager_user_id = %s AND mm.status = 'ACTIVE'
+              AND e.deleted_at IS NULL
+              AND (e.server_time AT TIME ZONE %s)::date >= %s
+              AND (e.server_time AT TIME ZONE %s)::date < %s
+            GROUP BY work_date, e.member_id, u.email, mp.full_name
+            ORDER BY work_date, first_check_in NULLS LAST, u.email
+            """,
+            (APP_TIMEZONE, manager_id, APP_TIMEZONE, first, APP_TIMEZONE, last),
+        ).fetchall()
+
+    days: dict[str, list[dict]] = {}
+    events = present = late = open_sessions = rejected_total = off_radius_total = 0
+    for row in rows:
+        work_date = row[0].isoformat()
+        minutes_late = row[6] or 0
+        check_in, check_out = row[4], row[5]
+        if check_in is None:
+            # Only rejected attempts that day: worth showing, but nobody was present.
+            status = "REJECTED"
+        elif minutes_late > 0:
+            status = "LATE"
+        elif check_out is None:
+            status = "OPEN"
+        else:
+            status = "ON_TIME"
+
+        days.setdefault(work_date, []).append({
+            "member_id": row[1],
+            "member_email": row[2],
+            "member_name": row[3],
+            "check_in": check_in,
+            "check_out": check_out,
+            "minutes_late": minutes_late,
+            "minutes_early_leave": row[7] or 0,
+            "rejected": row[9],
+            "off_radius": row[10],
+            "location_name": row[11],
+            "status": status,
+        })
+
+        events += row[8] + row[9]
+        rejected_total += row[9]
+        off_radius_total += row[10]
+        if check_in is not None:
+            present += 1
+            if minutes_late > 0:
+                late += 1
+            if check_out is None:
+                open_sessions += 1
+
+    return {
+        "month": first.strftime("%Y-%m"),
+        "summary": {
+            "events": events,
+            "attended": present,
+            "late": late,
+            "open_sessions": open_sessions,
+            "off_radius": off_radius_total,
+            "rejected": rejected_total,
+        },
+        "days": [{"date": day, "people": people} for day, people in sorted(days.items())],
     }
 
 
