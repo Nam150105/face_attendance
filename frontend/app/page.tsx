@@ -63,7 +63,7 @@ export default function DashboardPage() {
     try {
       const user = await api.me();
       if (user.role !== "MEMBER") {
-        router.replace("/manager");
+        router.replace(user.role === "SUPER_ADMIN" ? "/admin" : "/manager");
         return;
       }
       const [profile, state, face, locations, history] = await Promise.all([
@@ -200,7 +200,7 @@ export default function DashboardPage() {
                 ),
               },
               {
-                key: "Địa điểm được phân công",
+                key: "Nơi chấm công",
                 value: `${data.locations.length} địa điểm`,
               },
               {
@@ -218,7 +218,7 @@ export default function DashboardPage() {
 
           {data.locations.length === 0 ? (
             <Alert tone="warning">
-              Bạn chưa được phân công địa điểm nào. Vui lòng liên hệ người quản lý để được hỗ trợ.
+              Bạn chưa được gắn với địa điểm nào nên chưa chấm công được. Hãy báo người quản lý.
             </Alert>
           ) : null}
 
@@ -243,9 +243,9 @@ export default function DashboardPage() {
       </Card>
 
       {/* Workplace Locations Card */}
-      <Card title="Địa điểm được phân công">
+      <Card title="Nơi bạn chấm công được">
         {data.locations.length === 0 ? (
-          <Empty>Bạn chưa được phân công địa điểm nào.</Empty>
+          <Empty>Chưa có địa điểm nào. Hãy báo người quản lý.</Empty>
         ) : (
           <div className="stack stack--tight">
             {data.locations.map((location) => (

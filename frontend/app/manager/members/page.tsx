@@ -18,10 +18,7 @@ import {
 } from "../../../components/ui";
 import { api } from "../../../lib/api";
 import { BULK_STATUS_LABELS, describeError } from "../../../lib/messages";
-import { shortTime, weekdayLabel } from "../../../lib/member";
-import type { BulkAddResult, ManagedMember, ManagerLocation, Shift } from "../../../lib/types";
-
-const WEEKDAY_OPTIONS = [1, 2, 3, 4, 5, 6, 0];
+import type { BulkAddResult, ManagedMember, ManagerLocation } from "../../../lib/types";
 
 function initials(name: string | null, email: string): string {
   const source = name?.trim() || email;
@@ -46,11 +43,6 @@ export default function ManagerMembersPage() {
   const [dialogError, setDialogError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
-  const [shifts, setShifts] = useState<Shift[] | null>(null);
-  const [shiftWeekday, setShiftWeekday] = useState("1");
-  const [shiftStart, setShiftStart] = useState("08:00");
-  const [shiftEnd, setShiftEnd] = useState("17:00");
-  const [shiftGrace, setShiftGrace] = useState("10");
 
   const load = useCallback(async () => {
     try {
@@ -101,58 +93,17 @@ export default function ManagerMembersPage() {
   async function openAssign(member: ManagedMember) {
     setSelected(member);
     setAssigned(null);
-    setShifts(null);
     setDialogError(null);
     setLocationId(locations[0]?.id ?? "");
     setIsDefault(true);
     try {
-      const [assignedLocations, memberShifts] = await Promise.all([
-        api.assignedLocations(member.user_id),
-        api.memberSchedules(member.user_id),
-      ]);
-      setAssigned(assignedLocations);
-      setShifts(memberShifts);
+      setAssigned(await api.assignedLocations(member.user_id));
     } catch (cause) {
       setDialogError(describeError(cause));
     }
   }
 
-  async function addShift() {
-    if (!selected) {
-      return;
-    }
-    setBusy(true);
-    setDialogError(null);
-    try {
-      await api.createMemberSchedule(selected.user_id, {
-        weekday: Number(shiftWeekday),
-        start_time: `${shiftStart}:00`,
-        end_time: `${shiftEnd}:00`,
-        grace_minutes: Number(shiftGrace) || 0,
-        location_id: locationId || null,
-      });
-      setShifts(await api.memberSchedules(selected.user_id));
-    } catch (cause) {
-      setDialogError(describeError(cause));
-    } finally {
-      setBusy(false);
-    }
-  }
 
-  async function removeShift(shiftId: string) {
-    if (!selected) {
-      return;
-    }
-    setBusy(true);
-    try {
-      await api.deleteMemberSchedule(selected.user_id, shiftId);
-      setShifts(await api.memberSchedules(selected.user_id));
-    } catch (cause) {
-      setDialogError(describeError(cause));
-    } finally {
-      setBusy(false);
-    }
-  }
 
   async function assign() {
     if (!selected || !locationId) {
@@ -223,7 +174,7 @@ export default function ManagerMembersPage() {
       <div className="page-header">
         <div>
           <h1 className="page-title">Thành viên</h1>
-          <p className="page-lead">Những người bạn đang quản lý, nơi làm việc và ca của từng người.</p>
+          <p className="page-lead">Những người bạn đang quản lý và nơi từng người được phép chấm công.</p>
         </div>
       </div>
 
@@ -355,7 +306,7 @@ export default function ManagerMembersPage() {
                     <td data-label="Thao tác">
                       <div className="row">
                         <Button size="sm" variant="secondary" onClick={() => void openAssign(member)}>
-                          Phân công
+                          Địa điểm
                         </Button>
                         <Button
                           size="sm"
@@ -383,10 +334,10 @@ export default function ManagerMembersPage() {
         )}
       </Card>
 
-      {/* Location Assignment Dialog */}
+      {/* Which places this member may check in at */}
       {selected ? (
         <Dialog
-          title={`Phân công: ${selected.full_name ?? selected.email}`}
+          title={`Nơi chấm công của ${selected.full_name ?? selected.email}`}
           onClose={() => setSelected(null)}
         >
           <div className="stack">
@@ -394,12 +345,12 @@ export default function ManagerMembersPage() {
 
             <div>
               <h3 style={{ fontSize: "var(--text-sm)", fontWeight: 700, marginBottom: "8px" }}>
-                Địa điểm đang được phân công
+                Đang được chấm công tại
               </h3>
               {assigned === null ? (
                 <LoadingRows count={2} />
               ) : assigned.length === 0 ? (
-                <Empty>Chưa được phân công địa điểm nào.</Empty>
+                <Empty>Chưa gắn với địa điểm nào, nên chưa chấm công được ở đâu cả.</Empty>
               ) : (
                 <div className="stack stack--tight">
                   {assigned.map((location) => (
@@ -443,77 +394,13 @@ export default function ManagerMembersPage() {
                 />
 
                 <Button onClick={assign} loading={busy} block>
-                  Phân công địa điểm
+                  Thêm địa điểm này
                 </Button>
               </div>
             ) : (
               <Alert tone="warning">Chưa có địa điểm nào đang bật. Hãy tạo địa điểm trước.</Alert>
             )}
 
-            <hr className="divider" />
-
-            <div className="stack">
-              <h3 style={{ fontSize: "var(--text-sm)", fontWeight: 700 }}>Ca làm việc hằng tuần</h3>
-              <p className="field__hint">
-                Ca là căn cứ để hệ thống xác định đi muộn. Không có ca thì mọi lượt check-in đúng phạm vi đều tính
-                là hợp lệ.
-              </p>
-
-              {shifts === null ? (
-                <LoadingRows count={2} />
-              ) : shifts.length === 0 ? (
-                <Empty>Chưa có ca nào.</Empty>
-              ) : (
-                <div className="stack stack--tight">
-                  {shifts.map((shift) => (
-                    <div className="event" key={shift.id}>
-                      <div>
-                        <p className="event__label">
-                          {shift.work_date ? shift.work_date : weekdayLabel(shift.weekday)}
-                        </p>
-                        <p className="event__meta">
-                          {shortTime(shift.start_time)} – {shortTime(shift.end_time)} · cho phép muộn{" "}
-                          {shift.grace_minutes} phút
-                          {shift.location_name ? ` · ${shift.location_name}` : ""}
-                        </p>
-                      </div>
-                      <Button size="sm" variant="ghost" disabled={busy} onClick={() => void removeShift(shift.id)}>
-                        Gỡ
-                      </Button>
-                    </div>
-                  ))}
-                </div>
-              )}
-
-              <div className="filters-bar">
-                <SelectField label="Thứ" value={shiftWeekday} onChange={(e) => setShiftWeekday(e.target.value)}>
-                  {WEEKDAY_OPTIONS.map((day) => (
-                    <option key={day} value={String(day)}>
-                      {weekdayLabel(day)}
-                    </option>
-                  ))}
-                </SelectField>
-                <Field
-                  label="Bắt đầu"
-                  type="time"
-                  value={shiftStart}
-                  onChange={(e) => setShiftStart(e.target.value)}
-                />
-                <Field label="Kết thúc" type="time" value={shiftEnd} onChange={(e) => setShiftEnd(e.target.value)} />
-                <Field
-                  label="Cho phép muộn (phút)"
-                  type="number"
-                  min={0}
-                  max={240}
-                  value={shiftGrace}
-                  onChange={(e) => setShiftGrace(e.target.value)}
-                />
-              </div>
-
-              <Button variant="secondary" onClick={() => void addShift()} loading={busy} block>
-                Thêm ca làm việc
-              </Button>
-            </div>
           </div>
         </Dialog>
       ) : null}

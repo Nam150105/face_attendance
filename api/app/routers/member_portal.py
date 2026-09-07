@@ -10,15 +10,11 @@ from app.services.member_portal import (
     attendance_days,
     cancel_correction,
     create_correction,
-    create_member_schedule,
-    delete_member_schedule,
     list_corrections_for_manager,
-    list_member_schedules,
     list_my_corrections,
     list_notifications,
     mark_all_notifications_read,
     mark_notification_read,
-    my_schedule,
     review_correction,
 )
 
@@ -34,16 +30,6 @@ class CorrectionRequest(BaseModel):
 class CorrectionReviewRequest(BaseModel):
     decision: str = Field(pattern="^(APPROVED|REJECTED)$")
     note: str | None = Field(default=None, max_length=500)
-
-
-class ScheduleRequest(BaseModel):
-    weekday: int | None = Field(default=None, ge=0, le=6)
-    work_date: date | None = None
-    start_time: time
-    end_time: time
-    timezone: str = Field(default="Asia/Ho_Chi_Minh", max_length=64)
-    grace_minutes: int = Field(default=10, ge=0, le=240)
-    location_id: UUID | None = None
 
 
 # --------------------------------------------------------------- member side
@@ -63,15 +49,6 @@ def my_daily_attendance(
 @member_router.get("/attendance/me/day/{work_date}")
 def my_day_detail(work_date: date, user: CurrentUser = Depends(require_role("MEMBER"))) -> list[dict]:
     return attendance_day_events(user.id, work_date)
-
-
-@member_router.get("/members/me/schedule")
-def my_schedule_route(
-    date_from: date | None = None,
-    date_to: date | None = None,
-    user: CurrentUser = Depends(require_role("MEMBER")),
-) -> dict:
-    return my_schedule(user.id, date_from, date_to)
 
 
 @member_router.get("/notifications")
@@ -135,26 +112,3 @@ def review(
     user: CurrentUser = Depends(require_role("MANAGER")),
 ) -> dict:
     return review_correction(user.id, request_id, request.decision, request.note)
-
-
-@manager_router.get("/members/{member_id}/schedules")
-def member_schedules(member_id: UUID, user: CurrentUser = Depends(require_role("MANAGER"))) -> list[dict]:
-    return list_member_schedules(user.id, member_id)
-
-
-@manager_router.post("/members/{member_id}/schedules", status_code=201)
-def add_member_schedule(
-    member_id: UUID,
-    request: ScheduleRequest,
-    user: CurrentUser = Depends(require_role("MANAGER")),
-) -> dict:
-    return create_member_schedule(user.id, member_id, request.model_dump())
-
-
-@manager_router.delete("/members/{member_id}/schedules/{schedule_id}")
-def remove_member_schedule(
-    member_id: UUID,
-    schedule_id: UUID,
-    user: CurrentUser = Depends(require_role("MANAGER")),
-) -> dict:
-    return delete_member_schedule(user.id, member_id, schedule_id)

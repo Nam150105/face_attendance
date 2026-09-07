@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import re
 
 from urllib.parse import urlparse
@@ -14,6 +15,12 @@ PHOTON_SEARCH = "https://photon.komoot.io/api/"
 PHOTON_REVERSE = "https://photon.komoot.io/reverse"
 NOMINATIM_SEARCH = "https://nominatim.openstreetmap.org/search"
 NOMINATIM_REVERSE = "https://nominatim.openstreetmap.org/reverse"
+
+# Results are ranked around this point and restricted to these countries. Both
+# geocoders otherwise match a street name anywhere in the world.
+BIAS_LATITUDE = float(os.environ.get("PLACE_BIAS_LATITUDE", "16.0"))
+BIAS_LONGITUDE = float(os.environ.get("PLACE_BIAS_LONGITUDE", "107.0"))
+SEARCH_COUNTRY_CODES = os.environ.get("PLACE_COUNTRY_CODES", "vn")
 USER_AGENT = "face-attendance/1.0 (location picker)"
 TIMEOUT = 12
 
@@ -107,7 +114,18 @@ def _photon_label(properties: dict) -> str:
 def _photon_search(address: str) -> dict | None:
     try:
         with httpx.Client(timeout=TIMEOUT, headers={"User-Agent": USER_AGENT}) as client:
-            response = client.get(PHOTON_SEARCH, params={"q": address, "limit": 1})
+            # Bias to Vietnam and ask for Vietnamese names: without this the
+            # geocoder happily returns a same-named street on another continent.
+            response = client.get(
+                PHOTON_SEARCH,
+                params={
+                    "q": address,
+                    "limit": 5,
+                    "lang": "default",
+                    "lat": BIAS_LATITUDE,
+                    "lon": BIAS_LONGITUDE,
+                },
+            )
             response.raise_for_status()
             features = response.json().get("features", [])
     except (httpx.HTTPError, ValueError):
@@ -127,7 +145,17 @@ def _photon_search(address: str) -> dict | None:
 def _nominatim_search(address: str) -> dict | None:
     try:
         with httpx.Client(timeout=TIMEOUT, headers={"User-Agent": USER_AGENT}) as client:
-            response = client.get(NOMINATIM_SEARCH, params={"q": address, "format": "jsonv2", "limit": 1})
+            response = client.get(
+                NOMINATIM_SEARCH,
+                params={
+                    "q": address,
+                    "format": "jsonv2",
+                    "limit": 5,
+                    "countrycodes": SEARCH_COUNTRY_CODES,
+                    "accept-language": "vi",
+                    "addressdetails": 1,
+                },
+            )
             response.raise_for_status()
             results = response.json()
     except (httpx.HTTPError, ValueError):

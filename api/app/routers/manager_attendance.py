@@ -8,6 +8,7 @@ from app.auth import CurrentUser, require_role
 from app.security import safe_image_content_type
 from app.services.manager_attendance import (
     attendance_image,
+    delete_attendance,
     get_attendance,
     list_attendance,
     list_audit_logs,
@@ -76,6 +77,16 @@ def adjust(
     event_id: UUID, request: ManualAdjustRequest, user: CurrentUser = Depends(require_role("MANAGER"))
 ) -> dict:
     return manual_adjust(user.id, event_id, request.model_dump())
+
+
+@router.delete("/attendance/{event_id}")
+def remove_attendance(
+    event_id: UUID,
+    reason: str = Query(min_length=3, max_length=500),
+    user: CurrentUser = Depends(require_role("MANAGER")),
+) -> dict:
+    """Soft delete, always with a reason and always written to the audit log."""
+    return delete_attendance(user.id, event_id, reason)
 
 
 @router.get("/members/{member_id}/attendance")

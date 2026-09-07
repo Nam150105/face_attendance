@@ -13,6 +13,7 @@ from app.observability import (
     request_id_var,
 )
 from app.routers import (
+    admin,
     attendance,
     auth,
     faces,
@@ -104,6 +105,7 @@ app.include_router(faces.router, prefix="/api/v1")
 app.include_router(attendance.router, prefix="/api/v1")
 app.include_router(member_portal.member_router, prefix="/api/v1")
 app.include_router(member_portal.manager_router, prefix="/api/v1")
+app.include_router(admin.router, prefix="/api/v1")
 
 
 @app.get("/health", tags=["system"])

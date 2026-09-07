@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import uuid
 from datetime import datetime, timedelta, timezone
 
@@ -57,24 +58,12 @@ def _location_for_member(connection: psycopg.Connection, member_id: uuid.UUID, l
 
 def _hour_rule(connection: psycopg.Connection, member_id: uuid.UUID, location_id: uuid.UUID) -> tuple | None:
     """
-    The working hours that apply to this person today, and whether they are a
-    hard rule. A personal shift wins; otherwise the location's own hours apply.
-    Returns (start, end, grace_minutes, enforce).
+    The working hours for this place: (start, end, grace_minutes, enforce).
+
+    Hours live on the location and nowhere else. Per-member shifts were removed
+    because two sources for the same rule meant nobody could say why a given
+    arrival counted as late.
     """
-    today = _utc_now().astimezone(LOCAL_ZONE).date()
-    personal = connection.execute(
-        """
-        SELECT start_time, end_time, grace_minutes FROM schedules
-        WHERE member_id = %s AND is_active
-          AND (work_date = %s OR (work_date IS NULL AND weekday = %s))
-        ORDER BY work_date NULLS LAST LIMIT 1
-        """,
-        (member_id, today, (today.weekday() + 1) % 7),
-    ).fetchone()
-    if personal is not None:
-        # A personal shift is guidance, never a hard block: only the location
-        # owner opts into refusing late arrivals.
-        return (personal[0], personal[1], personal[2] or 0, False)
     row = connection.execute(
         "SELECT expected_check_in, expected_check_out, grace_minutes, enforce_hours "
         "FROM locations WHERE id = %s",
@@ -86,13 +75,24 @@ def _hour_rule(connection: psycopg.Connection, member_id: uuid.UUID, location_id
 
 
 def _minutes_late(rule: tuple | None, moment: datetime) -> int:
-    """Minutes past the allowed start, 0 when on time or when no rule applies."""
+    """
+    Minutes past the *start* time, not past the grace deadline.
+
+    The grace window decides how to react, not whether the person was late: a
+    member arriving 5 minutes into a 10-minute window is still told they were
+    late, they are simply not refused.
+    """
     if rule is None or rule[0] is None:
         return 0
     local_moment = moment.astimezone(LOCAL_ZONE)
-    deadline = datetime.combine(local_moment.date(), rule[0], tzinfo=LOCAL_ZONE) + timedelta(minutes=rule[2])
-    delta = (local_moment - deadline).total_seconds() // 60
+    start = datetime.combine(local_moment.date(), rule[0], tzinfo=LOCAL_ZONE)
+    delta = (local_moment - start).total_seconds() // 60
     return int(delta) if delta > 0 else 0
+
+
+def _beyond_grace(rule: tuple | None, late_minutes: int) -> bool:
+    """True when the arrival is past the window the location allows."""
+    return rule is not None and late_minutes > (rule[2] or 0)
 
 
 def _minutes_early_leave(rule: tuple | None, moment: datetime) -> int:
@@ -132,29 +132,61 @@ def _notify_managers(
         notify(connection, manager_id, category, title, body, payload)
 
 
+AUTO_CHECK_OUT_HOURS = int(os.environ.get("AUTO_CHECK_OUT_HOURS", "24"))
+
+
+def close_stale_sessions(connection: psycopg.Connection, member_id: uuid.UUID) -> int:
+    """
+    Close a check-in nobody ever checked out of.
+
+    Someone who forgets to check out would otherwise stay "still working" for
+    ever and be unable to start the next day, because a second check-in is
+    refused while one is open. The closing event is marked as system-generated:
+    it has no photo and no location reading, because nobody was measured.
+    """
+    open_event = _open_state(connection, member_id)
+    if open_event is None:
+        return 0
+    opened_at = open_event[2]
+    if (_utc_now() - opened_at).total_seconds() < AUTO_CHECK_OUT_HOURS * 3600:
+        return 0
+
+    closes_at = opened_at + timedelta(hours=AUTO_CHECK_OUT_HOURS)
+    connection.execute(
+        """
+        INSERT INTO attendance_events
+            (member_id, location_id, event_type, status, server_time, latitude, longitude,
+             gps_accuracy_meters, distance_meters, reason, idempotency_key)
+        VALUES (%s, %s, 'CHECK_OUT', 'SUCCESS', %s, 0, 0, 0, 0, %s, %s)
+        """,
+        (
+            member_id,
+            open_event[1],
+            closes_at,
+            f"Hệ thống tự kết thúc sau {AUTO_CHECK_OUT_HOURS} giờ vì không có lượt ra",
+            f"auto-checkout-{open_event[0]}",
+        ),
+    )
+    notify(
+        connection, member_id, "AUTO_CHECK_OUT",
+        "Hệ thống đã tự kết thúc buổi làm việc",
+        f"Buổi bắt đầu lúc {opened_at.astimezone(LOCAL_ZONE).strftime('%H:%M %d/%m')} chưa có lượt ra, "
+        f"nên hệ thống tự đóng sau {AUTO_CHECK_OUT_HOURS} giờ. Lần tới bạn nhớ bấm ra khi kết thúc nhé.",
+        {"opened_at": opened_at.isoformat(), "auto": True},
+    )
+    _notify_managers(
+        connection, member_id, "AUTO_CHECK_OUT",
+        f"{_member_label(connection, member_id)} không bấm giờ ra",
+        f"Buổi bắt đầu lúc {opened_at.astimezone(LOCAL_ZONE).strftime('%H:%M %d/%m')} đã được hệ thống "
+        f"tự đóng sau {AUTO_CHECK_OUT_HOURS} giờ.",
+        {"member_id": str(member_id), "opened_at": opened_at.isoformat()},
+    )
+    return 1
+
+
 def _location_name(connection: psycopg.Connection, location_id: uuid.UUID) -> str:
     row = connection.execute("SELECT name FROM locations WHERE id = %s", (location_id,)).fetchone()
     return row[0] if row else "địa điểm"
-
-
-def _is_late(connection: psycopg.Connection, member_id: uuid.UUID, moment: datetime) -> bool:
-    """Late only means something when a shift is defined for that day. Shifts are
-    local wall-clock times, so the comparison has to happen in that zone."""
-    local_moment = moment.astimezone(LOCAL_ZONE)
-    work_date = local_moment.date()
-    row = connection.execute(
-        """
-        SELECT start_time, grace_minutes FROM schedules
-        WHERE member_id = %s AND is_active
-          AND (work_date = %s OR (work_date IS NULL AND weekday = %s))
-        ORDER BY work_date NULLS LAST LIMIT 1
-        """,
-        (member_id, work_date, (work_date.weekday() + 1) % 7),
-    ).fetchone()
-    if row is None:
-        return False
-    latest_ok = datetime.combine(work_date, row[0], tzinfo=LOCAL_ZONE) + timedelta(minutes=row[1] or 0)
-    return local_moment > latest_ok
 
 
 def _member_label(connection: psycopg.Connection, member_id: uuid.UUID) -> str:
@@ -187,7 +219,7 @@ def _notify_check_in(
         gap = describe_duration(late_minutes)
         notify(
             connection, member_id, "LATE",
-            f"Bạn vào muộn {gap}",
+            f"Bạn đến muộn {gap}",
             f"Ghi nhận lúc {moment.strftime('%H:%M')} tại {name}.",
             {"location_id": str(location_id), "minutes_late": late_minutes},
         )
@@ -235,12 +267,12 @@ def _open_state(connection: psycopg.Connection, member_id: uuid.UUID) -> tuple |
     return connection.execute(
         """
         SELECT id, location_id, server_time FROM attendance_events
-        WHERE member_id = %s AND event_type = 'CHECK_IN' AND status IN ('SUCCESS', 'WARNING_CONFIRMED')
+        WHERE member_id = %s AND deleted_at IS NULL AND event_type = 'CHECK_IN' AND status IN ('SUCCESS', 'WARNING_CONFIRMED')
           AND NOT EXISTS (
               SELECT 1 FROM attendance_events checkout
               WHERE checkout.member_id = attendance_events.member_id
                 AND checkout.event_type = 'CHECK_OUT'
-                AND checkout.status = 'SUCCESS'
+                AND checkout.status = 'SUCCESS' AND checkout.deleted_at IS NULL
                 AND checkout.server_time > attendance_events.server_time
           )
         ORDER BY server_time DESC LIMIT 1
@@ -338,6 +370,8 @@ def check_in(
         ).fetchone() is not None:
             raise _reject(409, "IDEMPOTENCY_KEY_CONFLICT")
         connection.execute("SELECT id FROM users WHERE id = %s FOR UPDATE", (user.id,)).fetchone()
+        # A forgotten check-out from yesterday must not block today's start.
+        close_stale_sessions(connection, user.id)
         if _open_state(connection, user.id) is not None:
             raise _reject(409, "CHECK_IN_ALREADY_EXISTS")
         location = _location_for_member(connection, user.id, location_id)
@@ -363,7 +397,9 @@ def check_in(
         # costs the member nothing and saves a pointless face comparison.
         rule = _hour_rule(connection, user.id, location_id)
         late_minutes = _minutes_late(rule, _utc_now())
-        if rule is not None and rule[3] and late_minutes > 0:
+        # Only an arrival past the allowed window can be refused, and only when
+        # the location owner asked for that.
+        if _beyond_grace(rule, late_minutes) and rule[3]:
             _record_rejection(
                 connection, user, location_id, "CHECK_IN", "BLOCKED", "CHECK_IN_TOO_LATE",
                 latitude, longitude, gps_accuracy_meters, decision.distance_meters, idempotency_key,
@@ -400,7 +436,22 @@ def check_in(
         ).fetchone()
         _notify_check_in(connection, user.id, location[0], decision.distance_meters, event_status, late_minutes)
         connection.commit()
-    return {"status": row[0], "event_id": row[1], "distance_meters": float(row[2]), "message": "Check-in thành công"}
+
+    within_grace = late_minutes > 0 and not _beyond_grace(rule, late_minutes)
+    if late_minutes == 0:
+        message = "Đã ghi nhận giờ vào. Bạn đến đúng giờ."
+    elif within_grace:
+        message = f"Đã ghi nhận giờ vào. Bạn muộn {describe_duration(late_minutes)}, vẫn trong mức cho phép."
+    else:
+        message = f"Đã ghi nhận giờ vào. Bạn muộn {describe_duration(late_minutes)}."
+    return {
+        "status": row[0],
+        "event_id": row[1],
+        "distance_meters": float(row[2]),
+        "message": message,
+        "minutes_late": late_minutes,
+        "late_within_grace": within_grace,
+    }
 
 
 def check_out(
@@ -486,7 +537,20 @@ def check_out(
         ).fetchone()
         _notify_check_out(connection, user.id, location_id, decision.distance_meters, early_minutes)
         connection.commit()
-    return {"status": row[0], "event_id": row[1], "distance_meters": float(row[2]), "message": "Check-out thành công"}
+
+    # Leaving late is never a problem: the worked time is recorded either way.
+    message = (
+        f"Đã ghi nhận giờ ra. Bạn về sớm {describe_duration(early_minutes)} so với giờ tan."
+        if early_minutes > 0
+        else "Đã ghi nhận giờ ra."
+    )
+    return {
+        "status": row[0],
+        "event_id": row[1],
+        "distance_meters": float(row[2]),
+        "message": message,
+        "minutes_early_leave": early_minutes,
+    }
 
 
 def _event_dict(row: tuple) -> dict:
@@ -513,12 +577,14 @@ MY_EVENT_COLUMNS = """
 
 def my_state(user: CurrentUser) -> dict:
     with psycopg.connect(DATABASE_URL) as connection:
+        if close_stale_sessions(connection, user.id):
+            connection.commit()
         open_event = _open_state(connection, user.id)
         enrolled = connection.execute(
             "SELECT 1 FROM face_embeddings WHERE member_id = %s AND revoked_at IS NULL LIMIT 1", (user.id,)
         ).fetchone()
         last = connection.execute(
-            f"SELECT {MY_EVENT_COLUMNS} FROM attendance_events e JOIN locations l ON l.id = e.location_id WHERE e.member_id = %s ORDER BY e.server_time DESC LIMIT 1",
+            f"SELECT {MY_EVENT_COLUMNS} FROM attendance_events e JOIN locations l ON l.id = e.location_id WHERE e.member_id = %s AND e.deleted_at IS NULL ORDER BY e.server_time DESC LIMIT 1",
             (user.id,),
         ).fetchone()
     return {
@@ -534,7 +600,7 @@ def my_state(user: CurrentUser) -> dict:
 def my_history(user: CurrentUser, limit: int) -> list[dict]:
     with psycopg.connect(DATABASE_URL) as connection:
         rows = connection.execute(
-            f"SELECT {MY_EVENT_COLUMNS} FROM attendance_events e JOIN locations l ON l.id = e.location_id WHERE e.member_id = %s ORDER BY e.server_time DESC LIMIT %s",
+            f"SELECT {MY_EVENT_COLUMNS} FROM attendance_events e JOIN locations l ON l.id = e.location_id WHERE e.member_id = %s AND e.deleted_at IS NULL ORDER BY e.server_time DESC LIMIT %s",
             (user.id, limit),
         ).fetchall()
     return [_event_dict(row) for row in rows]

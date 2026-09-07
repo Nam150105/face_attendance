@@ -5,6 +5,7 @@ import { useCallback, useEffect, useState } from "react";
 import { Dialog } from "../../../components/Dialog";
 import { LocationPicker } from "../../../components/LocationPicker";
 import { ManagerShell } from "../../../components/ManagerShell";
+import { TimeField } from "../../../components/TimeField";
 import { Alert, Badge, Button, Card, Checkbox, Empty, Field, LoadingRows } from "../../../components/ui";
 import { api } from "../../../lib/api";
 import { describeError } from "../../../lib/messages";
@@ -33,7 +34,6 @@ export default function ManagerLocationsPage() {
   const [form, setForm] = useState<LocationInput>(EMPTY_FORM);
   const [formError, setFormError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
-  const [foundAddress, setFoundAddress] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     try {
@@ -50,7 +50,6 @@ export default function ManagerLocationsPage() {
 
   function openCreate() {
     setForm(EMPTY_FORM);
-    setFoundAddress(null);
     setEditing(null);
     setCreating(true);
     setFormError(null);
@@ -73,7 +72,6 @@ export default function ManagerLocationsPage() {
     setEditing(location);
     setCreating(false);
     setFormError(null);
-    setFoundAddress(null);
   }
 
   const closeDialog = useCallback(() => {
@@ -93,7 +91,7 @@ export default function ManagerLocationsPage() {
       return;
     }
     if (form.warning_radius_meters <= form.allow_radius_meters) {
-      setFormError("Phạm vi cảnh báo phải lớn hơn phạm vi cho phép.");
+      setFormError("Khoảng cách chặn phải lớn hơn khoảng cách cho phép chấm công.");
       return;
     }
     setSaving(true);
@@ -201,8 +199,8 @@ export default function ManagerLocationsPage() {
                           </p>
                           <p className="event__meta">
                             {location.enforce_hours
-                              ? `Khoá cửa sau ${location.grace_minutes} phút`
-                              : `Cho phép trễ ${location.grace_minutes} phút`}
+                              ? `Muộn quá ${location.grace_minutes} phút thì không vào được`
+                              : `Muộn quá ${location.grace_minutes} phút vẫn vào được`}
                           </p>
                         </>
                       ) : (
@@ -269,35 +267,14 @@ export default function ManagerLocationsPage() {
             <LocationPicker
               point={{ latitude: form.latitude, longitude: form.longitude }}
               onPointChange={setPoint}
-              onFound={setFoundAddress}
+              onFound={(label) => setForm((current) => ({ ...current, address: label }))}
               allowRadiusMeters={form.allow_radius_meters}
               warningRadiusMeters={form.warning_radius_meters}
             />
 
-            <Field
-              label="Địa chỉ hiển thị"
-              placeholder="Ví dụ: 313 Trần Đại Nghĩa, Hai Bà Trưng, Hà Nội"
-              maxLength={500}
-              value={form.address ?? ""}
-              onChange={(e) => setForm({ ...form, address: e.target.value || null })}
-              hint="Địa chỉ này chỉ để mọi người dễ nhận ra nơi làm việc, không ảnh hưởng tới việc chấm công."
-            />
-            {foundAddress && foundAddress !== form.address ? (
-              <div className="row row--between">
-                <span className="field__hint">Tìm thấy: {foundAddress}</span>
-                <Button
-                  size="sm"
-                  variant="secondary"
-                  onClick={() => setForm({ ...form, address: foundAddress })}
-                >
-                  Dùng địa chỉ này
-                </Button>
-              </div>
-            ) : null}
-
             <div className="field-pair">
               <Field
-                label="Phạm vi chuẩn (mét)"
+                label="Chấm công được trong (mét)"
                 type="number"
                 min={10}
                 max={5000}
@@ -306,7 +283,7 @@ export default function ManagerLocationsPage() {
                 onChange={(e) => setForm({ ...form, allow_radius_meters: parseInt(e.target.value, 10) || 10 })}
               />
               <Field
-                label="Phạm vi cảnh báo (mét)"
+                label="Xa hơn mức này thì chặn (mét)"
                 type="number"
                 min={form.allow_radius_meters + 1}
                 max={10000}
@@ -316,43 +293,46 @@ export default function ManagerLocationsPage() {
               />
             </div>
             <p className="field__hint">
-              Trong phạm vi chuẩn thì lượt ghi nhận hợp lệ. Ngoài phạm vi chuẩn nhưng trong mức cảnh báo thì
-              người dùng phải nhập lý do.
+              Đứng trong vòng tròn xanh thì chấm công bình thường. Ở giữa hai vòng thì vẫn chấm công được
+              nhưng phải cho biết lý do. Ra ngoài vòng cam thì không chấm công được.
             </p>
 
             <div className="field-pair">
-              <Field
-                label="Giờ vào dự kiến"
-                type="time"
-                value={form.expected_check_in ?? ""}
-                onChange={(e) => setForm({ ...form, expected_check_in: e.target.value || null })}
+              <TimeField
+                label="Giờ vào"
+                value={form.expected_check_in}
+                presets={["07:00", "08:00", "08:30", "09:00"]}
+                onChange={(value) => setForm({ ...form, expected_check_in: value })}
               />
-              <Field
-                label="Giờ ra dự kiến"
-                type="time"
-                value={form.expected_check_out ?? ""}
-                onChange={(e) => setForm({ ...form, expected_check_out: e.target.value || null })}
+              <TimeField
+                label="Giờ ra"
+                value={form.expected_check_out}
+                presets={["16:00", "17:00", "17:30", "18:00"]}
+                onChange={(value) => setForm({ ...form, expected_check_out: value })}
               />
             </div>
+            <p className="field__hint">
+              Để trống nếu nơi này không có giờ cố định.
+            </p>
             <Field
-              label="Được phép vào trễ (phút)"
+              label="Số phút đến muộn được chấp nhận"
               type="number"
               min={0}
               max={240}
               value={form.grace_minutes ?? 10}
               onChange={(e) => setForm({ ...form, grace_minutes: parseInt(e.target.value, 10) || 0 })}
-              hint="Sau giờ vào bao nhiêu phút thì mới tính là muộn."
+              hint="Ví dụ 10 phút: giờ vào 08:00, ai tới lúc 08:07 vẫn chấm công được và màn hình nhắc họ muộn 7 phút."
             />
 
             <Checkbox
-              label="Không cho vào sau khi đã quá giờ"
+              label="Muộn quá số phút trên thì không cho chấm công"
               checked={form.enforce_hours}
               onChange={(checked) => setForm({ ...form, enforce_hours: checked })}
             />
             <p className="field__hint">
               {form.enforce_hours
-                ? "Quá giờ cho phép, người đến muộn sẽ không chấm công vào được và bạn vẫn thấy lần thử đó trong danh sách."
-                : "Người đến muộn vẫn chấm công được. Hệ thống sẽ báo cho bạn muộn bao nhiêu, và ra sớm bao nhiêu."}
+                ? "Muộn quá mức trên sẽ bị từ chối, nhưng lần thử đó vẫn hiện trong danh sách bản ghi để bạn nắm được."
+                : "Muộn bao nhiêu cũng vẫn chấm công được. Hệ thống chỉ ghi lại muộn bao nhiêu và ra sớm bao nhiêu."}
             </p>
 
             <Checkbox

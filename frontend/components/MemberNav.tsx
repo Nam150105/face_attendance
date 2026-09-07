@@ -9,7 +9,6 @@ import { api } from "../lib/api";
 const LINKS = [
   { href: "/", label: "Trang chủ" },
   { href: "/history", label: "Lịch sử" },
-  { href: "/schedule", label: "Lịch làm việc" },
   { href: "/locations", label: "Địa điểm" },
   { href: "/corrections", label: "Chỉnh công" },
   { href: "/notifications", label: "Thông báo" },

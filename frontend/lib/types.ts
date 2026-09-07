@@ -1,4 +1,4 @@
-export type UserRole = "MANAGER" | "MEMBER";
+export type UserRole = "MANAGER" | "MEMBER" | "SUPER_ADMIN";
 
 export interface TokenPair {
   access_token: string;
@@ -352,4 +352,57 @@ export interface CorrectionRequest {
 export interface CorrectionsResponse {
   total: number;
   items: CorrectionRequest[];
+}
+
+
+// --- System administration --------------------------------------------------
+
+export interface AdminOverview {
+  members: number;
+  managers: number;
+  super_admins: number;
+  inactive_users: number;
+  locations: number;
+  attendance_events: number;
+  deleted_events: number;
+  enrolled_faces: number;
+  active_sessions: number;
+}
+
+export interface AdminUser {
+  id: string;
+  email: string;
+  role: UserRole;
+  status: string;
+  created_at: string;
+  last_login_at: string | null;
+  full_name: string | null;
+  employee_code: string | null;
+  attendance_count: number;
+  managed_members: number;
+}
+
+export interface AdminUsersResponse {
+  total: number;
+  items: AdminUser[];
+}
+
+export interface AdminAttendanceRow {
+  id: string;
+  member_email: string;
+  member_name: string | null;
+  event_type: AttendanceEventType;
+  status: AttendanceStatus;
+  server_time: string;
+  location_name: string;
+  distance_meters: number;
+  failure_code: string | null;
+  deleted_at: string | null;
+  delete_reason: string | null;
+  deleted_by_email: string | null;
+}
+
+export interface AdminAttendanceResponse {
+  total: number;
+  items: AdminAttendanceRow[];
 }

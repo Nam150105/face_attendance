@@ -105,6 +105,8 @@ export default function ManagerAttendancePage() {
   const [adjustError, setAdjustError] = useState<string | null>(null);
   const [adjustNotice, setAdjustNotice] = useState<string | null>(null);
   const [adjusting, setAdjusting] = useState(false);
+  const [deleteReason, setDeleteReason] = useState("");
+  const [deleting, setDeleting] = useState(false);
 
   const load = useCallback(async () => {
     setEvents(null);
@@ -153,12 +155,31 @@ export default function ManagerAttendancePage() {
     setAdjustReason("");
     setAdjustError(null);
     setAdjustNotice(null);
+    setDeleteReason("");
     if (event.has_image) {
       try {
         setImageUrl(await api.managerAttendanceImage(event.id));
       } catch (cause) {
         setImageError(describeError(cause));
       }
+    }
+  }
+
+  async function removeRecord() {
+    if (!selected) {
+      return;
+    }
+    setDeleting(true);
+    setAdjustError(null);
+    try {
+      await api.deleteAttendanceRecord(selected.id, deleteReason.trim());
+      setSelected(null);
+      setDeleteReason("");
+      await load();
+    } catch (cause) {
+      setAdjustError(describeError(cause));
+    } finally {
+      setDeleting(false);
     }
   }
 
@@ -456,6 +477,29 @@ export default function ManagerAttendancePage() {
                   Lưu thay đổi
                 </Button>
               </div>
+            </div>
+
+            <div className="danger-zone">
+              <h3 className="danger-zone__title">Xoá bản ghi này</h3>
+              <p className="danger-zone__text">
+                Bản ghi sẽ biến khỏi bảng công của bạn và của thành viên. Việc xoá được ghi vào nhật ký kèm
+                tên bạn và lý do, quản trị hệ thống vẫn khôi phục lại được.
+              </p>
+              <TextAreaField
+                label="Lý do xoá (bắt buộc)"
+                placeholder="Ví dụ: chấm nhầm ca, thành viên bấm hai lần…"
+                value={deleteReason}
+                onChange={(e) => setDeleteReason(e.target.value)}
+              />
+              <Button
+                variant="danger"
+                onClick={() => void removeRecord()}
+                loading={deleting}
+                disabled={deleteReason.trim().length < 3}
+                block
+              >
+                Xoá bản ghi
+              </Button>
             </div>
           </div>
         </Dialog>

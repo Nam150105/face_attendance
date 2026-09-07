@@ -38,7 +38,7 @@ const RETRYABLE = new Set([
 const BLOCKING = new Set(["OUTSIDE_ALLOWED_ZONE", "GPS_ACCURACY_LOW"]);
 
 const QUICK_REASONS = [
-  "Đang ở địa điểm khác theo phân công",
+  "Đang ở một địa điểm khác của tổ chức",
   "Hoạt động bên ngoài (công tác, ngoại khoá)",
   "Tín hiệu định vị lệch do trong nhà",
   "Đã báo trước với người quản lý",
@@ -144,7 +144,7 @@ export default function AttendancePage() {
           setPhase("idle");
           setNeedsReason(true);
           setTone("warning");
-          setMessage("Bạn đang ở ngoài phạm vi chuẩn của địa điểm. Vui lòng chọn hoặc nhập lý do để tiếp tục.");
+          setMessage("Bạn đang đứng hơi xa nơi làm việc. Cho biết lý do rồi gửi lại giúp nhé.");
           return;
         }
         setPhase("failed");

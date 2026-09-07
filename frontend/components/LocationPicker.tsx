@@ -214,18 +214,20 @@ export function LocationPicker({
             Vị trí của tôi
           </Button>
         </div>
-        <p className="field__hint">
-          Tìm theo tên thường không chính xác bằng toạ độ.{" "}
+        <div className="picker-tip">
+          <p className="picker-tip__text">
+            Tìm bằng tên thường không ra đúng chỗ. Cách chắc chắn nhất: mở Google Maps, chạm giữ vào
+            đúng vị trí, chọn <strong>Chia sẻ</strong> rồi dán liên kết vào ô trên.
+          </p>
           <a
-            className="link"
+            className="button button--secondary button--sm"
             href={`https://www.google.com/maps/search/${encodeURIComponent(query || "")}`}
             target="_blank"
             rel="noreferrer noopener"
           >
-            Mở Google Maps để lấy liên kết chính xác →
-          </a>{" "}
-          rồi dán vào ô trên.
-        </p>
+            Mở Google Maps
+          </a>
+        </div>
       </div>
 
       {notice ? <Alert tone="success">{notice}</Alert> : null}
@@ -246,11 +248,11 @@ export function LocationPicker({
       <div className="picker-legend">
         <span className="picker-legend__item">
           <span className="picker-legend__dot" style={{ background: "var(--color-success)" }} />
-          Phạm vi chuẩn {allowRadiusMeters}m
+          Chấm công được trong {allowRadiusMeters}m
         </span>
         <span className="picker-legend__item">
           <span className="picker-legend__dot" style={{ background: "var(--color-warning)" }} />
-          Phạm vi cảnh báo {warningRadiusMeters}m
+          Ngoài {warningRadiusMeters}m thì chặn
         </span>
         <span className="picker-legend__coords mono">
           {point.latitude.toFixed(5)}, {point.longitude.toFixed(5)}

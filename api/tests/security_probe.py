@@ -376,8 +376,8 @@ def main() -> int:
             check("Portal: thành viên khác không đánh dấu đọc được thông báo của người kia",
                   status == 404, f"HTTP {status}")
 
-        status, _ = call("GET", "/manager/members/%s/schedules" % (next(iter(ids_b)) if ids_b else uuid.uuid4()), manager_a)
-        check("Portal: manager không đọc được lịch làm việc của thành viên ngoài phạm vi",
+        status, _ = call("GET", "/manager/members/%s/locations" % (next(iter(ids_b)) if ids_b else uuid.uuid4()), manager_a)
+        check("Portal: manager không đọc được địa điểm của thành viên ngoài phạm vi",
               status == 404, f"HTTP {status}")
 
         # --- 10. Rate limiting ------------------------------------------------

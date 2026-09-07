@@ -12,6 +12,8 @@ import { formatDateTime, formatDistance } from "../../lib/geo";
 import {
   DAY_STATUS,
   clockOf,
+  pairDuration,
+  pairSessions,
   currentMonthValue,
   dayLabel,
   formatMinutes,
@@ -24,11 +26,11 @@ import type { AttendanceDayEvent, AttendanceDaysResponse, CurrentUser, DayStatus
 type Mode = "month" | "range";
 
 const STATUS_FILTERS: Array<{ value: string; label: string }> = [
-  { value: "", label: "Tất cả trạng thái" },
-  { value: "VALID", label: "Hợp lệ" },
-  { value: "LATE", label: "Đi muộn" },
-  { value: "MISSING_CHECK_OUT", label: "Thiếu check-out" },
-  { value: "INVALID", label: "Không hợp lệ" },
+  { value: "", label: "Tất cả các ngày" },
+  { value: "VALID", label: "Ngày bình thường" },
+  { value: "LATE", label: "Ngày đến muộn" },
+  { value: "MISSING_CHECK_OUT", label: "Ngày quên bấm giờ ra" },
+  { value: "INVALID", label: "Ngày chấm công không thành" },
 ];
 
 export default function HistoryPage() {
@@ -88,8 +90,8 @@ export default function HistoryPage() {
 
       <div className="page-header">
         <div>
-          <h1 className="page-title">Lịch sử chấm công</h1>
-          <p className="page-lead">Tổng hợp theo ngày: giờ vào, giờ ra, tổng thời gian và trạng thái.</p>
+          <h1 className="page-title">Bảng công của bạn</h1>
+          <p className="page-lead">Mỗi ngày bạn đi làm, làm bao lâu và có gì cần lưu ý.</p>
         </div>
       </div>
 
@@ -97,9 +99,9 @@ export default function HistoryPage() {
 
       <Card className="filter-card">
         <div className="filters-bar filters-bar--compact">
-          <SelectField label="Xem theo" value={mode} onChange={(e) => setMode(e.target.value as Mode)}>
-            <option value="month">Theo tháng</option>
-            <option value="range">Khoảng ngày</option>
+          <SelectField label="Xem" value={mode} onChange={(e) => setMode(e.target.value as Mode)}>
+            <option value="month">Cả tháng</option>
+            <option value="range">Khoảng ngày tự chọn</option>
           </SelectField>
 
           {mode === "month" ? (
@@ -115,7 +117,7 @@ export default function HistoryPage() {
             </>
           )}
 
-          <SelectField label="Trạng thái" value={status} onChange={(e) => setStatus(e.target.value)}>
+          <SelectField label="Lọc theo" value={status} onChange={(e) => setStatus(e.target.value)}>
             {STATUS_FILTERS.map((item) => (
               <option key={item.value} value={item.value}>
                 {item.label}
@@ -129,14 +131,14 @@ export default function HistoryPage() {
         <div className="tiles">
           <div className="tile">
             <div className="tile__head">
-              <span className="tile__label">Ngày có mặt</span>
+              <span className="tile__label">Số ngày đi làm</span>
             </div>
             <p className="tile__value">{data.summary.days_present}</p>
-            <p className="tile__foot">Trong khoảng đang xem</p>
+            <p className="tile__foot">Trong khoảng bạn đang xem</p>
           </div>
           <div className="tile">
             <div className="tile__head">
-              <span className="tile__label">Tổng thời gian</span>
+              <span className="tile__label">Tổng giờ làm</span>
             </div>
             <p className="tile__value">{Math.floor(data.summary.total_worked_minutes / 60)}
               <span className="tile__of">giờ</span>
@@ -145,26 +147,26 @@ export default function HistoryPage() {
           </div>
           <div className={`tile ${data.summary.days_late > 0 ? "tile--warning" : ""}`}>
             <div className="tile__head">
-              <span className="tile__label">Đi muộn</span>
+              <span className="tile__label">Số buổi đến muộn</span>
             </div>
             <p className="tile__value">{data.summary.days_late}</p>
-            <p className="tile__foot">So với ca làm việc được phân</p>
+            <p className="tile__foot">So với giờ vào đã quy định</p>
           </div>
           <div className={`tile ${data.summary.days_missing_check_out > 0 ? "tile--warning" : ""}`}>
             <div className="tile__head">
-              <span className="tile__label">Thiếu check-out</span>
+              <span className="tile__label">Quên bấm giờ ra</span>
             </div>
             <p className="tile__value">{data.summary.days_missing_check_out}</p>
-            <p className="tile__foot">Có thể gửi yêu cầu chỉnh công</p>
+            <p className="tile__foot">Bạn có thể xin sửa lại</p>
           </div>
         </div>
       ) : null}
 
-      <Card title={data ? `Chi tiết theo ngày (${days.length})` : "Chi tiết theo ngày"}>
+      <Card title={data ? `Từng ngày (${days.length})` : "Từng ngày"}>
         {data === null && !error ? (
           <LoadingRows count={5} />
         ) : days.length === 0 ? (
-          <Empty>Không có ngày nào khớp với bộ lọc hiện tại.</Empty>
+          <Empty>Không có ngày nào trong khoảng bạn chọn.</Empty>
         ) : (
           <ul className="daylist">
             {days.map((day) => {
@@ -174,7 +176,8 @@ export default function HistoryPage() {
                   <div className="daylist__main">
                     <p className="daylist__date">{dayLabel(day.work_date)}</p>
                     <p className="daylist__times">
-                      Vào {clockOf(day.check_in)} · Ra {clockOf(day.check_out)} · {formatMinutes(day.worked_minutes)}
+                      Vào {clockOf(day.check_in)} · Ra {clockOf(day.check_out)}
+                      {day.worked_minutes ? ` · làm ${formatMinutes(day.worked_minutes)}` : ""}
                     </p>
                   </div>
                   <Badge tone={meta.tone}>{meta.label}</Badge>
@@ -189,50 +192,65 @@ export default function HistoryPage() {
       </Card>
 
       {openDay ? (
-        <Dialog title={`Chi tiết ngày ${dayLabel(openDay)}`} onClose={() => setOpenDay(null)}>
+        <Dialog title={dayLabel(openDay)} onClose={() => setOpenDay(null)}>
           <div className="stack">
             {dayError ? <Alert tone="danger">{dayError}</Alert> : null}
             {dayEvents === null && !dayError ? (
               <LoadingRows count={3} />
             ) : dayEvents && dayEvents.length === 0 ? (
-              <Empty>Không có lượt nào trong ngày này.</Empty>
+              <Empty>Ngày này bạn không chấm công lần nào.</Empty>
             ) : (
-              (dayEvents ?? []).map((event) => (
-                <div className="event" key={event.id}>
-                  <div>
-                    <p className="event__label">
-                      {event.event_type === "CHECK_IN" ? "Check-in" : "Check-out"} · {event.location_name}
-                    </p>
-                    <p className="event__meta">
-                      {formatDateTime(event.server_time)} · cách {formatDistance(event.distance_meters)} · độ chính xác ±
-                      {event.gps_accuracy_meters.toFixed(0)} m
-                    </p>
-                    {event.failure_code ? (
-                      <p className="event__meta" style={{ color: "var(--color-danger)" }}>
-                        {describeFailure(event.failure_code)}
-                      </p>
+              pairSessions(dayEvents ?? []).map((pair) => {
+                const minutes = pairDuration(pair);
+                return (
+                  <div className="session" key={pair.key}>
+                    <div className="session__leg">
+                      <span className="session__tag session__tag--in">Vào</span>
+                      <div className="session__body">
+                        <p className="session__time">{clockOf(pair.checkIn?.server_time ?? null)}</p>
+                        <p className="session__meta">
+                          {pair.checkIn
+                            ? `${pair.checkIn.location_name} · cách ${formatDistance(pair.checkIn.distance_meters)}`
+                            : "Không có lượt vào"}
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="session__leg">
+                      <span className="session__tag session__tag--out">Ra</span>
+                      <div className="session__body">
+                        <p className="session__time">{clockOf(pair.checkOut?.server_time ?? null)}</p>
+                        <p className="session__meta">
+                          {pair.checkOut
+                            ? pair.checkOut.reason
+                              ? pair.checkOut.reason
+                              : `${pair.checkOut.location_name} · cách ${formatDistance(pair.checkOut.distance_meters)}`
+                            : "Chưa bấm giờ ra"}
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="session__total">
+                      {minutes !== null ? (
+                        <Badge tone="success">Làm {formatMinutes(minutes)}</Badge>
+                      ) : (
+                        <Badge tone="warning">Chưa khép buổi</Badge>
+                      )}
+                    </div>
+
+                    {pair.rejected.length > 0 ? (
+                      <ul className="session__rejected">
+                        {pair.rejected.map((event) => (
+                          <li key={event.id}>
+                            {clockOf(event.server_time)} — lần thử không thành:{" "}
+                            {describeFailure(event.failure_code) ?? "không rõ lý do"}
+                          </li>
+                        ))}
+                      </ul>
                     ) : null}
-                    {event.reason ? <p className="event__meta">Lý do: {event.reason}</p> : null}
                   </div>
-                  <Badge
-                    tone={
-                      event.status === "SUCCESS"
-                        ? "success"
-                        : event.status === "WARNING_CONFIRMED"
-                          ? "warning"
-                          : "danger"
-                    }
-                  >
-                    {event.status === "SUCCESS"
-                      ? "Hợp lệ"
-                      : event.status === "WARNING_CONFIRMED"
-                        ? "Hợp lệ có lý do"
-                        : event.status === "BLOCKED"
-                          ? "Ngoài phạm vi"
-                          : "Không hợp lệ"}
-                  </Badge>
-                </div>
-              ))
+                );
+              })
             )}
 
             {(() => {
@@ -240,23 +258,20 @@ export default function HistoryPage() {
               if (!day) {
                 return null;
               }
+              // Only what the session cards above do not already say.
               return (
                 <DataList
                   rows={[
-                    { key: "Giờ vào", value: clockOf(day.check_in) },
-                    { key: "Giờ ra", value: clockOf(day.check_out) },
-                    { key: "Tổng thời gian", value: formatMinutes(day.worked_minutes) },
-                    { key: "Nơi chấm công", value: day.location_name ?? "—" },
                     ...(day.scheduled_start
                       ? [
                           {
-                            key: "Ca được phân",
+                            key: "Giờ quy định",
                             value: `${shortTime(day.scheduled_start)} – ${shortTime(day.scheduled_end)}`,
                           },
                         ]
                       : []),
                     {
-                      key: "Kết quả",
+                      key: "Kết quả ngày này",
                       value: <Badge tone={DAY_STATUS[day.status].tone}>{DAY_STATUS[day.status].label}</Badge>,
                     },
                   ]}
@@ -265,7 +280,7 @@ export default function HistoryPage() {
             })()}
 
             <Button variant="secondary" onClick={() => router.push(`/corrections?date=${openDay}`)} block>
-              Gửi yêu cầu chỉnh công cho ngày này
+              Xin sửa lại công ngày này
             </Button>
           </div>
         </Dialog>

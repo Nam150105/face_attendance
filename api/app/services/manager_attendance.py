@@ -18,7 +18,7 @@ EVENT_COLUMNS = """
     e.location_id, l.name, e.latitude, e.longitude, e.gps_accuracy_meters, e.distance_meters,
     e.face_match_score, e.liveness_score, e.image_object_key IS NOT NULL, e.reason, e.created_at,
     e.minutes_late, e.minutes_early_leave,
-    e.failure_code
+    e.failure_code, e.deleted_at
 """
 
 
@@ -45,6 +45,7 @@ def _event(row: tuple) -> dict:
         "failure_code": row[20],
         "minutes_late": row[18],
         "minutes_early_leave": row[19],
+        "deleted_at": row[21],
     }
 
 
@@ -54,6 +55,11 @@ def _managed_member_ids(connection: psycopg.Connection, manager_id: uuid.UUID) -
         (manager_id,),
     ).fetchall()
     return [row[0] for row in rows]
+
+
+# Deleted rows drop out of every listing; they stay reachable by id so a manager
+# can still open the one they just removed.
+LIVE_ONLY = "e.deleted_at IS NULL"
 
 
 def _scoped_event(connection: psycopg.Connection, manager_id: uuid.UUID, event_id: uuid.UUID) -> tuple:
@@ -75,7 +81,7 @@ def _scoped_event(connection: psycopg.Connection, manager_id: uuid.UUID, event_i
 
 
 def list_attendance(manager_id: uuid.UUID, filters: dict) -> dict:
-    conditions = ["mm.manager_user_id = %s", "mm.status = 'ACTIVE'"]
+    conditions = ["mm.manager_user_id = %s", "mm.status = 'ACTIVE'", LIVE_ONLY]
     parameters: list = [manager_id]
     if filters.get("member_id"):
         conditions.append("e.member_id = %s")
@@ -319,3 +325,44 @@ def manager_dashboard(manager_id: uuid.UUID) -> dict:
         "members": member_rows,
         "daily": daily,
     }
+
+
+def delete_attendance(manager_id: uuid.UUID, event_id: uuid.UUID, reason: str) -> dict:
+    """
+    Remove a record from the books. Soft delete on purpose: a manager can undo a
+    mistake only if the row still exists, and the evidence photo stays attached
+    to it. Erasing for good is a super-admin action.
+    """
+    reason = (reason or "").strip()
+    if len(reason) < 3:
+        raise HTTPException(status_code=422, detail="DELETE_REASON_REQUIRED")
+    with psycopg.connect(DATABASE_URL) as connection:
+        current = _event(_scoped_event(connection, manager_id, event_id))
+        if current.get("deleted_at"):
+            raise HTTPException(status_code=409, detail="ATTENDANCE_ALREADY_DELETED")
+        connection.execute(
+            "UPDATE attendance_events SET deleted_at = now(), deleted_by = %s, delete_reason = %s "
+            "WHERE id = %s",
+            (manager_id, reason, event_id),
+        )
+        connection.execute(
+            """
+            INSERT INTO audit_logs (actor_user_id, action, entity_type, entity_id, before_json, reason)
+            VALUES (%s, 'ATTENDANCE_DELETED', 'attendance_event', %s, %s::jsonb, %s)
+            """,
+            (
+                manager_id,
+                event_id,
+                json.dumps(
+                    {
+                        "member_email": current["member_email"],
+                        "event_type": current["event_type"],
+                        "status": current["status"],
+                        "server_time": current["server_time"].isoformat(),
+                    }
+                ),
+                reason,
+            ),
+        )
+        connection.commit()
+    return {"id": event_id, "deleted": True}

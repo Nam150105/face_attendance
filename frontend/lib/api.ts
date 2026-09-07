@@ -1,5 +1,8 @@
 import { clearTokens, deviceId, readTokens, rememberSessionEnded, writeTokens } from "./session";
 import type {
+  AdminAttendanceResponse,
+  AdminOverview,
+  AdminUsersResponse,
   AppNotification,
   AttendanceDayEvent,
   AttendanceDaysResponse,
@@ -25,8 +28,6 @@ import type {
   MemberProfile,
   NotificationsResponse,
   Paged,
-  ScheduleResponse,
-  Shift,
   TokenPair,
   UserRole,
 } from "./types";
@@ -272,9 +273,6 @@ export const api = {
   attendanceDay(workDate: string) {
     return request<AttendanceDayEvent[]>(`/attendance/me/day/${workDate}`);
   },
-  mySchedule() {
-    return request<ScheduleResponse>("/members/me/schedule");
-  },
   notifications(options: { unread_only?: boolean; limit?: number } = {}) {
     return request<NotificationsResponse>(`/notifications${queryString(options)}`);
   },
@@ -310,21 +308,38 @@ export const api = {
       json: { decision, note: note ?? null },
     });
   },
-  memberSchedules(memberId: string) {
-    return request<Shift[]>(`/manager/members/${memberId}/schedules`);
+
+  // --- System administration (SUPER_ADMIN only) -----------------------------
+  adminOverview() {
+    return request<AdminOverview>("/admin/overview");
   },
-  createMemberSchedule(memberId: string, payload: {
-    weekday?: number | null;
-    work_date?: string | null;
-    start_time: string;
-    end_time: string;
-    grace_minutes?: number;
-    location_id?: string | null;
-  }) {
-    return request<{ id: string }>(`/manager/members/${memberId}/schedules`, { method: "POST", json: payload });
+  adminUsers(options: { search?: string; role?: string } = {}) {
+    return request<AdminUsersResponse>(`/admin/users${queryString(options)}`);
   },
-  deleteMemberSchedule(memberId: string, scheduleId: string) {
-    return request<{ id: string }>(`/manager/members/${memberId}/schedules/${scheduleId}`, { method: "DELETE" });
+  adminUpdateUser(userId: string, payload: { role?: string; status?: string }) {
+    return request<{ id: string }>(`/admin/users/${userId}`, { method: "PUT", json: payload });
+  },
+  adminResetPassword(userId: string, newPassword: string) {
+    return request<{ id: string }>(`/admin/users/${userId}/password`, {
+      method: "POST",
+      json: { new_password: newPassword },
+    });
+  },
+  adminDeleteUser(userId: string, reason: string) {
+    return request<{ id: string }>(`/admin/users/${userId}${queryString({ reason })}`, { method: "DELETE" });
+  },
+  adminAttendance(options: { date_from?: string; date_to?: string; include_deleted?: boolean } = {}) {
+    return request<AdminAttendanceResponse>(`/admin/attendance${queryString(options)}`);
+  },
+  adminPurgeAttendance(eventId: string, reason: string) {
+    return request<{ id: string }>(`/admin/attendance/${eventId}${queryString({ reason })}`, { method: "DELETE" });
+  },
+  adminRestoreAttendance(eventId: string) {
+    return request<{ id: string }>(`/admin/attendance/${eventId}/restore`, { method: "POST" });
+  },
+  /** Manager-scoped soft delete; the record can still be restored by an admin. */
+  deleteAttendanceRecord(eventId: string, reason: string) {
+    return request<{ id: string }>(`/manager/attendance/${eventId}${queryString({ reason })}`, { method: "DELETE" });
   },
 
   evaluateGeofence(locationId: string, position: { latitude: number; longitude: number; gps_accuracy_meters: number }) {

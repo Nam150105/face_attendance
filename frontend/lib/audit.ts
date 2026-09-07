@@ -13,8 +13,6 @@ const ACTION_LABELS: Record<string, string> = {
   ATTENDANCE_MANUALLY_ADJUSTED: "Điều chỉnh bản ghi",
   FACE_ENROLLED: "Đăng ký lại khuôn mặt",
   CORRECTION_REVIEWED: "Duyệt yêu cầu chỉnh công",
-  SCHEDULE_CREATED: "Thêm ca làm việc",
-  SCHEDULE_REMOVED: "Gỡ ca làm việc",
 };
 
 const FIELD_LABELS: Record<string, string> = {
@@ -26,8 +24,12 @@ const FIELD_LABELS: Record<string, string> = {
   address: "Địa chỉ",
   latitude: "Vĩ độ",
   longitude: "Kinh độ",
-  allow_radius_meters: "Phạm vi cho phép",
-  warning_radius_meters: "Phạm vi cảnh báo",
+  allow_radius_meters: "Khoảng cách chấm công được",
+  warning_radius_meters: "Khoảng cách bị chặn",
+  expected_check_in: "Giờ vào",
+  expected_check_out: "Giờ ra",
+  grace_minutes: "Cho phép trễ (phút)",
+  enforce_hours: "Chặn khi quá giờ",
   is_active: "Đang bật",
   location_id: "Địa điểm",
   is_default: "Mặc định",
