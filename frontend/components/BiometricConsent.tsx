@@ -8,7 +8,9 @@ import { useState } from "react";
  * it removed. Shown expanded by default so it is read, not skipped.
  */
 export function BiometricConsent() {
-  const [open, setOpen] = useState(true);
+  // Closed by default. Everybody deserves to read this, nobody should have to
+  // scroll past six paragraphs of it to reach the camera they came for.
+  const [open, setOpen] = useState(false);
 
   return (
     <section className="consent">

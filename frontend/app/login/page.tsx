@@ -7,6 +7,7 @@ import { AppShell } from "../../components/AppShell";
 import { Alert, Button, Card, Field, SelectField } from "../../components/ui";
 import { api } from "../../lib/api";
 import { describeCode, describeError } from "../../lib/messages";
+import { landingScreen } from "../../lib/screens";
 import { takeSessionEndedReason, writeTokens } from "../../lib/session";
 import type { UserRole } from "../../lib/types";
 
@@ -17,7 +18,6 @@ const EMPTY_PROFILE = {
   phone: "",
   employee_code: "",
   position: "",
-  department: "",
 };
 
 export default function LoginPage() {
@@ -26,6 +26,9 @@ export default function LoginPage() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [role, setRole] = useState<UserRole>("MEMBER");
+  const [teamCode, setTeamCode] = useState("");
+  const [teamName, setTeamName] = useState<string | null>(null);
+  const [teamError, setTeamError] = useState<string | null>(null);
   const [profile, setProfile] = useState(EMPTY_PROFILE);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -43,6 +46,29 @@ export default function LoginPage() {
     setProfile((current) => ({ ...current, [key]: value }));
   }
 
+  /**
+   * Confirm the code before the account exists.
+   *
+   * Typing a code wrong and finding out only after signing up leaves somebody
+   * inside the app with no team and no idea why. Naming the unit back to them
+   * takes one request and removes the whole class of confusion.
+   */
+  async function checkCode(value: string) {
+    const code = value.trim();
+    setTeamCode(code);
+    setTeamName(null);
+    setTeamError(null);
+    if (code.length < 3) {
+      return;
+    }
+    try {
+      const team = await api.lookupTeam(code);
+      setTeamName(`${team.name} · ${team.manager_name}`);
+    } catch {
+      setTeamError("Không tìm thấy đơn vị nào dùng mã này. Bạn hỏi lại người quản lý nhé.");
+    }
+  }
+
   async function submit(event: React.FormEvent) {
     event.preventDefault();
     setError(null);
@@ -50,20 +76,22 @@ export default function LoginPage() {
     try {
       if (mode === "login") {
         writeTokens(await api.login(email, password));
-        router.replace("/");
+        // Land on the first thing this account can actually do, rather than a
+        // fixed page it may not be allowed to open.
+        const access = await api.myScreens();
+        router.replace(landingScreen(access.screens, access.role));
         return;
       }
 
-      writeTokens(await api.register(email, password, role));
-      if (role === "MEMBER") {
-        await api.updateMemberProfile({
-          full_name: profile.full_name.trim(),
-          phone: profile.phone.trim() || null,
-          employee_code: profile.employee_code.trim() || null,
-          position: profile.position.trim() || null,
-          department: profile.department.trim() || null,
-        });
-      }
+      writeTokens(await api.register(email, password, role, teamCode.trim() || undefined));
+      await api.updateMemberProfile({
+        full_name: profile.full_name.trim(),
+        phone: profile.phone.trim() || null,
+        employee_code: profile.employee_code.trim() || null,
+        position: profile.position.trim() || null,
+        // The unit comes from the approved team code, never typed here.
+        department: null,
+      });
       router.replace(role === "MEMBER" ? "/enroll" : "/manager");
     } catch (cause) {
       setError(describeError(cause));
@@ -163,7 +191,21 @@ export default function LoginPage() {
             hint={registering ? "Tối thiểu 8 ký tự, nên có cả chữ và số." : undefined}
           />
 
-          {registering && role === "MEMBER" ? (
+          {registering ? (
+            <Field
+              label="Mã đơn vị / nhóm"
+              placeholder="Người quản lý cho bạn mã này"
+              value={teamCode}
+              onChange={(event) => void checkCode(event.target.value)}
+              hint={
+                teamName
+                  ? `Bạn sẽ xin vào: ${teamName}`
+                  : teamError ?? "Có thể để trống và nhập sau, nhưng phải có thì mới chấm công được."
+              }
+            />
+          ) : null}
+
+          {registering ? (
             <>
               <hr className="divider" />
               <Field
@@ -197,21 +239,14 @@ export default function LoginPage() {
                 </div>
                 <div style={{ flex: "1 1 140px" }}>
                   <Field
-                    label="Đơn vị / Nhóm"
+                    label="Chức danh"
                     maxLength={150}
-                    placeholder="Phòng Kỹ thuật / Lớp 12A1"
-                    value={profile.department}
-                    onChange={(event) => setProfileField("department", event.target.value)}
+                    placeholder="Chuyên viên / Giảng viên / Học viên"
+                    value={profile.position}
+                    onChange={(event) => setProfileField("position", event.target.value)}
                   />
                 </div>
               </div>
-              <Field
-                label="Chức danh"
-                maxLength={150}
-                placeholder="Chuyên viên / Giảng viên / Học viên"
-                value={profile.position}
-                onChange={(event) => setProfileField("position", event.target.value)}
-              />
             </>
           ) : null}
 

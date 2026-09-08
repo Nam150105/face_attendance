@@ -6,7 +6,7 @@ from pydantic import BaseModel, Field
 
 from app.auth import CurrentUser, get_current_user
 from app.services.locations import list_member_locations
-from app.services.membership import get_member_profile, update_member_profile
+from app.services.membership import get_member_profile, my_managers, update_member_profile
 
 
 class MemberProfileRequest(BaseModel):
@@ -34,3 +34,9 @@ def update_me(request: MemberProfileRequest, user: CurrentUser = Depends(get_cur
 @router.get("/me/locations")
 def my_locations(user: CurrentUser = Depends(get_current_user)) -> list[dict]:
     return list_member_locations(user.id)
+
+
+@router.get("/me/managers")
+def my_managers_route(user: CurrentUser = Depends(get_current_user)) -> list[dict]:
+    """Who manages this account, so a member always has somebody to contact."""
+    return my_managers(user.id)

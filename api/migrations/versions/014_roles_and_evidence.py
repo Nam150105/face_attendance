@@ -13,26 +13,32 @@ branch_labels = None
 depends_on = None
 
 
-# (screen, MEMBER, MANAGER, SUPER_ADMIN)
+# (screen, MEMBER, MANAGER, SUPER_ADMIN) — each value is the set of actions the
+# role gets by default. "v" view, "c" create, "e" edit, "d" delete; "" is no
+# access at all, "vced" is everything.
+#
+# A member's own screens are read-only through this table: filing a correction
+# or checking in is something you do to your own record, not an authority over
+# other people, so those endpoints are not permission-gated.
 DEFAULT_PERMISSIONS = [
-    ("home", True, True, True),
-    ("attendance", True, True, True),
-    ("history", True, True, True),
-    ("my-locations", True, True, True),
-    ("my-corrections", True, True, True),
-    ("notifications", True, True, True),
-    ("profile", True, True, True),
-    ("team-overview", False, True, True),
-    ("records", False, True, True),
-    ("members", False, True, True),
-    ("locations", False, True, True),
-    ("corrections", False, True, True),
-    ("audit", False, True, True),
-    ("admin-overview", False, False, True),
-    ("admin-users", False, False, True),
-    ("admin-records", False, False, True),
-    ("admin-roles", False, False, True),
-    ("admin-data", False, False, True),
+    ("home", "v", "v", "v"),
+    ("attendance", "v", "v", "v"),
+    ("history", "v", "v", "v"),
+    ("my-locations", "v", "v", "v"),
+    ("my-corrections", "v", "v", "v"),
+    ("notifications", "v", "v", "v"),
+    ("profile", "v", "v", "v"),
+    ("team-overview", "", "v", "v"),
+    ("records", "", "ved", "vced"),
+    ("members", "", "vced", "vced"),
+    ("locations", "", "vced", "vced"),
+    ("corrections", "", "ve", "vced"),
+    ("audit", "", "v", "v"),
+    ("admin-overview", "", "", "v"),
+    ("admin-users", "", "", "vced"),
+    ("admin-records", "", "", "vced"),
+    ("admin-roles", "", "", "ve"),
+    ("admin-data", "", "", "vced"),
 ]
 
 
@@ -64,23 +70,34 @@ def upgrade() -> None:
     op.execute("CREATE INDEX idx_login_attempts_user ON login_attempts (user_id, created_at DESC)")
     op.execute("CREATE INDEX idx_login_attempts_email ON login_attempts (email, created_at DESC)")
 
-    # Which screens a role may open. A row here grants the screen; what the
-    # screen then shows is still cut to the viewer's own scope by each service.
+    # What a role may do on each screen. Opening a screen and changing what is on
+    # it are different authorities: a supervisor who should read the records is
+    # not automatically someone who may delete them.
     op.execute("""
         CREATE TABLE role_permissions (
             role user_role NOT NULL,
             screen TEXT NOT NULL,
             can_view BOOLEAN NOT NULL DEFAULT false,
+            can_create BOOLEAN NOT NULL DEFAULT false,
+            can_edit BOOLEAN NOT NULL DEFAULT false,
+            can_delete BOOLEAN NOT NULL DEFAULT false,
             updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
             updated_by UUID REFERENCES users(id),
-            PRIMARY KEY (role, screen)
+            PRIMARY KEY (role, screen),
+            -- Creating or deleting something you cannot even see is not a
+            -- permission, it is a mistake waiting to be found in an audit log.
+            CONSTRAINT role_permissions_view_first
+                CHECK (can_view OR NOT (can_create OR can_edit OR can_delete))
         )
     """)
     for screen, member, manager, admin in DEFAULT_PERMISSIONS:
-        for role, allowed in (("MEMBER", member), ("MANAGER", manager), ("SUPER_ADMIN", admin)):
+        for role, actions in (("MEMBER", member), ("MANAGER", manager), ("SUPER_ADMIN", admin)):
+            values = ", ".join(
+                str(letter in actions).lower() for letter in ("v", "c", "e", "d")
+            )
             op.execute(
-                "INSERT INTO role_permissions (role, screen, can_view) VALUES "
-                f"('{role}', '{screen}', {str(allowed).lower()})"
+                "INSERT INTO role_permissions (role, screen, can_view, can_create, can_edit, can_delete)"
+                f" VALUES ('{role}', '{screen}', {values})"
             )
 
 

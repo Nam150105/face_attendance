@@ -4,8 +4,8 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, Query, Response
 from pydantic import BaseModel, Field
 
-from app.auth import CurrentUser, require_roles
-from app.services.permissions import require_screen
+from app.auth import CurrentUser
+from app.services.permissions import require_action, require_screen
 from app.security import safe_image_content_type
 from app.services.manager_attendance import (
     attendance_calendar,
@@ -86,7 +86,7 @@ def attendance_evidence(event_id: UUID, user: CurrentUser = Depends(require_scre
 
 @router.post("/attendance/{event_id}/manual-adjust")
 def adjust(
-    event_id: UUID, request: ManualAdjustRequest, user: CurrentUser = Depends(require_roles("MANAGER", "SUPER_ADMIN"))
+    event_id: UUID, request: ManualAdjustRequest, user: CurrentUser = Depends(require_action("records", "edit"))
 ) -> dict:
     return manual_adjust(user, event_id, request.model_dump())
 
@@ -95,7 +95,7 @@ def adjust(
 def remove_attendance(
     event_id: UUID,
     reason: str = Query(min_length=3, max_length=500),
-    user: CurrentUser = Depends(require_roles("MANAGER", "SUPER_ADMIN")),
+    user: CurrentUser = Depends(require_action("records", "delete")),
 ) -> dict:
     """Soft delete, always with a reason and always written to the audit log."""
     return delete_attendance(user, event_id, reason)

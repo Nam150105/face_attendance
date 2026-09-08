@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 
 import { AttendanceCalendar } from "../../../components/AttendanceCalendar";
 import { Dialog } from "../../../components/Dialog";
+import { usePermissions } from "../../../lib/permissions";
 import { ManagerShell } from "../../../components/ManagerShell";
 import {
   Alert,
@@ -145,6 +146,7 @@ function shortDevice(userAgent: string | null): string {
 }
 
 export default function ManagerAttendancePage() {
+  const may = usePermissions("records");
   const [view, setView] = useState<"calendar" | "table">("calendar");
   const [search, setSearch] = useState("");
   const [refreshToken, setRefreshToken] = useState(0);
@@ -654,6 +656,7 @@ export default function ManagerAttendancePage() {
             ) : null}
 
             {/* Manual Status Adjustment Box */}
+            {may.edit ? (
             <div
               style={{
                 background: "var(--surface-input)",
@@ -700,7 +703,9 @@ export default function ManagerAttendancePage() {
                 </Button>
               </div>
             </div>
+            ) : null}
 
+            {may.delete ? (
             <div className="danger-zone">
               <h3 className="danger-zone__title">Xoá bản ghi này</h3>
               <p className="danger-zone__text">
@@ -723,6 +728,8 @@ export default function ManagerAttendancePage() {
                 Xoá bản ghi
               </Button>
             </div>
+            ) : null}
+
           </div>
         </Dialog>
       ) : null}

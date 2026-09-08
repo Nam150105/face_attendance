@@ -4,13 +4,14 @@ import { useCallback, useEffect, useState } from "react";
 
 import { Dialog } from "../../../components/Dialog";
 import { LocationPicker } from "../../../components/LocationPicker";
+import { usePermissions } from "../../../lib/permissions";
 import { ManagerShell } from "../../../components/ManagerShell";
 import { TimeField } from "../../../components/TimeField";
 import { Alert, Badge, Button, Card, Checkbox, Empty, Field, LoadingRows } from "../../../components/ui";
 import { api } from "../../../lib/api";
 import { describeError } from "../../../lib/messages";
 import { shortTime } from "../../../lib/member";
-import type { LocationInput, ManagerLocation } from "../../../lib/types";
+import type { LocationInput, ManagedMember, ManagerLocation } from "../../../lib/types";
 
 const EMPTY_FORM: LocationInput = {
   name: "",
@@ -27,6 +28,13 @@ const EMPTY_FORM: LocationInput = {
 };
 
 export default function ManagerLocationsPage() {
+  const may = usePermissions("locations");
+  const mayManageMembers = usePermissions("members");
+  const [assigning, setAssigning] = useState<ManagerLocation | null>(null);
+  const [roster, setRoster] = useState<ManagedMember[] | null>(null);
+  const [assignedTo, setAssignedTo] = useState<Set<string>>(new Set());
+  const [assignBusy, setAssignBusy] = useState<string | null>(null);
+  const [assignError, setAssignError] = useState<string | null>(null);
   const [locations, setLocations] = useState<ManagerLocation[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [editing, setEditing] = useState<ManagerLocation | null>(null);
@@ -151,6 +159,60 @@ export default function ManagerLocationsPage() {
     }
   }
 
+  /**
+   * Assigning from the place, not from the person.
+   *
+   * A manager setting up a site thinks "these six people work here", and doing
+   * that person-by-person means opening six dialogs. This opens one.
+   */
+  async function openAssign(location: ManagerLocation) {
+    setAssigning(location);
+    setAssignError(null);
+    setRoster(null);
+    setAssignedTo(new Set());
+    try {
+      const members = await api.managerMembers();
+      setRoster(members);
+      const pairs = await Promise.all(
+        members.map(async (member) => {
+          const places = await api.assignedLocations(member.user_id);
+          return places.some((place) => place.id === location.id) ? member.user_id : null;
+        }),
+      );
+      setAssignedTo(new Set(pairs.filter((id): id is string => id !== null)));
+    } catch (cause) {
+      setAssignError(describeError(cause));
+    }
+  }
+
+  async function toggleAssignment(member: ManagedMember, next: boolean) {
+    if (!assigning) {
+      return;
+    }
+    setAssignBusy(member.user_id);
+    setAssignError(null);
+    try {
+      if (next) {
+        await api.assignLocation(member.user_id, assigning.id, false);
+      } else {
+        await api.unassignLocation(member.user_id, assigning.id);
+      }
+      setAssignedTo((current) => {
+        const updated = new Set(current);
+        if (next) {
+          updated.add(member.user_id);
+        } else {
+          updated.delete(member.user_id);
+        }
+        return updated;
+      });
+    } catch (cause) {
+      setAssignError(describeError(cause));
+    } finally {
+      setAssignBusy(null);
+    }
+  }
+
   return (
     <ManagerShell>
       <div className="page-header">
@@ -160,9 +222,11 @@ export default function ManagerLocationsPage() {
             Đặt vị trí trên bản đồ, khu vực cho phép chấm công và giờ làm việc của từng nơi.
           </p>
         </div>
-        <Button onClick={openCreate} icon={<span>+</span>}>
-          Thêm địa điểm
-        </Button>
+        {may.create ? (
+          <Button onClick={openCreate} icon={<span>+</span>}>
+            Thêm địa điểm
+          </Button>
+        ) : null}
       </div>
 
       {error ? <Alert tone="danger">{error}</Alert> : null}
@@ -220,25 +284,36 @@ export default function ManagerLocationsPage() {
                     </td>
                     <td data-label="Thao tác">
                       <div className="row">
-                        <Button size="sm" variant="secondary" onClick={() => openEdit(location)}>
-                          Sửa
-                        </Button>
-                        <Button
-                          size="sm"
-                          variant="ghost"
-                          onClick={() => void toggleDeactivate(location)}
-                          style={{ color: location.is_active ? "var(--color-warning)" : "var(--color-success)" }}
-                        >
-                          {location.is_active ? "Tắt" : "Bật"}
-                        </Button>
-                        <Button
-                          size="sm"
-                          variant="ghost"
-                          onClick={() => void destroy(location)}
-                          style={{ color: "var(--color-danger)" }}
-                        >
-                          Xoá
-                        </Button>
+                        {mayManageMembers.edit ? (
+                          <Button size="sm" variant="secondary" onClick={() => void openAssign(location)}>
+                            Gán người
+                          </Button>
+                        ) : null}
+                        {may.edit ? (
+                          <Button size="sm" variant="secondary" onClick={() => openEdit(location)}>
+                            Sửa
+                          </Button>
+                        ) : null}
+                        {may.edit ? (
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            onClick={() => void toggleDeactivate(location)}
+                            style={{ color: location.is_active ? "var(--color-warning)" : "var(--color-success)" }}
+                          >
+                            {location.is_active ? "Tắt" : "Bật"}
+                          </Button>
+                        ) : null}
+                        {may.delete ? (
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            onClick={() => void destroy(location)}
+                            style={{ color: "var(--color-danger)" }}
+                          >
+                            Xoá
+                          </Button>
+                        ) : null}
                       </div>
                     </td>
                   </tr>
@@ -352,6 +427,36 @@ export default function ManagerLocationsPage() {
               </Button>
             </div>
           </form>
+        </Dialog>
+      ) : null}
+      {assigning ? (
+        <Dialog title={`Ai chấm công tại ${assigning.name}?`} onClose={() => setAssigning(null)}>
+          <div className="stack">
+            {assignError ? <Alert tone="danger">{assignError}</Alert> : null}
+            {roster === null ? (
+              <LoadingRows count={4} />
+            ) : roster.length === 0 ? (
+              <Empty>Bạn chưa quản lý thành viên nào.</Empty>
+            ) : (
+              <div className="stack stack--tight">
+                {roster.map((member) => (
+                  <label className="pick" key={member.user_id}>
+                    <input
+                      type="checkbox"
+                      checked={assignedTo.has(member.user_id)}
+                      disabled={assignBusy === member.user_id}
+                      onChange={(event) => void toggleAssignment(member, event.target.checked)}
+                    />
+                    <span className="pick__body">
+                      <span className="person__name">{member.full_name ?? member.email}</span>
+                      <span className="event__meta">{member.email}</span>
+                    </span>
+                  </label>
+                ))}
+              </div>
+            )}
+            <p className="field__hint">Tích vào là người đó chấm công được ở đây, bỏ tích là gỡ ra. Lưu ngay, không cần bấm thêm.</p>
+          </div>
         </Dialog>
       ) : null}
     </ManagerShell>

@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 
 import { Dialog } from "../../../components/Dialog";
+import { usePermissions } from "../../../lib/permissions";
 import { ManagerShell } from "../../../components/ManagerShell";
 import {
   Alert,
@@ -27,6 +28,7 @@ function initials(name: string | null, email: string): string {
 }
 
 export default function ManagerMembersPage() {
+  const may = usePermissions("members");
   const [members, setMembers] = useState<ManagedMember[] | null>(null);
   const [locations, setLocations] = useState<ManagerLocation[]>([]);
   const [error, setError] = useState<string | null>(null);
@@ -181,6 +183,7 @@ export default function ManagerMembersPage() {
       {error ? <Alert tone="danger">{error}</Alert> : null}
 
       {/* Bulk Add Member Card */}
+      {may.create ? (
       <Card
         title="Thêm thành viên"
         subtitle="Nhập email của người đã có tài khoản — mỗi email một dòng hoặc ngăn cách bằng dấu phẩy."
@@ -229,6 +232,7 @@ export default function ManagerMembersPage() {
           </Button>
         </form>
       </Card>
+      ) : null}
 
       {/* Members Directory Card */}
       <Card
@@ -305,25 +309,31 @@ export default function ManagerMembersPage() {
                     </td>
                     <td data-label="Thao tác">
                       <div className="row">
-                        <Button size="sm" variant="secondary" onClick={() => void openAssign(member)}>
-                          Địa điểm
-                        </Button>
-                        <Button
-                          size="sm"
-                          variant="ghost"
-                          onClick={() => void changeStatus(member, member.membership_status === "ACTIVE" ? "SUSPENDED" : "ACTIVE")}
-                          style={{ color: member.membership_status === "ACTIVE" ? "var(--color-warning)" : "var(--color-success)" }}
-                        >
-                          {member.membership_status === "ACTIVE" ? "Tạm ngưng" : "Kích hoạt"}
-                        </Button>
-                        <Button
-                          size="sm"
-                          variant="ghost"
-                          onClick={() => void removeMember(member)}
-                          style={{ color: "var(--color-danger)" }}
-                        >
-                          Gỡ
-                        </Button>
+                        {may.edit ? (
+                          <Button size="sm" variant="secondary" onClick={() => void openAssign(member)}>
+                            Địa điểm
+                          </Button>
+                        ) : null}
+                        {may.edit ? (
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            onClick={() => void changeStatus(member, member.membership_status === "ACTIVE" ? "SUSPENDED" : "ACTIVE")}
+                            style={{ color: member.membership_status === "ACTIVE" ? "var(--color-warning)" : "var(--color-success)" }}
+                          >
+                            {member.membership_status === "ACTIVE" ? "Tạm ngưng" : "Kích hoạt"}
+                          </Button>
+                        ) : null}
+                        {may.delete ? (
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            onClick={() => void removeMember(member)}
+                            style={{ color: "var(--color-danger)" }}
+                          >
+                            Gỡ
+                          </Button>
+                        ) : null}
                       </div>
                     </td>
                   </tr>

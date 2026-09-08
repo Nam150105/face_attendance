@@ -7,7 +7,8 @@ import { type ReactNode, useEffect, useState } from "react";
 import { NetworkBanner } from "./NetworkBanner";
 import { Alert, Button, LoadingRows } from "./ui";
 import { ApiError, api } from "../lib/api";
-import { screenForPath, screensByGroup } from "../lib/screens";
+import { landingScreen, screenForPath, screensByGroup } from "../lib/screens";
+import { readTokens } from "../lib/session";
 
 interface Access {
   role: string;
@@ -42,8 +43,19 @@ export function Shell({ children, narrow }: { children: ReactNode; narrow?: bool
   const [denied, setDenied] = useState(false);
   const [open, setOpen] = useState(false);
   const [clock, setClock] = useState("");
+  // Undefined until the browser has been asked; there are no tokens during the
+  // server render, and treating that as "signed out" would flash the login
+  // frame at people who are signed in.
+  const [signedIn, setSignedIn] = useState<boolean | undefined>(undefined);
 
   useEffect(() => {
+    setSignedIn(readTokens() !== null);
+  }, [pathname]);
+
+  useEffect(() => {
+    if (signedIn !== true) {
+      return;
+    }
     api
       .myScreens()
       .then(setAccess)
@@ -54,7 +66,7 @@ export function Shell({ children, narrow }: { children: ReactNode; narrow?: bool
         }
         setDenied(true);
       });
-  }, [router]);
+  }, [router, signedIn]);
 
   useEffect(() => {
     const update = () =>
@@ -71,12 +83,51 @@ export function Shell({ children, narrow }: { children: ReactNode; narrow?: bool
     setOpen(false);
   }, [pathname]);
 
+  // A screen this account cannot open is not explained, it is left. Telling
+  // somebody they lack a permission they cannot grant themselves gives them
+  // nothing to do; sending them somewhere useful does.
+  useEffect(() => {
+    if (!access) {
+      return;
+    }
+    const screen = screenForPath(pathname);
+    if (screen && !access.screens.includes(screen.key)) {
+      router.replace(landingScreen(access.screens, access.role));
+    }
+  }, [access, pathname, router]);
+
   async function signOut() {
     try {
       await api.logout();
     } finally {
       router.replace("/login");
     }
+  }
+
+  // Sign-in and password recovery run before there is an account to ask about.
+  // Wrapping them in the sidebar meant asking the server who this person is,
+  // getting a 401, and redirecting to the page they were already on — the form
+  // never rendered and nobody could log in.
+  if (signedIn === false) {
+    return (
+      <div className="public-frame">
+        <div className="public-frame__brand">
+          <img src="/logo.svg" alt="Logo Face Attendance" width={36} height={36} />
+          <span>Face Attendance</span>
+        </div>
+        <main className="content content--narrow">{children}</main>
+      </div>
+    );
+  }
+
+  if (signedIn === undefined) {
+    return (
+      <div className="public-frame">
+        <main className="content content--narrow">
+          <LoadingRows count={3} />
+        </main>
+      </div>
+    );
   }
 
   if (denied) {
@@ -88,7 +139,7 @@ export function Shell({ children, narrow }: { children: ReactNode; narrow?: bool
     );
   }
 
-  const sections = access ? screensByGroup(access.screens) : [];
+  const sections = access ? screensByGroup(access.screens, access.role) : [];
   const current = screenForPath(pathname);
   const allowedHere = !access || !current || access.screens.includes(current.key);
 
@@ -166,16 +217,7 @@ export function Shell({ children, narrow }: { children: ReactNode; narrow?: bool
         <NetworkBanner />
 
         <main className={narrow ? "content content--narrow" : "content"}>
-          {access === null ? (
-            <LoadingRows count={4} />
-          ) : allowedHere ? (
-            children
-          ) : (
-            <Alert tone="warning">
-              Tài khoản của bạn chưa được cấp quyền xem mục này. Nếu bạn cần dùng, hãy báo người quản
-              trị hệ thống mở quyền giúp.
-            </Alert>
-          )}
+          {access === null || !allowedHere ? <LoadingRows count={4} /> : children}
         </main>
       </div>
     </div>

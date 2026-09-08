@@ -1,5 +1,7 @@
 "use client";
 
+import Link from "next/link";
+
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 
@@ -52,6 +54,7 @@ function formatElapsed(fromIso: string): string {
 export default function DashboardPage() {
   const router = useRouter();
   const [data, setData] = useState<DashboardData | null>(null);
+  const [noTeam, setNoTeam] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [elapsed, setElapsed] = useState<string>("");
@@ -83,6 +86,15 @@ export default function DashboardPage() {
       setLoading(false);
     }
   }, [router]);
+
+  useEffect(() => {
+    // Somebody with no manager cannot be assigned a place, so nothing else on
+    // this page will work for them until they join one.
+    api
+      .myManagers()
+      .then((managers) => setNoTeam(managers.length === 0))
+      .catch(() => setNoTeam(false));
+  }, []);
 
   useEffect(() => {
     void load();
@@ -149,6 +161,16 @@ export default function DashboardPage() {
           {checkedIn ? "● Đang trong phiên" : "○ Chưa mở phiên"}
         </Badge>
       </div>
+
+      {noTeam ? (
+        <Alert tone="warning">
+          Bạn chưa thuộc nhóm nào nên chưa chấm công được. Vào{" "}
+          <Link href="/profile" className="alert__action">
+            Hồ sơ
+          </Link>{" "}
+          nhập mã đơn vị người quản lý đưa cho bạn.
+        </Alert>
+      ) : null}
 
       {!isSecureContextReady() ? (
         <Alert tone="warning">

@@ -11,6 +11,7 @@ import psycopg
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
 
 from app.auth import CurrentUser, DATABASE_URL, get_current_user
+from app.services.permissions import require_screen
 from app.security import MAX_IMAGE_BYTES, enforce_rate_limit, validate_image_upload
 from app.services.storage import PrivateObjectStorage
 
@@ -44,9 +45,7 @@ async def my_enrollment(user: CurrentUser = Depends(get_current_user)) -> dict:
 
 
 @router.post("/enrollment/start", status_code=status.HTTP_201_CREATED)
-def start_enrollment(user: CurrentUser = Depends(get_current_user)) -> dict:
-    if user.role not in ("MEMBER", "MANAGER"):
-        raise HTTPException(status_code=403, detail="FACE_ENROLL_NOT_ALLOWED")
+def start_enrollment(user: CurrentUser = Depends(require_screen("attendance"))) -> dict:
     challenge = secrets.token_urlsafe(32)
     challenge_id = uuid.uuid4()
     with psycopg.connect(DATABASE_URL) as connection:
@@ -67,10 +66,8 @@ async def verify_enrollment(
     challenge_id: uuid.UUID = Form(...),
     challenge: str = Form(...),
     image: UploadFile = File(...),
-    user: CurrentUser = Depends(get_current_user),
+    user: CurrentUser = Depends(require_screen("attendance")),
 ) -> dict:
-    if user.role not in ("MEMBER", "MANAGER"):
-        raise HTTPException(status_code=403, detail="FACE_ENROLL_NOT_ALLOWED")
     enforce_rate_limit("enroll", str(user.id), limit=10, window_seconds=300)
     image_bytes = await image.read(MAX_IMAGE_BYTES + 1)
     validate_image_upload(image_bytes)

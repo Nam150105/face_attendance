@@ -32,10 +32,13 @@ class ReasonRequest(BaseModel):
 
 from app.services.admin_data import (
     browse_table,
+    clear_errors,
     delete_row,
     insert_row,
+    list_errors,
     list_permissions,
     list_tables,
+    reset_permissions,
     set_permission,
     update_row,
 )
@@ -115,7 +118,8 @@ def restore(event_id: UUID, user: CurrentUser = Depends(admin_only)) -> dict:
 class PermissionRequest(BaseModel):
     role: str = Field(pattern="^(MEMBER|MANAGER|SUPER_ADMIN)$")
     screen: str = Field(min_length=1, max_length=64)
-    can_view: bool
+    action: str = Field(pattern="^(view|create|edit|delete)$")
+    allowed: bool
 
 
 @router.get("/permissions")
@@ -125,7 +129,12 @@ def permissions(user: CurrentUser = Depends(admin_only)) -> dict:
 
 @router.put("/permissions")
 def change_permission(request: PermissionRequest, user: CurrentUser = Depends(admin_only)) -> dict:
-    return set_permission(user.id, request.role, request.screen, request.can_view)
+    return set_permission(user.id, request.role, request.screen, request.action, request.allowed)
+
+
+@router.post("/permissions/reset")
+def restore_permissions(user: CurrentUser = Depends(admin_only)) -> dict:
+    return reset_permissions(user.id)
 
 
 # ------------------------------------------------------------- data browser
@@ -163,3 +172,23 @@ def edit_row(table: str, row_id: str, request: RowRequest, user: CurrentUser = D
 @router.delete("/data/{table}/{row_id}")
 def remove_row(table: str, row_id: str, user: CurrentUser = Depends(admin_only)) -> dict:
     return delete_row(user.id, table, row_id)
+
+
+# ----------------------------------------------------------------- failures
+
+@router.get("/errors")
+def errors(
+    search: str | None = None,
+    limit: int = Query(default=50, ge=1, le=200),
+    offset: int = Query(default=0, ge=0),
+    user: CurrentUser = Depends(admin_only),
+) -> dict:
+    return list_errors(search, limit, offset)
+
+
+@router.delete("/errors")
+def purge_errors(
+    older_than_days: int = Query(default=30, ge=0, le=3650),
+    user: CurrentUser = Depends(admin_only),
+) -> dict:
+    return clear_errors(user.id, older_than_days)

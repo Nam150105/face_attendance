@@ -2,7 +2,8 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, File, Form, Query, UploadFile
 
-from app.auth import CurrentUser, require_role
+from app.auth import CurrentUser
+from app.services.permissions import require_screen
 from app.security import MAX_IMAGE_BYTES, enforce_rate_limit, validate_image_upload
 from app.services.attendance import check_in, check_out, my_history, my_state
 
@@ -19,7 +20,7 @@ async def check_in_route(
     idempotency_key: str = Form(..., min_length=8, max_length=200),
     reason: str | None = Form(default=None, max_length=500),
     image: UploadFile = File(...),
-    user: CurrentUser = Depends(require_role("MEMBER")),
+    user: CurrentUser = Depends(require_screen("attendance")),
 ) -> dict:
     enforce_rate_limit("attendance", str(user.id), limit=20, window_seconds=60)
     content = await image.read(MAX_IMAGE_BYTES + 1)
@@ -37,7 +38,7 @@ async def check_out_route(
     gps_accuracy_meters: float = Form(...),
     idempotency_key: str = Form(..., min_length=8, max_length=200),
     image: UploadFile = File(...),
-    user: CurrentUser = Depends(require_role("MEMBER")),
+    user: CurrentUser = Depends(require_screen("attendance")),
 ) -> dict:
     enforce_rate_limit("attendance", str(user.id), limit=20, window_seconds=60)
     content = await image.read(MAX_IMAGE_BYTES + 1)
@@ -46,10 +47,10 @@ async def check_out_route(
 
 
 @router.get("/me/state")
-def my_state_route(user: CurrentUser = Depends(require_role("MEMBER"))) -> dict:
+def my_state_route(user: CurrentUser = Depends(require_screen("attendance"))) -> dict:
     return my_state(user)
 
 
 @router.get("/me")
-def my_history_route(limit: int = Query(default=20, ge=1, le=100), user: CurrentUser = Depends(require_role("MEMBER"))) -> list[dict]:
+def my_history_route(limit: int = Query(default=20, ge=1, le=100), user: CurrentUser = Depends(require_screen("attendance"))) -> list[dict]:
     return my_history(user, limit)

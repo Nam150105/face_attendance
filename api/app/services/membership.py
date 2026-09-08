@@ -7,6 +7,7 @@ import psycopg
 from fastapi import HTTPException
 
 from app.auth import CurrentUser, DATABASE_URL
+from app.services.permissions import managed_by, owner_filter
 
 
 def _profile_from_row(row: tuple) -> dict:
@@ -36,11 +37,11 @@ PROFILE_COLUMNS = """
 def get_member_profile(user_id: uuid.UUID) -> dict:
     with psycopg.connect(DATABASE_URL) as connection:
         row = connection.execute(
-            f"SELECT {PROFILE_COLUMNS} FROM users u LEFT JOIN member_profiles mp ON mp.user_id = u.id WHERE u.id = %s AND u.role = 'MEMBER'",
+            f"SELECT {PROFILE_COLUMNS} FROM users u LEFT JOIN member_profiles mp ON mp.user_id = u.id WHERE u.id = %s",
             (user_id,),
         ).fetchone()
     if row is None:
-        raise HTTPException(status_code=404, detail="Member not found")
+        raise HTTPException(status_code=404, detail="USER_NOT_FOUND")
     if row[0] is None:
         return {
             "id": None,
@@ -65,9 +66,12 @@ def update_member_profile(user_id: uuid.UUID, payload: dict) -> dict:
     code = (payload.get("employee_code") or "").strip()
     payload = {**payload, "employee_code": code or None}
     with psycopg.connect(DATABASE_URL) as connection:
-        user = connection.execute("SELECT id FROM users WHERE id = %s AND role = 'MEMBER'", (user_id,)).fetchone()
+        # Everybody keeps their own profile, managers included. Without a name
+        # and a phone number on the manager's record, the people they manage
+        # have nobody to contact when something goes wrong.
+        user = connection.execute("SELECT id FROM users WHERE id = %s", (user_id,)).fetchone()
         if user is None:
-            raise HTTPException(status_code=404, detail="Member not found")
+            raise HTTPException(status_code=404, detail="USER_NOT_FOUND")
         if code:
             taken = connection.execute(
                 "SELECT 1 FROM member_profiles "
@@ -98,18 +102,21 @@ def update_member_profile(user_id: uuid.UUID, payload: dict) -> dict:
     return get_member_profile(user_id)
 
 
-def list_manager_members(manager_id: uuid.UUID) -> list[dict]:
+def list_manager_members(user: CurrentUser) -> list[dict]:
+    # A super admin has no roster of their own; theirs is everybody's, otherwise
+    # the members screen would open onto an empty list.
+    where, parameters = owner_filter(managed_by(user), "mm.manager_user_id")
     with psycopg.connect(DATABASE_URL) as connection:
         rows = connection.execute(
             f"""
-            SELECT {PROFILE_COLUMNS}, mm.status::text
+            SELECT DISTINCT ON (u.email) {PROFILE_COLUMNS}, mm.status::text
             FROM manager_memberships mm
             JOIN users u ON u.id = mm.member_user_id
             LEFT JOIN member_profiles mp ON mp.user_id = u.id
-            WHERE mm.manager_user_id = %s AND u.role = 'MEMBER' AND mm.status <> 'REMOVED'
+            WHERE {where} AND mm.status = 'ACTIVE'
             ORDER BY u.email
             """,
-            (manager_id,),
+            parameters,
         ).fetchall()
     members = []
     for row in rows:
@@ -119,7 +126,8 @@ def list_manager_members(manager_id: uuid.UUID) -> list[dict]:
     return members
 
 
-def get_managed_member(manager_id: uuid.UUID, member_id: uuid.UUID) -> dict:
+def get_managed_member(user: CurrentUser, member_id: uuid.UUID) -> dict:
+    where, parameters = owner_filter(managed_by(user), "mm.manager_user_id")
     with psycopg.connect(DATABASE_URL) as connection:
         row = connection.execute(
             f"""
@@ -127,24 +135,30 @@ def get_managed_member(manager_id: uuid.UUID, member_id: uuid.UUID) -> dict:
             FROM manager_memberships mm
             JOIN users u ON u.id = mm.member_user_id
             LEFT JOIN member_profiles mp ON mp.user_id = u.id
-            WHERE mm.manager_user_id = %s AND mm.member_user_id = %s AND mm.status <> 'REMOVED'
+            WHERE {where} AND mm.member_user_id = %s AND mm.status <> 'REMOVED'
+            LIMIT 1
             """,
-            (manager_id, member_id),
+            [*parameters, member_id],
         ).fetchone()
     if row is None:
-        raise HTTPException(status_code=404, detail="Member is outside manager scope")
+        raise HTTPException(status_code=404, detail="Member is outside your scope")
     profile = _profile_from_row(row[:12]) if row[0] is not None else get_member_profile(row[1])
     profile["membership_status"] = row[12]
     return profile
 
 
-def add_member_by_email(manager_id: uuid.UUID, email: str) -> dict:
+def add_member_by_email(user: CurrentUser, email: str) -> dict:
+    # Whoever adds someone becomes their manager, super admin included: a
+    # membership with no manager on the other end is a row nobody can act on.
+    manager_id = user.id
     with psycopg.connect(DATABASE_URL) as connection:
         member = connection.execute(
-            "SELECT id FROM users WHERE email = %s AND role = 'MEMBER'", (email.lower(),)
+            "SELECT id FROM users WHERE email = %s AND role IN ('MEMBER', 'MANAGER')", (email.lower(),)
         ).fetchone()
         if member is None:
-            raise HTTPException(status_code=404, detail="Registered member email not found")
+            raise HTTPException(status_code=404, detail="MEMBER_EMAIL_NOT_FOUND")
+        if member[0] == manager_id:
+            raise HTTPException(status_code=409, detail="CANNOT_ADD_SELF")
         existing = connection.execute(
             "SELECT id, status::text FROM manager_memberships WHERE manager_user_id = %s AND member_user_id = %s",
             (manager_id, member[0]),
@@ -179,23 +193,26 @@ def add_member_by_email(manager_id: uuid.UUID, email: str) -> dict:
             ),
         )
         connection.commit()
-    return get_managed_member(manager_id, member[0])
+    return get_managed_member(user, member[0])
 
 
-def update_membership(manager_id: uuid.UUID, member_id: uuid.UUID, membership_status: str) -> dict:
+def update_membership(user: CurrentUser, member_id: uuid.UUID, membership_status: str) -> dict:
     if membership_status not in {"INVITED", "ACTIVE", "SUSPENDED", "REMOVED"}:
         raise HTTPException(status_code=422, detail="Invalid membership status")
+    manager_id = user.id
+    where, parameters = owner_filter(managed_by(user))
     with psycopg.connect(DATABASE_URL) as connection:
         previous = connection.execute(
-            "SELECT status::text FROM manager_memberships WHERE manager_user_id = %s AND member_user_id = %s",
-            (manager_id, member_id),
+            f"SELECT status::text FROM manager_memberships WHERE {where} AND member_user_id = %s",
+            [*parameters, member_id],
         ).fetchone()
         result = connection.execute(
-            "UPDATE manager_memberships SET status = %s::membership_status, updated_at = now() WHERE manager_user_id = %s AND member_user_id = %s RETURNING id",
-            (membership_status, manager_id, member_id),
+            f"UPDATE manager_memberships SET status = %s::membership_status, updated_at = now()"
+            f" WHERE {where} AND member_user_id = %s RETURNING id",
+            [membership_status, *parameters, member_id],
         ).fetchone()
         if result is None:
-            raise HTTPException(status_code=404, detail="Member is outside manager scope")
+            raise HTTPException(status_code=404, detail="Member is outside your scope")
         connection.execute(
             """
             INSERT INTO audit_logs (actor_user_id, action, entity_type, entity_id, before_json, after_json, reason)
@@ -211,7 +228,7 @@ def update_membership(manager_id: uuid.UUID, member_id: uuid.UUID, membership_st
             ),
         )
         connection.commit()
-    return get_managed_member(manager_id, member_id) if membership_status != "REMOVED" else {"member_id": member_id, "membership_status": "REMOVED"}
+    return get_managed_member(user, member_id) if membership_status != "REMOVED" else {"member_id": member_id, "membership_status": "REMOVED"}
 
 
 MAX_BULK_EMAILS = 200
@@ -242,7 +259,8 @@ def _looks_like_email(email: str) -> bool:
     return bool(local) and "." in domain and not domain.startswith(".") and not domain.endswith(".")
 
 
-def bulk_add_members(manager_id: uuid.UUID, raw_emails: list[str]) -> dict:
+def bulk_add_members(user: CurrentUser, raw_emails: list[str]) -> dict:
+    manager_id = user.id
     emails = _normalise_emails(raw_emails)
     if not emails:
         raise HTTPException(status_code=422, detail="NO_EMAIL_PROVIDED")
@@ -256,7 +274,7 @@ def bulk_add_members(manager_id: uuid.UUID, raw_emails: list[str]) -> dict:
                 results.append({"email": email, "status": BULK_INVALID})
                 continue
             member = connection.execute(
-                "SELECT id FROM users WHERE email = %s AND role = 'MEMBER'", (email,)
+                "SELECT id FROM users WHERE email = %s AND role IN ('MEMBER', 'MANAGER')", (email,)
             ).fetchone()
             if member is None:
                 results.append({"email": email, "status": BULK_NOT_REGISTERED})
@@ -304,3 +322,34 @@ def bulk_add_members(manager_id: uuid.UUID, raw_emails: list[str]) -> dict:
         "failed": sum(1 for item in results if item["status"] in {BULK_NOT_REGISTERED, BULK_INVALID}),
         "results": results,
     }
+
+
+def my_managers(member_id: uuid.UUID) -> list[dict]:
+    """
+    Who to ask. A member whose check-in was refused, or whose hours look wrong,
+    needs a name and a way to reach them — not a support address for a system
+    nobody in the building runs.
+    """
+    with psycopg.connect(DATABASE_URL) as connection:
+        rows = connection.execute(
+            """
+            SELECT u.id, u.email, mp.full_name, mp.phone, mp.position, mp.department
+            FROM manager_memberships mm
+            JOIN users u ON u.id = mm.manager_user_id
+            LEFT JOIN member_profiles mp ON mp.user_id = u.id
+            WHERE mm.member_user_id = %s AND mm.status = 'ACTIVE' AND u.status = 'ACTIVE'
+            ORDER BY mp.full_name NULLS LAST, u.email
+            """,
+            (member_id,),
+        ).fetchall()
+    return [
+        {
+            "user_id": row[0],
+            "email": row[1],
+            "full_name": row[2],
+            "phone": row[3],
+            "position": row[4],
+            "department": row[5],
+        }
+        for row in rows
+    ]

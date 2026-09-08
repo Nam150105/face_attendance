@@ -12,6 +12,15 @@ import type { CurrentUser, FaceEnrollmentStatus, MemberProfile } from "../../lib
 
 const EMPTY = { full_name: "", phone: "", employee_code: "", position: "", department: "" };
 
+interface ManagerContact {
+  user_id: string;
+  email: string;
+  full_name: string | null;
+  phone: string | null;
+  position: string | null;
+  department: string | null;
+}
+
 export default function ProfilePage() {
   const router = useRouter();
   const [user, setUser] = useState<CurrentUser | null>(null);
@@ -22,8 +31,28 @@ export default function ProfilePage() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const [managers, setManagers] = useState<ManagerContact[]>([]);
+  const [currentPassword, setCurrentPassword] = useState("");
+  const [newPassword, setNewPassword] = useState("");
+  const [repeatPassword, setRepeatPassword] = useState("");
+  const [passwordError, setPasswordError] = useState<string | null>(null);
+  const [changing, setChanging] = useState(false);
+  const [joinRequests, setJoinRequests] = useState<
+    { status: string; team_name: string | null; note: string | null; manager_name: string }[]
+  >([]);
+  const [joinCode, setJoinCode] = useState("");
+  const [joining, setJoining] = useState(false);
+  const [joinError, setJoinError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
+    api
+      .myManagers()
+      .then(setManagers)
+      .catch(() => setManagers([]));
+    api
+      .myJoinRequests()
+      .then(setJoinRequests)
+      .catch(() => setJoinRequests([]));
     try {
       const [me, myProfile, faceStatus] = await Promise.all([
         api.me(),
@@ -52,6 +81,42 @@ export default function ProfilePage() {
   useEffect(() => {
     void load();
   }, [load]);
+
+  async function joinTeam(event: React.FormEvent) {
+    event.preventDefault();
+    setJoinError(null);
+    setJoining(true);
+    try {
+      const result = await api.joinTeam(joinCode.trim());
+      setNotice(`Đã gửi yêu cầu vào ${result.team}. Chờ người quản lý duyệt là bạn chấm công được.`);
+      setJoinCode("");
+      setJoinRequests(await api.myJoinRequests());
+    } catch (cause) {
+      setJoinError(describeError(cause));
+    } finally {
+      setJoining(false);
+    }
+  }
+
+  async function changePassword(event: React.FormEvent) {
+    event.preventDefault();
+    setPasswordError(null);
+    if (newPassword !== repeatPassword) {
+      setPasswordError("Hai ô mật khẩu mới chưa giống nhau.");
+      return;
+    }
+    setChanging(true);
+    try {
+      await api.changePassword(currentPassword, newPassword);
+      // Every session just ended, this one included, so send them to sign in
+      // again rather than leaving a page whose next request will fail.
+      router.replace("/login");
+    } catch (cause) {
+      setPasswordError(describeError(cause));
+    } finally {
+      setChanging(false);
+    }
+  }
 
   async function save(event: React.FormEvent) {
     event.preventDefault();
@@ -129,19 +194,16 @@ export default function ProfilePage() {
               </div>
               <div style={{ flex: "1 1 160px" }}>
                 <Field
-                  label="Đơn vị / Nhóm"
+                  label="Chức danh"
                   maxLength={150}
-                  value={form.department}
-                  onChange={(e) => setForm({ ...form, department: e.target.value })}
+                  value={form.position}
+                  onChange={(e) => setForm({ ...form, position: e.target.value })}
                 />
               </div>
             </div>
-            <Field
-              label="Chức danh"
-              maxLength={150}
-              value={form.position}
-              onChange={(e) => setForm({ ...form, position: e.target.value })}
-            />
+            <p className="field__hint">
+              Đơn vị / nhóm do người quản lý quyết định khi duyệt bạn vào, nên không sửa ở đây.
+            </p>
             <div className="row">
               <Button type="submit" loading={saving} block>
                 Lưu thay đổi
@@ -158,7 +220,7 @@ export default function ProfilePage() {
               { key: "Email", value: profile.email },
               { key: "Số điện thoại", value: profile.phone ?? "Chưa cập nhật" },
               { key: "Chức danh", value: profile.position ?? "Chưa cập nhật" },
-              { key: "Đơn vị / Nhóm", value: profile.department ?? "Chưa cập nhật" },
+              { key: "Đơn vị / Nhóm", value: profile.department ?? "Chưa thuộc nhóm nào" },
               { key: "Mã định danh", value: profile.employee_code ?? "Chưa cập nhật" },
               {
                 key: "Trạng thái tài khoản",
@@ -171,6 +233,99 @@ export default function ProfilePage() {
             ]}
           />
         ) : null}
+      </Card>
+
+      {managers.length === 0 ? (
+        <Card
+          title="Bạn chưa thuộc nhóm nào"
+          subtitle="Nhập mã đơn vị người quản lý đưa cho bạn. Được duyệt là chấm công được ngay."
+        >
+          <form className="stack" onSubmit={joinTeam}>
+            {joinError ? <Alert tone="danger">{joinError}</Alert> : null}
+            {joinRequests.map((request, index) => (
+              <Alert key={index} tone={request.status === "PENDING" ? "info" : "warning"}>
+                {request.status === "PENDING"
+                  ? `Đang chờ ${request.manager_name} duyệt vào ${request.team_name ?? "nhóm"}.`
+                  : `${request.manager_name} chưa duyệt bạn vào ${request.team_name ?? "nhóm"}${
+                      request.note ? `: ${request.note}` : "."
+                    }`}
+              </Alert>
+            ))}
+            <Field
+              label="Mã đơn vị / nhóm"
+              placeholder="Ví dụ: K7M2PX"
+              value={joinCode}
+              onChange={(event) => setJoinCode(event.target.value)}
+            />
+            <Button type="submit" loading={joining} disabled={joinCode.trim().length < 3} block>
+              Gửi yêu cầu vào nhóm
+            </Button>
+          </form>
+        </Card>
+      ) : null}
+
+      {managers.length > 0 ? (
+        <Card
+          title={managers.length > 1 ? "Những người quản lý bạn" : "Người quản lý của bạn"}
+          subtitle="Có gì chưa đúng về giờ giấc hay chấm công, bạn liên hệ trực tiếp ở đây."
+        >
+          <div className="stack stack--tight">
+            {managers.map((manager) => (
+              <div className="contact" key={manager.user_id}>
+                <div className="contact__body">
+                  <p className="person__name">{manager.full_name ?? manager.email}</p>
+                  <p className="event__meta">
+                    {[manager.position, manager.department].filter(Boolean).join(" · ") || "Người quản lý"}
+                  </p>
+                </div>
+                <div className="contact__links">
+                  <a className="contact__link" href={`mailto:${manager.email}`}>
+                    {manager.email}
+                  </a>
+                  {manager.phone ? (
+                    <a className="contact__link" href={`tel:${manager.phone}`}>
+                      {manager.phone}
+                    </a>
+                  ) : null}
+                </div>
+              </div>
+            ))}
+          </div>
+        </Card>
+      ) : null}
+
+      <Card
+        title="Đổi mật khẩu"
+        subtitle="Sau khi đổi, mọi thiết bị đang đăng nhập sẽ phải đăng nhập lại."
+      >
+        <form className="stack" onSubmit={changePassword}>
+          {passwordError ? <Alert tone="danger">{passwordError}</Alert> : null}
+          <Field
+            label="Mật khẩu hiện tại"
+            type="password"
+            autoComplete="current-password"
+            value={currentPassword}
+            onChange={(e) => setCurrentPassword(e.target.value)}
+          />
+          <Field
+            label="Mật khẩu mới"
+            type="password"
+            autoComplete="new-password"
+            value={newPassword}
+            onChange={(e) => setNewPassword(e.target.value)}
+            hint="Tối thiểu 8 ký tự, có cả chữ và số."
+          />
+          <Field
+            label="Nhập lại mật khẩu mới"
+            type="password"
+            autoComplete="new-password"
+            value={repeatPassword}
+            onChange={(e) => setRepeatPassword(e.target.value)}
+          />
+          <Button type="submit" loading={changing} block>
+            Đổi mật khẩu
+          </Button>
+        </form>
       </Card>
 
       <Card

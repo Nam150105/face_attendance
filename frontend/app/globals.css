@@ -3122,7 +3122,7 @@ body {
 .table--matrix {
   display: table;
   width: 100%;
-  min-width: 520px;
+  min-width: 860px;
 }
 
 /* The stacked-table rules drop the wrapper's scrolling, because a stacked table
@@ -3153,5 +3153,185 @@ body {
 
 .table--matrix .checkbox {
   min-height: 44px;
-  justify-content: flex-start;
+  justify-content: center;
+}
+
+/* Four ticks per role: the role heading spans them, and a divider keeps the
+   eye from drifting into the neighbouring role's column. */
+.matrix__role {
+  text-align: center;
+  border-left: 1px solid var(--border-medium);
+}
+
+.matrix__action {
+  padding: 6px 4px;
+  text-align: center;
+  font-size: var(--text-xs);
+  font-weight: 600;
+  color: var(--text-muted);
+}
+
+.matrix__cell {
+  padding: 4px;
+  text-align: center;
+}
+
+.matrix__role,
+.matrix__action:nth-of-type(4n + 1),
+.matrix__cell:nth-of-type(4n + 2) {
+  border-left: 1px solid var(--border-medium);
+}
+
+/* Frame for pages that run before anyone is signed in ---------------------- */
+.public-frame {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  min-height: 100vh;
+  padding-top: var(--space-3);
+}
+
+.public-frame__brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: var(--text-lg);
+  font-weight: 800;
+  letter-spacing: -0.01em;
+  color: var(--text-primary);
+}
+
+/* Somebody to contact ------------------------------------------------------ */
+.contact {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-1);
+  padding: 12px 14px;
+  background: var(--surface-raised);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+}
+
+.contact__body {
+  min-width: 0;
+}
+
+.contact__links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.contact__link {
+  display: inline-flex;
+  align-items: center;
+  min-height: 40px;
+  padding: 0 14px;
+  border-radius: var(--radius-full);
+  background: var(--color-primary-soft);
+  border: 1px solid var(--border-primary);
+  color: var(--text-primary);
+  font-size: var(--text-sm);
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.contact__link:hover {
+  background: var(--color-primary);
+  color: var(--text-on-primary);
+}
+
+.trace {
+  max-height: 320px;
+  padding: 12px;
+  overflow: auto;
+  background: var(--surface-base);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  line-height: 1.5;
+  color: var(--text-secondary);
+  white-space: pre;
+}
+
+/* A row you tick, sized so a thumb can hit it ----------------------------- */
+.pick {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 56px;
+  padding: 8px 14px;
+  background: var(--surface-raised);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+}
+
+.pick:hover {
+  border-color: var(--border-medium);
+}
+
+.pick input {
+  flex: 0 0 auto;
+  width: 20px;
+  height: 20px;
+  accent-color: var(--color-primary);
+  cursor: pointer;
+}
+
+.pick__body {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+/* Unit code and the queue of people asking to join ------------------------ */
+.team,
+.request {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-1);
+  padding: 12px 14px;
+  background: var(--surface-raised);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+}
+
+.team__body,
+.request__body {
+  flex: 1 1 200px;
+  min-width: 0;
+}
+
+/* The code is the thing people read out, so it is the biggest thing here. */
+.team__code {
+  flex: 0 0 auto;
+  min-height: 44px;
+  padding: 0 16px;
+  border: 1px dashed var(--border-primary);
+  border-radius: var(--radius-sm);
+  background: var(--color-primary-soft);
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+  font-size: var(--text-lg);
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  cursor: pointer;
+}
+
+.team__code:hover {
+  background: var(--color-primary);
+  color: var(--text-on-primary);
+}
+
+/* A link inside a banner still has to look like one */
+.alert__action {
+  color: inherit;
+  font-weight: 700;
+  text-decoration: underline;
+  text-underline-offset: 3px;
 }

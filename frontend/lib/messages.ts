@@ -53,6 +53,9 @@ const CODE_MESSAGES: Record<string, string> = {
   FACE_ENGINE_MISMATCH: "Khuôn mặt bạn đăng ký từ trước dùng mô hình cũ nên không so sánh được nữa. Bạn vào mục Hồ sơ đăng ký lại khuôn mặt, chỉ mất chưa tới một phút.",
   FACE_MODEL_NOT_CONFIGURED: "Hệ thống nhận diện đang tạm nghỉ. Bạn báo người quản lý giúp nhé.",
   FACE_REFERENCE_NOT_FOUND: "Chưa có ảnh khuôn mặt của bạn để đối chiếu. Bạn vào mục Hồ sơ để đăng ký trước nhé.",
+  CURRENT_PASSWORD_WRONG: "Mật khẩu hiện tại chưa đúng. Bạn nhập lại giúp nhé.",
+  NEW_PASSWORD_SAME_AS_OLD: "Mật khẩu mới trùng mật khẩu cũ. Bạn chọn mật khẩu khác nhé.",
+  SYSTEM_ERROR: "Hệ thống gặp trục trặc nên chưa làm được việc này. Bạn thử lại sau ít phút nhé.",
   FACE_NOT_ENROLLED: "Bạn chưa đăng ký khuôn mặt. Vào mục Hồ sơ để đăng ký, chỉ mất chưa tới một phút.",
   FACE_NOT_MATCHED: "Chưa nhận ra bạn. Bạn bỏ khẩu trang, kính râm hoặc mũ che mặt, đứng ở nơi đủ sáng rồi chụp lại nhé.",
   "Face AI service unavailable": "Hệ thống nhận diện đang bận. Bạn đợi vài giây rồi thử lại nhé.",
@@ -116,14 +119,26 @@ const STATUS_FALLBACK: Record<number, string> = {
   503: "Hệ thống đang bảo trì. Vui lòng quay lại sau ít phút.",
 };
 
+/**
+ * What to put on screen when something fails.
+ *
+ * Never the raw text from the server: an exception class, a constraint name or
+ * an English sentence tells the person nothing they can act on. Either we have
+ * a sentence written for them, or they get a short code to quote to whoever
+ * runs the system.
+ */
 export function describeError(error: unknown): string {
   if (error instanceof ApiError) {
-    return CODE_MESSAGES[error.code] ?? STATUS_FALLBACK[error.statusCode] ?? "Thao tác không thành công. Vui lòng thử lại.";
+    const known = CODE_MESSAGES[error.code];
+    if (known) {
+      return known;
+    }
+    if (error.errorCode) {
+      return `Hệ thống gặp trục trặc nên chưa làm được việc này. Bạn báo giúp người quản trị mã lỗi ${error.errorCode}.`;
+    }
+    return STATUS_FALLBACK[error.statusCode] ?? "Thao tác chưa thành công. Bạn thử lại giúp nhé.";
   }
-  if (error instanceof Error) {
-    return error.message;
-  }
-  return "Đã xảy ra lỗi không xác định. Vui lòng thử lại.";
+  return "Thao tác chưa thành công. Bạn kiểm tra kết nối mạng rồi thử lại nhé.";
 }
 
 /** Lỗi mạng thì thao tác cũ vẫn còn nguyên giá trị, chỉ cần gửi lại. */

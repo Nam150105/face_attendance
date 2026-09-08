@@ -19,6 +19,19 @@ export interface ScreenDefinition {
 
 export const GROUPS = ["Chấm công", "Quản lý", "Hệ thống"] as const;
 
+/**
+ * Which group comes first depends on why you opened the app.
+ *
+ * A member came to check in. A manager came to see who turned up. Putting the
+ * same order in front of both means one of them scrolls past somebody else's
+ * work every single time.
+ */
+const GROUP_ORDER: Record<string, readonly string[]> = {
+  MEMBER: ["Chấm công", "Quản lý", "Hệ thống"],
+  MANAGER: ["Quản lý", "Chấm công", "Hệ thống"],
+  SUPER_ADMIN: ["Hệ thống", "Quản lý", "Chấm công"],
+};
+
 export const SCREENS: ScreenDefinition[] = [
   { key: "home", href: "/", label: "Trang chủ", group: "Chấm công" },
   { key: "attendance", href: "/attendance", label: "Chấm công", group: "Chấm công", match: ["/attendance", "/enroll"] },
@@ -30,6 +43,7 @@ export const SCREENS: ScreenDefinition[] = [
 
   { key: "team-overview", href: "/manager", label: "Tổng quan nhóm", group: "Quản lý" },
   { key: "records", href: "/manager/attendance", label: "Bản ghi", group: "Quản lý" },
+  { key: "join-requests", href: "/manager/join-requests", label: "Yêu cầu vào nhóm", group: "Quản lý" },
   { key: "members", href: "/manager/members", label: "Thành viên", group: "Quản lý" },
   { key: "locations", href: "/manager/locations", label: "Địa điểm", group: "Quản lý" },
   { key: "corrections", href: "/manager/corrections", label: "Duyệt chỉnh công", group: "Quản lý" },
@@ -40,6 +54,7 @@ export const SCREENS: ScreenDefinition[] = [
   { key: "admin-records", href: "/admin/attendance", label: "Toàn bộ bản ghi", group: "Hệ thống" },
   { key: "admin-roles", href: "/admin/roles", label: "Phân quyền", group: "Hệ thống" },
   { key: "admin-data", href: "/admin/data", label: "Dữ liệu hệ thống", group: "Hệ thống" },
+  { key: "admin-errors", href: "/admin/errors", label: "Sự cố hệ thống", group: "Hệ thống" },
 ];
 
 const BY_HREF = new Map(SCREENS.map((screen) => [screen.href, screen]));
@@ -63,10 +78,21 @@ export function screenForPath(pathname: string): ScreenDefinition | undefined {
   return best;
 }
 
-export function screensByGroup(allowed: string[]): { group: string; items: ScreenDefinition[] }[] {
+export function screensByGroup(
+  allowed: string[],
+  role: string,
+): { group: string; items: ScreenDefinition[] }[] {
   const permitted = new Set(allowed);
-  return GROUPS.map((group) => ({
-    group,
-    items: SCREENS.filter((screen) => screen.group === group && permitted.has(screen.key)),
-  })).filter((section) => section.items.length > 0);
+  const order = GROUP_ORDER[role] ?? GROUPS;
+  return order
+    .map((group) => ({
+      group,
+      items: SCREENS.filter((screen) => screen.group === group && permitted.has(screen.key)),
+    }))
+    .filter((section) => section.items.length > 0);
+}
+
+/** Where to land after signing in: the first thing this account can actually do. */
+export function landingScreen(allowed: string[], role: string): string {
+  return screensByGroup(allowed, role)[0]?.items[0]?.href ?? "/profile";
 }

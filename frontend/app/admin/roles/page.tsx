@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 
 import { AdminShell } from "../../../components/AdminShell";
-import { Alert, Card, LoadingRows } from "../../../components/ui";
+import { Alert, Button, Card, LoadingRows } from "../../../components/ui";
 import { api } from "../../../lib/api";
 import { describeError } from "../../../lib/messages";
 import { GROUPS, SCREENS } from "../../../lib/screens";
@@ -14,16 +14,22 @@ const ROLES = [
   { key: "SUPER_ADMIN", label: "Quản trị hệ thống" },
 ];
 
-interface Grid {
-  roles: Record<string, Record<string, boolean>>;
-  locked: Record<string, string[]>;
-}
+const ACTIONS = [
+  { key: "view", label: "Xem", hint: "Mở được mục này trong menu" },
+  { key: "create", label: "Thêm", hint: "Tạo bản ghi mới" },
+  { key: "edit", label: "Sửa", hint: "Thay đổi bản ghi đã có" },
+  { key: "delete", label: "Xoá", hint: "Gỡ bản ghi" },
+];
+
+type Actions = Record<string, boolean>;
+type Grid = { roles: Record<string, Record<string, Actions>>; locked: Record<string, string[]> };
 
 export default function AdminRolesPage() {
   const [grid, setGrid] = useState<Grid | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
+  const [resetting, setResetting] = useState(false);
 
   const load = useCallback(async () => {
     try {
@@ -39,22 +45,52 @@ export default function AdminRolesPage() {
     void load();
   }, [load]);
 
-  async function toggle(role: string, screen: string, next: boolean) {
-    setBusy(`${role}:${screen}`);
+  async function restoreDefaults() {
+    if (!window.confirm("Đưa toàn bộ bảng phân quyền về mặc định ban đầu? Mọi thay đổi bạn đã tick sẽ mất.")) {
+      return;
+    }
+    setResetting(true);
     setNotice(null);
-    // Move the tick immediately, then put it back if the server refuses. A grid
-    // that lags behind the click invites people to click twice.
-    setGrid((current) =>
-      current ? { ...current, roles: { ...current.roles, [role]: { ...current.roles[role], [screen]: next } } } : current,
-    );
     try {
-      await api.setPermission(role, screen, next);
-      setError(null);
+      const result = await api.resetPermissions();
+      await load();
       setNotice(
-        next
-          ? "Đã mở mục này cho nhóm. Người đang đăng nhập sẽ thấy sau khi tải lại trang."
-          : "Đã gỡ mục này khỏi nhóm.",
+        result.restored > 0
+          ? `Đã đưa ${result.restored} ô về mặc định.`
+          : "Bảng phân quyền vốn đã đúng mặc định, không có gì phải đổi.",
       );
+      setError(null);
+    } catch (cause) {
+      setError(describeError(cause));
+    } finally {
+      setResetting(false);
+    }
+  }
+
+  async function toggle(role: string, screen: string, action: string, next: boolean) {
+    setBusy(`${role}:${screen}:${action}`);
+    setNotice(null);
+    // Move the ticks immediately, then reload if the server refuses. Clearing
+    // the view clears the rest, so mirror that here or the grid would show a
+    // state the server does not hold.
+    setGrid((current) => {
+      if (!current) {
+        return current;
+      }
+      const before = current.roles[role]?.[screen] ?? {};
+      const after =
+        action === "view" && !next
+          ? { view: false, create: false, edit: false, delete: false }
+          : { ...before, [action]: next };
+      return {
+        ...current,
+        roles: { ...current.roles, [role]: { ...current.roles[role], [screen]: after } },
+      };
+    });
+    try {
+      await api.setPermission(role, screen, action, next);
+      setError(null);
+      setNotice("Đã lưu. Người đang đăng nhập sẽ thấy thay đổi sau khi tải lại trang.");
     } catch (cause) {
       setError(describeError(cause));
       await load();
@@ -69,15 +105,19 @@ export default function AdminRolesPage() {
         <div>
           <h1 className="page-title">Phân quyền</h1>
           <p className="page-lead">
-            Tick vào ô để cho một nhóm mở mục tương ứng trong menu bên trái.
+            Với mỗi nhóm, chọn từng mục được xem, được thêm, được sửa và được xoá.
           </p>
         </div>
+        <Button variant="secondary" onClick={() => void restoreDefaults()} loading={resetting}>
+          Khôi phục mặc định
+        </Button>
       </div>
 
       <Alert tone="info">
-        Mở một mục chỉ cho phép vào màn hình đó. Dữ liệu hiện ra vẫn theo phạm vi của từng người:
-        thành viên chỉ thấy bản ghi của chính mình, người quản lý thấy nhóm mình, quản trị hệ thống
-        thấy tất cả.
+        Bỏ tick <strong>Xem</strong> là mất luôn cả ba quyền còn lại — cho phép xoá thứ mình không
+        nhìn thấy thì chỉ chuốc rắc rối. Quyền chỉ mở cửa màn hình, còn dữ liệu hiện ra vẫn theo
+        phạm vi từng người: thành viên thấy phần của mình, người quản lý thấy nhóm mình, quản trị hệ
+        thống thấy tất cả.
       </Alert>
 
       {error ? <Alert tone="danger">{error}</Alert> : null}
@@ -92,10 +132,21 @@ export default function AdminRolesPage() {
               <table className="table table--matrix">
                 <thead>
                   <tr>
-                    <th>Mục trong menu</th>
+                    <th rowSpan={2}>Mục trong menu</th>
                     {ROLES.map((role) => (
-                      <th key={role.key}>{role.label}</th>
+                      <th key={role.key} colSpan={ACTIONS.length} className="matrix__role">
+                        {role.label}
+                      </th>
                     ))}
+                  </tr>
+                  <tr>
+                    {ROLES.flatMap((role) =>
+                      ACTIONS.map((action) => (
+                        <th key={`${role.key}-${action.key}`} className="matrix__action" title={action.hint}>
+                          {action.label}
+                        </th>
+                      )),
+                    )}
                   </tr>
                 </thead>
                 <tbody>
@@ -105,23 +156,37 @@ export default function AdminRolesPage() {
                         <p className="person__name">{screen.label}</p>
                         <p className="event__meta mono">{screen.href}</p>
                       </td>
-                      {ROLES.map((role) => {
+                      {ROLES.flatMap((role) => {
                         const locked = (grid.locked[role.key] ?? []).includes(screen.key);
-                        const checked = grid.roles[role.key]?.[screen.key] ?? false;
-                        return (
-                          <td key={role.key} data-label={role.label}>
-                            <label className="checkbox">
-                              <input
-                                type="checkbox"
-                                checked={checked}
-                                disabled={locked || busy === `${role.key}:${screen.key}`}
-                                onChange={(event) => void toggle(role.key, screen.key, event.target.checked)}
-                                aria-label={`${role.label} xem ${screen.label}`}
-                              />
-                              {locked ? <span className="event__meta">Cố định</span> : null}
-                            </label>
-                          </td>
-                        );
+                        const actions = grid.roles[role.key]?.[screen.key] ?? {};
+                        return ACTIONS.map((action) => {
+                          const checked = actions[action.key] ?? false;
+                          // Nothing else can be granted until the screen itself is.
+                          const needsView = action.key !== "view" && !actions.view;
+                          return (
+                            <td
+                              key={`${role.key}-${action.key}`}
+                              data-label={`${role.label} · ${action.label}`}
+                              className="matrix__cell"
+                            >
+                              <label className="checkbox">
+                                <input
+                                  type="checkbox"
+                                  checked={checked}
+                                  disabled={
+                                    (locked && action.key === "view") ||
+                                    needsView ||
+                                    busy === `${role.key}:${screen.key}:${action.key}`
+                                  }
+                                  onChange={(event) =>
+                                    void toggle(role.key, screen.key, action.key, event.target.checked)
+                                  }
+                                  aria-label={`${role.label} ${action.label.toLowerCase()} ${screen.label}`}
+                                />
+                              </label>
+                            </td>
+                          );
+                        });
                       })}
                     </tr>
                   ))}

@@ -4,7 +4,8 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, status
 from pydantic import BaseModel, Field
 
-from app.auth import CurrentUser, get_current_user, require_role
+from app.auth import CurrentUser, get_current_user
+from app.services.permissions import require_action, require_screen
 from app.services.places import resolve_place, reverse_geocode
 from app.services.locations import (
     assign_location,
@@ -61,36 +62,36 @@ router = APIRouter(prefix="/manager/locations", tags=["locations"])
 
 
 @router.get("")
-def locations(user: CurrentUser = Depends(require_role("MANAGER"))) -> list[dict]:
-    return list_locations(user.id)
+def locations(user: CurrentUser = Depends(require_screen("locations"))) -> list[dict]:
+    return list_locations(user)
 
 
 @router.post("", status_code=status.HTTP_201_CREATED)
-def create(request: LocationRequest, user: CurrentUser = Depends(require_role("MANAGER"))) -> dict:
-    return create_location(user.id, request.model_dump())
+def create(request: LocationRequest, user: CurrentUser = Depends(require_action("locations", "create"))) -> dict:
+    return create_location(user, request.model_dump())
 
 
 @router.get("/{location_id}")
-def detail(location_id: UUID, user: CurrentUser = Depends(require_role("MANAGER"))) -> dict:
-    return get_location(user.id, location_id)
+def detail(location_id: UUID, user: CurrentUser = Depends(require_screen("locations"))) -> dict:
+    return get_location(user, location_id)
 
 
 @router.put("/{location_id}")
-def update(location_id: UUID, request: LocationRequest, user: CurrentUser = Depends(require_role("MANAGER"))) -> dict:
-    return update_location(user.id, location_id, request.model_dump())
+def update(location_id: UUID, request: LocationRequest, user: CurrentUser = Depends(require_action("locations", "edit"))) -> dict:
+    return update_location(user, location_id, request.model_dump())
 
 
 @router.delete("/{location_id}")
-def remove(location_id: UUID, user: CurrentUser = Depends(require_role("MANAGER"))) -> dict:
-    return remove_location(user.id, location_id)
+def remove(location_id: UUID, user: CurrentUser = Depends(require_action("locations", "edit"))) -> dict:
+    return remove_location(user, location_id)
 
 
 assignment_router = APIRouter(prefix="/manager/members", tags=["locations"])
 
 
 @assignment_router.post("/{member_id}/locations")
-def assign(member_id: UUID, request: AssignmentRequest, user: CurrentUser = Depends(require_role("MANAGER"))) -> dict:
-    return assign_location(user.id, member_id, request.location_id, request.is_default)
+def assign(member_id: UUID, request: AssignmentRequest, user: CurrentUser = Depends(require_action("members", "edit"))) -> dict:
+    return assign_location(user, member_id, request.location_id, request.is_default)
 
 
 member_router = APIRouter(prefix="/locations", tags=["locations"])
@@ -102,25 +103,25 @@ def evaluate(location_id: UUID, request: GeofenceRequest, user: CurrentUser = De
 
 
 @assignment_router.get("/{member_id}/locations")
-def assigned(member_id: UUID, user: CurrentUser = Depends(require_role("MANAGER"))) -> list[dict]:
-    return list_assigned_locations(user.id, member_id)
+def assigned(member_id: UUID, user: CurrentUser = Depends(require_screen("members"))) -> list[dict]:
+    return list_assigned_locations(user, member_id)
 
 
 @assignment_router.delete("/{member_id}/locations/{location_id}")
-def unassign(member_id: UUID, location_id: UUID, user: CurrentUser = Depends(require_role("MANAGER"))) -> dict:
-    return unassign_location(user.id, member_id, location_id)
+def unassign(member_id: UUID, location_id: UUID, user: CurrentUser = Depends(require_action("members", "edit"))) -> dict:
+    return unassign_location(user, member_id, location_id)
 
 
 @router.delete("/{location_id}/permanent")
-def destroy(location_id: UUID, user: CurrentUser = Depends(require_role("MANAGER"))) -> dict:
-    return delete_location(user.id, location_id)
+def destroy(location_id: UUID, user: CurrentUser = Depends(require_action("locations", "delete"))) -> dict:
+    return delete_location(user, location_id)
 
 
 @router.post("/resolve-place")
-def resolve(request: PlaceLookupRequest, user: CurrentUser = Depends(require_role("MANAGER"))) -> dict:
+def resolve(request: PlaceLookupRequest, user: CurrentUser = Depends(require_screen("locations"))) -> dict:
     return resolve_place(request.query)
 
 
 @router.post("/reverse-place")
-def reverse(request: ReverseLookupRequest, user: CurrentUser = Depends(require_role("MANAGER"))) -> dict:
+def reverse(request: ReverseLookupRequest, user: CurrentUser = Depends(require_screen("locations"))) -> dict:
     return reverse_geocode(request.latitude, request.longitude)

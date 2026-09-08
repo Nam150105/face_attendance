@@ -41,6 +41,9 @@ class RegisterRequest(BaseModel):
     email: EmailStr
     password: str = Field(min_length=8)
     role: str = Field(default="MEMBER", pattern="^(MANAGER|MEMBER)$")
+    # The unit a person belongs to, typed off a whiteboard. Optional: somebody
+    # can sign up first and ask to join later.
+    team_code: str | None = Field(default=None, max_length=24)
     # Opaque value the client generates once and keeps; never an IP address.
     device_id: str | None = Field(default=None, max_length=128)
 

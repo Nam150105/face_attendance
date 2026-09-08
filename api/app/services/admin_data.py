@@ -17,7 +17,13 @@ from fastapi import HTTPException
 
 from app.auth import DATABASE_URL
 from app.services.admin import _audit
-from app.services.permissions import LOCKED_FOR_SUPER_ADMIN, SCREENS
+from app.services.permissions import (
+    ACTIONS,
+    DEFAULT_PERMISSIONS,
+    LOCKED_FOR_SUPER_ADMIN,
+    ROLE_ORDER,
+    SCREENS,
+)
 
 
 ROLES = ("MEMBER", "MANAGER", "SUPER_ADMIN")
@@ -26,52 +32,102 @@ ROLES = ("MEMBER", "MANAGER", "SUPER_ADMIN")
 # --------------------------------------------------------------- permissions
 
 def list_permissions() -> dict:
-    """The whole tick grid in one call: which role may open which screen."""
+    """The whole tick grid in one call: which role may do what on which screen."""
     with psycopg.connect(DATABASE_URL) as connection:
         rows = connection.execute(
-            "SELECT role::text, screen, can_view FROM role_permissions ORDER BY role, screen"
+            "SELECT role::text, screen, can_view, can_create, can_edit, can_delete"
+            " FROM role_permissions ORDER BY role, screen"
         ).fetchall()
-    grid: dict[str, dict[str, bool]] = {role: {} for role in ROLES}
-    for role, screen, can_view in rows:
-        grid.setdefault(role, {})[screen] = can_view
+    grid: dict[str, dict[str, dict[str, bool]]] = {role: {} for role in ROLES}
+    for role, screen, view, create, edit, delete in rows:
+        grid.setdefault(role, {})[screen] = {
+            "view": view, "create": create, "edit": edit, "delete": delete
+        }
     return {
         "screens": list(SCREENS),
+        "actions": list(ACTIONS),
         "roles": grid,
         "locked": {"SUPER_ADMIN": list(LOCKED_FOR_SUPER_ADMIN)},
     }
 
 
-def set_permission(actor_id: uuid.UUID, role: str, screen: str, can_view: bool) -> dict:
+def set_permission(actor_id: uuid.UUID, role: str, screen: str, action: str, allowed: bool) -> dict:
     if role not in ROLES:
         raise HTTPException(status_code=422, detail="ROLE_UNKNOWN")
     if screen not in SCREENS:
         raise HTTPException(status_code=422, detail="SCREEN_UNKNOWN")
-    # Clearing these two would make the permission editor unreachable, and the
-    # only way back would be a database console.
-    if role == "SUPER_ADMIN" and screen in LOCKED_FOR_SUPER_ADMIN and not can_view:
+    if action not in ACTIONS:
+        raise HTTPException(status_code=422, detail="ACTION_UNKNOWN")
+    # Clearing these would make the permission editor unreachable, and the only
+    # way back would be a database console.
+    if role == "SUPER_ADMIN" and screen in LOCKED_FOR_SUPER_ADMIN and not allowed:
         raise HTTPException(status_code=409, detail="SCREEN_LOCKED_FOR_SUPER_ADMIN")
 
     with psycopg.connect(DATABASE_URL) as connection:
         before = connection.execute(
-            "SELECT can_view FROM role_permissions WHERE role = %s::user_role AND screen = %s",
+            "SELECT can_view, can_create, can_edit, can_delete FROM role_permissions"
+            " WHERE role = %s::user_role AND screen = %s",
             (role, screen),
         ).fetchone()
+        if before is None:
+            raise HTTPException(status_code=404, detail="PERMISSION_ROW_MISSING")
+
+        current = dict(zip(ACTIONS, before))
+        current[action] = allowed
+        # Taking away the view takes the rest with it: being able to delete
+        # something you cannot see is not a permission, it is a trap.
+        if action == "view" and not allowed:
+            current = {name: False for name in ACTIONS}
+
         connection.execute(
-            """
-            INSERT INTO role_permissions (role, screen, can_view, updated_by)
-            VALUES (%s::user_role, %s, %s, %s)
-            ON CONFLICT (role, screen)
-            DO UPDATE SET can_view = EXCLUDED.can_view, updated_at = now(), updated_by = EXCLUDED.updated_by
-            """,
-            (role, screen, can_view, actor_id),
+            "UPDATE role_permissions SET can_view = %s, can_create = %s, can_edit = %s,"
+            " can_delete = %s, updated_at = now(), updated_by = %s"
+            " WHERE role = %s::user_role AND screen = %s",
+            (*[current[name] for name in ACTIONS], actor_id, role, screen),
         )
         _audit(
             connection, actor_id, "PERMISSION_CHANGED", "role_permission", actor_id,
-            before={"role": role, "screen": screen, "can_view": before[0] if before else None},
-            after={"role": role, "screen": screen, "can_view": can_view},
+            before={"role": role, "screen": screen, **dict(zip(ACTIONS, before))},
+            after={"role": role, "screen": screen, **current},
         )
         connection.commit()
-    return {"role": role, "screen": screen, "can_view": can_view}
+    return {"role": role, "screen": screen, **current}
+
+
+def reset_permissions(actor_id: uuid.UUID) -> dict:
+    """
+    Put every tick back to the shipped defaults.
+
+    Without this, one wrong click needs eighteen right ones to undo, and a
+    revoked screen that gates something the operator did not realise it gated
+    can only be found by trial and error.
+    """
+    with psycopg.connect(DATABASE_URL) as connection:
+        before = connection.execute(
+            "SELECT role::text, screen, can_view, can_create, can_edit, can_delete"
+            " FROM role_permissions ORDER BY role, screen"
+        ).fetchall()
+
+        changed = 0
+        for screen, defaults in DEFAULT_PERMISSIONS.items():
+            for role, letters in zip(ROLE_ORDER, defaults):
+                values = [letter in letters for letter in ("v", "c", "e", "d")]
+                result = connection.execute(
+                    "UPDATE role_permissions SET can_view = %s, can_create = %s, can_edit = %s,"
+                    " can_delete = %s, updated_at = now(), updated_by = %s"
+                    " WHERE role = %s::user_role AND screen = %s"
+                    "   AND (can_view, can_create, can_edit, can_delete) IS DISTINCT FROM (%s, %s, %s, %s)",
+                    (*values, actor_id, role, screen, *values),
+                )
+                changed += result.rowcount
+
+        _audit(
+            connection, actor_id, "PERMISSIONS_RESET", "role_permission", actor_id,
+            before={"rows": [list(row) for row in before]},
+            after={"restored": changed},
+        )
+        connection.commit()
+    return {"restored": changed}
 
 
 # -------------------------------------------------------------- row browsing
@@ -267,3 +323,62 @@ def delete_row(actor_id: uuid.UUID, table: str, row_id: str) -> dict:
         _audit(connection, actor_id, "ROW_DELETED", table, actor_id, before=before)
         connection.commit()
     return {"table": table, "id": row_id, "deleted": True}
+
+
+# ------------------------------------------------------------------- failures
+
+def list_errors(search: str | None, limit: int, offset: int) -> dict:
+    """
+    Recent failures, newest first, or the one matching a code somebody quoted.
+    Searching by code is the whole point: a person reports "AB12CD" and this
+    finds what actually happened.
+    """
+    where, parameters = "TRUE", []
+    if search:
+        needle = search.strip()
+        where = "(code = %s OR path ILIKE %s OR kind ILIKE %s OR user_email ILIKE %s)"
+        parameters = [needle.upper(), f"%{needle}%", f"%{needle}%", f"%{needle}%"]
+
+    with psycopg.connect(DATABASE_URL) as connection:
+        total = connection.execute(
+            f"SELECT count(*) FROM error_events WHERE {where}", parameters
+        ).fetchone()[0]
+        rows = connection.execute(
+            f"""
+            SELECT code, created_at, method, path, kind, detail, user_email, request_id, traceback
+            FROM error_events WHERE {where}
+            ORDER BY created_at DESC LIMIT %s OFFSET %s
+            """,
+            [*parameters, limit, offset],
+        ).fetchall()
+    return {
+        "total": total,
+        "items": [
+            {
+                "code": row[0],
+                "created_at": row[1],
+                "method": row[2],
+                "path": row[3],
+                "kind": row[4],
+                "detail": row[5],
+                "user_email": row[6],
+                "request_id": row[7],
+                "traceback": row[8],
+            }
+            for row in rows
+        ],
+    }
+
+
+def clear_errors(actor_id: uuid.UUID, before_days: int) -> dict:
+    """Sweep out failures already dealt with, so the list stays about what is
+    wrong now rather than everything that ever was."""
+    with psycopg.connect(DATABASE_URL) as connection:
+        removed = connection.execute(
+            "DELETE FROM error_events WHERE created_at < now() - make_interval(days => %s) RETURNING code",
+            (before_days,),
+        ).fetchall()
+        _audit(connection, actor_id, "ERRORS_CLEARED", "error_event", actor_id,
+               after={"removed": len(removed), "older_than_days": before_days})
+        connection.commit()
+    return {"removed": len(removed)}

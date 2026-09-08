@@ -14,6 +14,7 @@ import uuid
 import psycopg
 from passlib.context import CryptContext
 
+from app.services.permissions import SCREENS
 from tests.security_probe import DATABASE_URL, PASSWORD, call, cleanup, register
 
 results: list[tuple[bool, str, str]] = []
@@ -40,9 +41,9 @@ def make_admin(created: list[str]) -> tuple[str, str]:
     return email, payload["access_token"]
 
 
-def grant(admin: str, role: str, screen: str, can_view: bool) -> int:
+def grant(admin: str, role: str, screen: str, allowed: bool, action: str = "view") -> int:
     status, _ = call("PUT", "/admin/permissions", admin,
-                     {"role": role, "screen": screen, "can_view": can_view})
+                     {"role": role, "screen": screen, "action": action, "allowed": allowed})
     return status
 
 
@@ -64,7 +65,7 @@ def seed_event(member_id: str, location_id: str) -> str:
 
 def main() -> int:
     created: list[str] = []
-    restore: list[tuple[str, str, bool]] = []
+    restore: list[tuple[str, str, bool, str]] = []
     try:
         admin_email, admin = make_admin(created)
         manager_email, manager = register("MANAGER", created)
@@ -98,8 +99,12 @@ def main() -> int:
               "records" in screens.get("screens", []) and "admin-users" not in screens.get("screens", []))
 
         status, screens = call("GET", "/auth/me/screens", admin)
-        check("Quản trị hệ thống thấy mọi màn hình", len(screens.get("screens", [])) == 18,
-              f"{len(screens.get('screens', []))} màn hình")
+        check("Quản trị hệ thống thấy mọi màn hình", len(screens.get("screens", [])) == len(SCREENS),
+              f"{len(screens.get('screens', []))}/{len(SCREENS)} màn hình")
+        permissions = screens.get("permissions", {})
+        check("Bản đồ quyền theo hành động được trả kèm",
+              permissions.get("locations", {}).get("delete") is True,
+              str(permissions.get("locations")))
 
         # --- 2. A screen nobody granted stays shut ----------------------------
         status, payload = call("GET", "/manager/attendance", member)
@@ -109,7 +114,7 @@ def main() -> int:
         # --- 3. Granting really opens it, and data stays scoped ---------------
         own_event = seed_event(member_id, location_id)
         other_event = seed_event(other_id, location_id)
-        restore.append(("MEMBER", "records", False))
+        restore.append(("MEMBER", "records", False, "view"))
         check("Admin cấp được quyền xem bản ghi cho thành viên",
               grant(admin, "MEMBER", "records", True) == 200)
 
@@ -129,7 +134,7 @@ def main() -> int:
               f"{len(people)} dòng")
 
         # --- 4. Revoking closes it again --------------------------------------
-        restore.append(("MANAGER", "audit", True))
+        restore.append(("MANAGER", "audit", True, "view"))
         grant(admin, "MANAGER", "audit", False)
         status, payload = call("GET", "/manager/audit-logs", manager)
         check("Bỏ tick là người quản lý mất luôn màn hình nhật ký",
@@ -140,12 +145,12 @@ def main() -> int:
 
         # --- 5. Admin cannot lock itself out ----------------------------------
         status, payload = call("PUT", "/admin/permissions", admin,
-                               {"role": "SUPER_ADMIN", "screen": "admin-roles", "can_view": False})
+                               {"role": "SUPER_ADMIN", "screen": "admin-roles", "action": "view", "allowed": False})
         check("Không tự khoá mình khỏi trang phân quyền được",
               status == 409 and payload.get("detail") == "SCREEN_LOCKED_FOR_SUPER_ADMIN", f"HTTP {status}")
 
         status, _ = call("PUT", "/admin/permissions", admin,
-                         {"role": "MANAGER", "screen": "khong-co-that", "can_view": True})
+                         {"role": "MANAGER", "screen": "khong-co-that", "action": "view", "allowed": True})
         check("Màn hình không tồn tại bị từ chối", status == 422, f"HTTP {status}")
 
         status, _ = call("GET", "/admin/permissions", manager)
@@ -176,9 +181,6 @@ def main() -> int:
         # --- 8. A manager checks in like anybody else --------------------------
         status, _ = call("POST", "/faces/enrollment/start", manager)
         check("Người quản lý đăng ký được khuôn mặt để tự chấm công", status == 201, f"HTTP {status}")
-
-        status, _ = call("POST", "/faces/enrollment/start", admin)
-        check("Tài khoản quản trị hệ thống không đăng ký khuôn mặt", status == 403, f"HTTP {status}")
 
         manager_id = _user_id(manager_email)
         status, _ = call("POST", f"/manager/members/{manager_id}/locations", manager,
@@ -248,6 +250,77 @@ def main() -> int:
         check("Nhật ký của người quản lý không lẫn thao tác của quản trị hệ thống",
               status == 200 and not foreign, f"{len(foreign)} dòng lạ")
 
+        # --- 9b. Actions are separate from viewing -----------------------------
+        restore.append(("MANAGER", "locations", True, "delete"))
+        grant(admin, "MANAGER", "locations", False, "delete")
+        status, mine = call("GET", "/manager/locations", manager)
+        check("Bỏ quyền xoá vẫn xem được danh sách địa điểm", status == 200, f"HTTP {status}")
+        status, payload = call("DELETE", f"/manager/locations/{location_id}/permanent", manager)
+        check("Bỏ quyền xoá thì nút xoá bị từ chối",
+              status == 403 and str(payload.get("detail", "")).startswith("ACTION_NOT_ALLOWED"),
+              f"HTTP {status} {payload.get('detail')}")
+        status, _ = call("PUT", f"/manager/locations/{location_id}", manager, {
+            "name": "RBAC probe", "latitude": 21.0, "longitude": 105.8,
+            "allow_radius_meters": 500, "warning_radius_meters": 900,
+        })
+        check("Mất quyền xoá không đụng tới quyền sửa", status == 200, f"HTTP {status}")
+        grant(admin, "MANAGER", "locations", True, "delete")
+
+        # Clearing the view must take the rest with it.
+        restore.append(("MANAGER", "locations", True, "view"))
+        grant(admin, "MANAGER", "locations", False, "view")
+        status, permissions = call("GET", "/admin/permissions", admin)
+        cleared = permissions.get("roles", {}).get("MANAGER", {}).get("locations", {})
+        check("Bỏ quyền xem là mất luôn thêm/sửa/xoá",
+              not any(cleared.values()), str(cleared))
+        grant(admin, "MANAGER", "locations", True, "view")
+        grant(admin, "MANAGER", "locations", True, "create")
+        grant(admin, "MANAGER", "locations", True, "edit")
+        grant(admin, "MANAGER", "locations", True, "delete")
+
+        # --- 9c. The super admin really can act, not just look ------------------
+        status, all_locations = call("GET", "/manager/locations", admin)
+        names = [row["name"] for row in all_locations] if isinstance(all_locations, list) else []
+        check("Quản trị hệ thống thấy địa điểm của mọi người quản lý",
+              status == 200 and "RBAC probe" in names, f"{len(names)} địa điểm")
+
+        status, edited = call("PUT", f"/manager/locations/{location_id}", admin, {
+            "name": "RBAC probe (admin sửa)", "latitude": 21.0, "longitude": 105.8,
+            "allow_radius_meters": 400, "warning_radius_meters": 800,
+        })
+        check("Quản trị hệ thống sửa được địa điểm của người khác",
+              status == 200 and edited.get("name") == "RBAC probe (admin sửa)", f"HTTP {status}")
+
+        status, roster_admin = call("GET", "/manager/members", admin)
+        emails = [row["email"] for row in roster_admin] if isinstance(roster_admin, list) else []
+        check("Quản trị hệ thống thấy toàn bộ thành viên, không riêng nhóm nào",
+              status == 200 and member_email in emails, f"{len(emails)} thành viên")
+
+        status, _ = call("PUT", f"/manager/members/{other_id}", admin, {"status": "SUSPENDED"})
+        check("Quản trị hệ thống đổi được trạng thái thành viên của người khác", status == 200, f"HTTP {status}")
+        call("PUT", f"/manager/members/{other_id}", admin, {"status": "ACTIVE"})
+
+        status, _ = call("POST", "/faces/enrollment/start", admin)
+        check("Quản trị hệ thống cũng đăng ký được khuôn mặt", status == 201, f"HTTP {status}")
+
+        # A grid that can only be broken one tick at a time needs a way back.
+        grant(admin, "MANAGER", "attendance", False)
+        status, restored = call("POST", "/admin/permissions/reset", admin)
+        check("Khôi phục được toàn bộ phân quyền về mặc định",
+              status == 200 and restored.get("restored", 0) >= 1, f"HTTP {status} {restored}")
+        status, grid = call("GET", "/admin/permissions", admin)
+        check("Sau khi khôi phục, người quản lý lại tự chấm công được",
+              grid.get("roles", {}).get("MANAGER", {}).get("attendance", {}).get("view") is True,
+              str(grid.get("roles", {}).get("MANAGER", {}).get("attendance")))
+
+        status, created_place = call("POST", "/manager/locations", admin, {
+            "name": "Admin tu tao", "address": None, "latitude": 21.1, "longitude": 105.9,
+            "allow_radius_meters": 100, "warning_radius_meters": 200, "is_active": True,
+        })
+        check("Quản trị hệ thống tạo được địa điểm", status == 201, f"HTTP {status}")
+        if status == 201:
+            call("DELETE", f"/manager/locations/{created_place['id']}/permanent", admin)
+
         # --- 10. Deleting an account still works now that two new tables ------
         #         point at users. A missed foreign key here means the delete
         #         path breaks for everybody, not just this probe.
@@ -261,14 +334,14 @@ def main() -> int:
 
         status, permissions = call("GET", "/admin/permissions", admin)
         check("Bảng phân quyền không bị mất dòng nào sau khi xoá tài khoản",
-              status == 200 and len(permissions.get("roles", {}).get("MANAGER", {})) == 18,
+              status == 200 and len(permissions.get("roles", {}).get("MANAGER", {})) == len(SCREENS),
               f"{len(permissions.get('roles', {}).get('MANAGER', {}))} dòng")
 
         call("DELETE", f"/manager/locations/{location_id}/permanent", manager)
     finally:
-        for role, screen, value in restore:
+        for role, screen, value, action in restore:
             try:
-                grant(admin, role, screen, value)
+                grant(admin, role, screen, value, action)
             except Exception:
                 pass
         cleanup(created)

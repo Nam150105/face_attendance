@@ -2,6 +2,7 @@ import secrets
 import uuid
 
 from fastapi import APIRouter, HTTPException, Request, status
+from pydantic import BaseModel, Field
 import psycopg
 
 from app.auth import (
@@ -31,7 +32,8 @@ from app.auth import (
     DATABASE_URL,
 )
 from app.security import clear_rate_limit, client_ip, enforce_rate_limit
-from app.services.permissions import allowed_screens
+from app.services.permissions import permissions_for
+from app.services.teams import request_join
 from fastapi import Depends
 
 
@@ -55,6 +57,14 @@ def register(request: RegisterRequest, http_request: Request) -> TokenResponse:
                 "INSERT INTO users (email, password_hash, role, status, email_verified_at) VALUES (%s, %s, %s::user_role, 'ACTIVE', now()) RETURNING id, role::text",
                 (str(request.email).lower(), password_context.hash(request.password), request.role),
             ).fetchone()
+            connection.commit()
+            if request.team_code:
+                # A wrong code must not undo a good sign-up: the account exists
+                # either way, and the person can try the code again from inside.
+                try:
+                    request_join(row[0], request.team_code)
+                except HTTPException:
+                    pass
             return issue_tokens(
                 connection, row[0], row[1], request.device_id, http_request.headers.get("user-agent")
             )
@@ -246,6 +256,38 @@ def reset_password(request: ResetPasswordRequest, http_request: Request) -> None
         connection.commit()
 
 
+class ChangePasswordRequest(BaseModel):
+    current_password: str = Field(min_length=1, max_length=200)
+    new_password: str = Field(min_length=8, max_length=200)
+
+
+@router.post("/change-password", status_code=status.HTTP_204_NO_CONTENT)
+def change_password(request: ChangePasswordRequest, http_request: Request,
+                    user: CurrentUser = Depends(get_current_user)) -> None:
+    """
+    Changing a password proves you know the old one, then ends every session.
+
+    Ending sessions is the point: somebody changing their password usually
+    suspects another device has it, and leaving that device signed in would
+    make the change theatre.
+    """
+    enforce_rate_limit("change-password", str(user.id), limit=5, window_seconds=900)
+    validate_password(request.new_password)
+    with psycopg.connect(DATABASE_URL) as connection:
+        row = connection.execute("SELECT password_hash FROM users WHERE id = %s", (user.id,)).fetchone()
+        if row is None or not password_context.verify(request.current_password, row[0]):
+            raise HTTPException(status_code=403, detail="CURRENT_PASSWORD_WRONG")
+        if password_context.verify(request.new_password, row[0]):
+            raise HTTPException(status_code=422, detail="NEW_PASSWORD_SAME_AS_OLD")
+        connection.execute(
+            "UPDATE users SET password_hash = %s, updated_at = now() WHERE id = %s",
+            (password_context.hash(request.new_password), user.id),
+        )
+        revoke_user_sessions(connection, user.id, "PASSWORD_CHANGED")
+        connection.commit()
+    _record_login_apart(user.email, user.id, "PASSWORD_CHANGED", http_request)
+
+
 @router.get("/me", response_model=CurrentUser)
 def me(user: CurrentUser = Depends(get_current_user)) -> CurrentUser:
     return user
@@ -253,6 +295,15 @@ def me(user: CurrentUser = Depends(get_current_user)) -> CurrentUser:
 
 @router.get("/me/screens")
 def my_screens(user: CurrentUser = Depends(get_current_user)) -> dict:
-    """What this account may open. The sidebar is built from this, and every
-    screen behind it checks the same table again on its own endpoints."""
-    return {"role": user.role, "email": user.email, "screens": allowed_screens(user.role)}
+    """
+    What this account may open and do. The sidebar is built from `screens`, and
+    buttons are hidden using `permissions` — but hiding is only courtesy: every
+    endpoint checks the same table again for itself.
+    """
+    permissions = permissions_for(user.role)
+    return {
+        "role": user.role,
+        "email": user.email,
+        "screens": [screen for screen, actions in permissions.items() if actions["view"]],
+        "permissions": permissions,
+    }

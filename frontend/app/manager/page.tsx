@@ -30,8 +30,17 @@ function initials(name: string | null, email: string): string {
 
 export default function ManagerHomePage() {
   const [data, setData] = useState<ManagerDashboard | null>(null);
+  const [pending, setPending] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [hoveredDay, setHoveredDay] = useState<{ date: string; in: number; out: number; total: number } | null>(null);
+
+  useEffect(() => {
+    // A request nobody looks at is a person who cannot check in tomorrow.
+    api
+      .joinRequests()
+      .then((rows) => setPending(rows.length))
+      .catch(() => setPending(0));
+  }, []);
 
   useEffect(() => {
     api
@@ -88,6 +97,16 @@ export default function ManagerHomePage() {
       </div>
 
       {/* 4 Commercial Metric KPI Cards */}
+      {pending > 0 ? (
+        <Alert tone="warning">
+          <strong>{pending} người</strong> đang chờ bạn duyệt vào nhóm. Chưa duyệt thì họ chưa chấm
+          công được.{" "}
+          <Link href="/manager/join-requests" className="alert__action">
+            Xem ngay
+          </Link>
+        </Alert>
+      ) : null}
+
       <div className="tiles">
         <div className="tile tile--primary">
           <div className="tile__head">

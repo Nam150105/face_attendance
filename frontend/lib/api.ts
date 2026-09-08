@@ -40,12 +40,15 @@ export const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || "/api/v1";
 export class ApiError extends Error {
   readonly statusCode: number;
   readonly code: string;
+  /** Present when the server hit a defect and filed it under this code. */
+  readonly errorCode: string | null;
 
-  constructor(statusCode: number, code: string, message: string) {
+  constructor(statusCode: number, code: string, message: string, errorCode: string | null = null) {
     super(message);
     this.name = "ApiError";
     this.statusCode = statusCode;
     this.code = code;
+    this.errorCode = errorCode;
   }
 }
 
@@ -62,13 +65,15 @@ function detailToCode(detail: unknown): string {
 
 async function toApiError(response: Response): Promise<ApiError> {
   let code = "UNKNOWN_ERROR";
+  let errorCode: string | null = response.headers.get("X-Error-Code");
   try {
-    const body = (await response.json()) as { detail?: unknown };
+    const body = (await response.json()) as { detail?: unknown; error_code?: string };
     code = detailToCode(body.detail);
+    errorCode = body.error_code ?? errorCode;
   } catch {
     code = response.statusText || "UNKNOWN_ERROR";
   }
-  return new ApiError(response.status, code, code);
+  return new ApiError(response.status, code, code, errorCode);
 }
 
 /** Requests that never come back must fail loudly instead of hanging forever. */
@@ -222,10 +227,10 @@ async function requestBlob(path: string): Promise<Blob> {
 }
 
 export const api = {
-  register(email: string, password: string, role: UserRole) {
+  register(email: string, password: string, role: UserRole, teamCode?: string) {
     return request<TokenPair>("/auth/register", {
       method: "POST",
-      json: { email, password, role, device_id: deviceId() },
+      json: { email, password, role, team_code: teamCode || null, device_id: deviceId() },
       auth: false,
     });
   },
@@ -268,21 +273,104 @@ export const api = {
   faceStatus() {
     return request<FaceEnrollmentStatus>("/faces/me");
   },
+  changePassword(current_password: string, new_password: string) {
+    return request<void>("/auth/change-password", {
+      method: "POST",
+      json: { current_password, new_password },
+    });
+  },
+  myManagers() {
+    return request<
+      { user_id: string; email: string; full_name: string | null; phone: string | null;
+        position: string | null; department: string | null }[]
+    >("/members/me/managers");
+  },
+  adminErrors(params: { search?: string; limit?: number; offset?: number } = {}) {
+    return request<{
+      total: number;
+      items: {
+        code: string; created_at: string; method: string; path: string; kind: string;
+        detail: string; user_email: string | null; request_id: string | null; traceback: string;
+      }[];
+    }>(`/admin/errors${queryString(params)}`);
+  },
+  clearAdminErrors(older_than_days: number) {
+    return request<{ removed: number }>(`/admin/errors?older_than_days=${older_than_days}`, {
+      method: "DELETE",
+    });
+  },
+  managerTeams() {
+    return request<
+      { id: string; code: string; name: string; is_open: boolean; pending: number; members: number }[]
+    >("/manager/teams");
+  },
+  createTeam(name: string, code?: string) {
+    return request<{ id: string; code: string; name: string }>("/manager/teams", {
+      method: "POST",
+      json: { name, code: code || null },
+    });
+  },
+  updateTeam(teamId: string, patch: { name?: string; is_open?: boolean }) {
+    return request<{ id: string }>(`/manager/teams/${teamId}`, { method: "PUT", json: patch });
+  },
+  deleteTeam(teamId: string) {
+    return request<{ deleted: boolean }>(`/manager/teams/${teamId}`, { method: "DELETE" });
+  },
+  joinRequests() {
+    return request<
+      {
+        member_id: string; email: string; role: string; full_name: string | null; phone: string | null;
+        position: string | null; department: string | null; team_name: string | null;
+        team_code: string | null; requested_at: string;
+      }[]
+    >("/manager/join-requests");
+  },
+  decideJoinRequest(memberId: string, approve: boolean, note?: string) {
+    return request<{ status: string }>(`/manager/join-requests/${memberId}`, {
+      method: "POST",
+      json: { approve, note: note || null },
+    });
+  },
+  lookupTeam(code: string) {
+    // Called from the sign-up form, where nobody is signed in yet.
+    return request<{ name: string; manager_name: string }>(
+      `/teams/lookup/${encodeURIComponent(code)}`,
+      { auth: false },
+    );
+  },
+  joinTeam(code: string) {
+    return request<{ team: string; status: string }>("/teams/join", { method: "POST", json: { code } });
+  },
+  myJoinRequests() {
+    return request<
+      { status: string; team_name: string | null; team_code: string | null; note: string | null;
+        decided_at: string | null; manager_name: string }[]
+    >("/teams/my-requests");
+  },
   myScreens() {
-    return request<{ role: string; email: string; screens: string[] }>("/auth/me/screens");
+    return request<{
+      role: string;
+      email: string;
+      screens: string[];
+      permissions: Record<string, Record<"view" | "create" | "edit" | "delete", boolean>>;
+    }>("/auth/me/screens");
   },
   adminPermissions() {
     return request<{
       screens: string[];
-      roles: Record<string, Record<string, boolean>>;
+      actions: string[];
+      roles: Record<string, Record<string, Record<string, boolean>>>;
       locked: Record<string, string[]>;
     }>("/admin/permissions");
   },
-  setPermission(role: string, screen: string, can_view: boolean) {
-    return request<{ role: string; screen: string; can_view: boolean }>("/admin/permissions", {
+  setPermission(role: string, screen: string, action: string, allowed: boolean) {
+    return request<Record<string, unknown>>("/admin/permissions", {
       method: "PUT",
-      json: { role, screen, can_view },
+      json: { role, screen, action, allowed },
     });
+  },
+  resetPermissions() {
+    return request<{ restored: number }>("/admin/permissions/reset", { method: "POST" });
   },
   adminTables() {
     return request<{ tables: { name: string; label: string; rows: number }[] }>("/admin/data");

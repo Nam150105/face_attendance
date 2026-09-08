@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 
 import { AdminShell } from "../../components/AdminShell";
+import { RecognitionEnginePanel } from "../../components/RecognitionEnginePanel";
 import { Alert, Card, LoadingRows } from "../../components/ui";
 import { api } from "../../lib/api";
 import { describeError } from "../../lib/messages";
@@ -97,6 +98,7 @@ export default function AdminHomePage() {
           </div>
         </>
       ) : null}
+      <RecognitionEnginePanel />
     </AdminShell>
   );
 }

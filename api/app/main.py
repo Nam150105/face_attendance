@@ -5,6 +5,8 @@ import time
 from fastapi import FastAPI, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 
+from app.errors import unhandled_exception
+
 from app.observability import (
     configure_logging,
     metrics,
@@ -22,6 +24,7 @@ from app.routers import (
     manager_attendance,
     member_portal,
     members,
+    teams,
 )
 
 
@@ -40,6 +43,7 @@ async def request_context(request: Request, call_next):
     quote it in a report and an operator can find the exact line in the log.
     """
     request_id = new_request_id(request.headers.get("x-request-id"))
+    request.state.request_id = request_id
     token = request_id_var.set(request_id)
     started = time.perf_counter()
     response: Response | None = None
@@ -105,7 +109,15 @@ app.include_router(faces.router, prefix="/api/v1")
 app.include_router(attendance.router, prefix="/api/v1")
 app.include_router(member_portal.member_router, prefix="/api/v1")
 app.include_router(member_portal.manager_router, prefix="/api/v1")
+app.include_router(teams.router, prefix="/api/v1")
+app.include_router(teams.requests_router, prefix="/api/v1")
+app.include_router(teams.member_router, prefix="/api/v1")
 app.include_router(admin.router, prefix="/api/v1")
+
+
+# Anything that reaches here is a defect, not a user mistake: record it and give
+# back a code instead of the internals.
+app.add_exception_handler(Exception, unhandled_exception)
 
 
 @app.get("/health", tags=["system"])

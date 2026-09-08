@@ -6,7 +6,8 @@ import uuid
 import psycopg
 from fastapi import HTTPException
 
-from app.auth import DATABASE_URL
+from app.auth import CurrentUser, DATABASE_URL
+from app.services.permissions import managed_by, owner_filter
 from app.domain.geofence import GeofencePolicy, evaluate_geofence
 
 
@@ -50,27 +51,31 @@ def _validate_coordinates(latitude: float, longitude: float, accuracy: float | N
         raise HTTPException(status_code=422, detail="GPS accuracy must be non-negative")
 
 
-def list_locations(manager_id: uuid.UUID) -> list[dict]:
+def list_locations(user: CurrentUser) -> list[dict]:
+    where, parameters = owner_filter(managed_by(user))
     with psycopg.connect(DATABASE_URL) as connection:
         rows = connection.execute(
-            f"SELECT {LOCATION_COLUMNS} FROM locations WHERE manager_user_id = %s ORDER BY name",
-            (manager_id,),
+            f"SELECT {LOCATION_COLUMNS} FROM locations WHERE {where} ORDER BY name", parameters
         ).fetchall()
     return [_location(row) for row in rows]
 
 
-def get_location(manager_id: uuid.UUID, location_id: uuid.UUID) -> dict:
+def get_location(user: CurrentUser, location_id: uuid.UUID) -> dict:
+    where, parameters = owner_filter(managed_by(user))
     with psycopg.connect(DATABASE_URL) as connection:
         row = connection.execute(
-            f"SELECT {LOCATION_COLUMNS} FROM locations WHERE manager_user_id = %s AND id = %s AND is_active = true",
-            (manager_id, location_id),
+            f"SELECT {LOCATION_COLUMNS} FROM locations WHERE {where} AND id = %s AND is_active = true",
+            [*parameters, location_id],
         ).fetchone()
     if row is None:
-        raise HTTPException(status_code=404, detail="Location is outside manager scope")
+        raise HTTPException(status_code=404, detail="Location is outside your scope")
     return _location(row)
 
 
-def create_location(manager_id: uuid.UUID, payload: dict) -> dict:
+def create_location(user: CurrentUser, payload: dict) -> dict:
+    # Somebody has to own a place. A super admin creating one owns it until they
+    # hand it over, which beats leaving an ownerless row nobody can manage.
+    manager_id = user.id
     _validate_coordinates(payload["latitude"], payload["longitude"])
     if payload["allow_radius_meters"] <= 0 or payload["warning_radius_meters"] <= payload["allow_radius_meters"]:
         raise HTTPException(status_code=422, detail="warning_radius_meters must be greater than allow_radius_meters")
@@ -97,17 +102,19 @@ def create_location(manager_id: uuid.UUID, payload: dict) -> dict:
     return _location(row)
 
 
-def update_location(manager_id: uuid.UUID, location_id: uuid.UUID, payload: dict) -> dict:
+def update_location(user: CurrentUser, location_id: uuid.UUID, payload: dict) -> dict:
+    manager_id = user.id
+    where, scope = owner_filter(managed_by(user))
     _validate_coordinates(payload["latitude"], payload["longitude"])
     if payload["allow_radius_meters"] <= 0 or payload["warning_radius_meters"] <= payload["allow_radius_meters"]:
         raise HTTPException(status_code=422, detail="warning_radius_meters must be greater than allow_radius_meters")
     with psycopg.connect(DATABASE_URL) as connection:
         previous = connection.execute(
-            f"SELECT {LOCATION_COLUMNS} FROM locations WHERE manager_user_id = %s AND id = %s",
-            (manager_id, location_id),
+            f"SELECT {LOCATION_COLUMNS} FROM locations WHERE {where} AND id = %s",
+            [*scope, location_id],
         ).fetchone()
         if previous is None:
-            raise HTTPException(status_code=404, detail="Location is outside manager scope")
+            raise HTTPException(status_code=404, detail="Location is outside your scope")
         row = connection.execute(
             f"""
             UPDATE locations SET name = %(name)s, address = %(address)s, latitude = %(latitude)s,
@@ -115,10 +122,10 @@ def update_location(manager_id: uuid.UUID, location_id: uuid.UUID, payload: dict
                 warning_radius_meters = %(warning_radius_meters)s, is_active = %(is_active)s,
                 expected_check_in = %(expected_check_in)s, expected_check_out = %(expected_check_out)s,
                 grace_minutes = %(grace_minutes)s, enforce_hours = %(enforce_hours)s, updated_at = now()
-            WHERE manager_user_id = %(manager_id)s AND id = %(location_id)s
+            WHERE id = %(location_id)s
             RETURNING {LOCATION_COLUMNS}
             """,
-            {"manager_id": manager_id, "location_id": location_id, **payload},
+            {"location_id": location_id, **payload},
         ).fetchone()
         connection.execute(
             "INSERT INTO audit_logs (actor_user_id, action, entity_type, entity_id, before_json, after_json) VALUES (%s, 'LOCATION_UPDATED', 'location', %s, %s::jsonb, %s::jsonb)",
@@ -128,7 +135,9 @@ def update_location(manager_id: uuid.UUID, location_id: uuid.UUID, payload: dict
     return _location(row)
 
 
-def delete_location(manager_id: uuid.UUID, location_id: uuid.UUID) -> dict:
+def delete_location(user: CurrentUser, location_id: uuid.UUID) -> dict:
+    manager_id = user.id
+    where, scope = owner_filter(managed_by(user))
     """
     Erase a location outright. Only allowed while nothing points at it: an
     attendance record without its location would lose the distance it was
@@ -136,11 +145,10 @@ def delete_location(manager_id: uuid.UUID, location_id: uuid.UUID) -> dict:
     """
     with psycopg.connect(DATABASE_URL) as connection:
         owned = connection.execute(
-            "SELECT name FROM locations WHERE manager_user_id = %s AND id = %s",
-            (manager_id, location_id),
+            f"SELECT name FROM locations WHERE {where} AND id = %s", [*scope, location_id]
         ).fetchone()
         if owned is None:
-            raise HTTPException(status_code=404, detail="Location is outside manager scope")
+            raise HTTPException(status_code=404, detail="Location is outside your scope")
         used = connection.execute(
             "SELECT 1 FROM attendance_events WHERE location_id = %s LIMIT 1", (location_id,)
         ).fetchone()
@@ -159,14 +167,16 @@ def delete_location(manager_id: uuid.UUID, location_id: uuid.UUID) -> dict:
     return {"location_id": location_id, "deleted": True}
 
 
-def remove_location(manager_id: uuid.UUID, location_id: uuid.UUID) -> dict:
+def remove_location(user: CurrentUser, location_id: uuid.UUID) -> dict:
+    manager_id = user.id
+    where, scope = owner_filter(managed_by(user))
     with psycopg.connect(DATABASE_URL) as connection:
         row = connection.execute(
-            "UPDATE locations SET is_active = false, updated_at = now() WHERE manager_user_id = %s AND id = %s RETURNING id",
-            (manager_id, location_id),
+            f"UPDATE locations SET is_active = false, updated_at = now() WHERE {where} AND id = %s RETURNING id",
+            [*scope, location_id],
         ).fetchone()
         if row is None:
-            raise HTTPException(status_code=404, detail="Location is outside manager scope")
+            raise HTTPException(status_code=404, detail="Location is outside your scope")
         connection.execute(
             "INSERT INTO audit_logs (actor_user_id, action, entity_type, entity_id, after_json) VALUES (%s, 'LOCATION_DEACTIVATED', 'location', %s, %s::jsonb)",
             (manager_id, location_id, json.dumps({"is_active": False})),
@@ -175,10 +185,13 @@ def remove_location(manager_id: uuid.UUID, location_id: uuid.UUID) -> dict:
     return {"location_id": location_id, "is_active": False}
 
 
-def _assert_in_scope(connection: psycopg.Connection, manager_id: uuid.UUID, member_id: uuid.UUID) -> None:
-    """A manager who works on site checks in like everybody else, so they count
-    as being inside their own scope."""
-    if member_id == manager_id:
+def _assert_in_scope(connection: psycopg.Connection, manager_id: uuid.UUID | None, member_id: uuid.UUID) -> None:
+    """
+    A manager who works on site checks in like everybody else, so they count as
+    being inside their own scope. `None` is the super admin, whose scope is
+    everybody.
+    """
+    if manager_id is None or member_id == manager_id:
         return
     allowed = connection.execute(
         "SELECT 1 FROM manager_memberships WHERE manager_user_id = %s AND member_user_id = %s AND status = 'ACTIVE'",
@@ -188,15 +201,18 @@ def _assert_in_scope(connection: psycopg.Connection, manager_id: uuid.UUID, memb
         raise HTTPException(status_code=404, detail="Member is outside manager scope")
 
 
-def assign_location(manager_id: uuid.UUID, member_id: uuid.UUID, location_id: uuid.UUID, is_default: bool) -> dict:
+def assign_location(user: CurrentUser, member_id: uuid.UUID, location_id: uuid.UUID, is_default: bool) -> dict:
+    manager_id = user.id
+    owner = managed_by(user)
+    where, scope = owner_filter(owner)
     with psycopg.connect(DATABASE_URL) as connection:
-        _assert_in_scope(connection, manager_id, member_id)
+        _assert_in_scope(connection, owner, member_id)
         location = connection.execute(
-            "SELECT id FROM locations WHERE manager_user_id = %s AND id = %s AND is_active = true",
-            (manager_id, location_id),
+            f"SELECT id FROM locations WHERE {where} AND id = %s AND is_active = true",
+            [*scope, location_id],
         ).fetchone()
         if location is None:
-            raise HTTPException(status_code=404, detail="Location is outside manager scope or inactive")
+            raise HTTPException(status_code=404, detail="Location is outside your scope or inactive")
         if is_default:
             connection.execute("UPDATE member_locations SET is_default = false WHERE member_id = %s", (member_id,))
         connection.execute(
@@ -256,9 +272,9 @@ def list_member_locations(member_id: uuid.UUID) -> list[dict]:
     return [{**_location(row), "is_default": row[11]} for row in rows]
 
 
-def list_assigned_locations(manager_id: uuid.UUID, member_id: uuid.UUID) -> list[dict]:
+def list_assigned_locations(user: CurrentUser, member_id: uuid.UUID) -> list[dict]:
     with psycopg.connect(DATABASE_URL) as connection:
-        _assert_in_scope(connection, manager_id, member_id)
+        _assert_in_scope(connection, managed_by(user), member_id)
         rows = connection.execute(
             f"""
             SELECT {LOCATION_JOIN_COLUMNS}, ml.is_default
@@ -271,19 +287,21 @@ def list_assigned_locations(manager_id: uuid.UUID, member_id: uuid.UUID) -> list
     return [{**_location(row), "is_default": row[11]} for row in rows]
 
 
-def unassign_location(manager_id: uuid.UUID, member_id: uuid.UUID, location_id: uuid.UUID) -> dict:
+def unassign_location(user: CurrentUser, member_id: uuid.UUID, location_id: uuid.UUID) -> dict:
+    manager_id = user.id
+    owner_clause, owner_params = owner_filter(managed_by(user), "l.manager_user_id")
     with psycopg.connect(DATABASE_URL) as connection:
-        _assert_in_scope(connection, manager_id, member_id)
+        _assert_in_scope(connection, managed_by(user), member_id)
         removed = connection.execute(
             """
             DELETE FROM member_locations ml USING locations l
-            WHERE ml.location_id = l.id AND ml.member_id = %s AND ml.location_id = %s AND l.manager_user_id = %s
+            WHERE ml.location_id = l.id AND ml.member_id = %s AND ml.location_id = %s AND {owner}
             RETURNING ml.id
-            """,
-            (member_id, location_id, manager_id),
+            """.format(owner=owner_clause),
+            [member_id, location_id, *owner_params],
         ).fetchone()
         if removed is None:
-            raise HTTPException(status_code=404, detail="Assignment not found in manager scope")
+            raise HTTPException(status_code=404, detail="Assignment not found in your scope")
         connection.execute(
             "INSERT INTO audit_logs (actor_user_id, action, entity_type, entity_id, before_json) VALUES (%s, 'LOCATION_UNASSIGNED', 'member_location', %s, %s::jsonb)",
             (manager_id, member_id, json.dumps({"location_id": str(location_id)})),

@@ -4,7 +4,8 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel, Field
 
-from app.auth import CurrentUser, get_current_user, require_role
+from app.auth import CurrentUser, get_current_user
+from app.services.permissions import require_action, require_screen
 from app.services.member_portal import (
     attendance_day_events,
     attendance_days,
@@ -41,13 +42,13 @@ member_router = APIRouter(tags=["member-portal"])
 def my_daily_attendance(
     date_from: date | None = None,
     date_to: date | None = None,
-    user: CurrentUser = Depends(require_role("MEMBER")),
+    user: CurrentUser = Depends(require_screen("history")),
 ) -> dict:
     return attendance_days(user.id, date_from, date_to)
 
 
 @member_router.get("/attendance/me/day/{work_date}")
-def my_day_detail(work_date: date, user: CurrentUser = Depends(require_role("MEMBER"))) -> list[dict]:
+def my_day_detail(work_date: date, user: CurrentUser = Depends(require_screen("history"))) -> list[dict]:
     return attendance_day_events(user.id, work_date)
 
 
@@ -75,18 +76,18 @@ def read_all_notifications(user: CurrentUser = Depends(get_current_user)) -> dic
 def my_corrections(
     limit: int = Query(default=30, ge=1, le=100),
     offset: int = Query(default=0, ge=0),
-    user: CurrentUser = Depends(require_role("MEMBER")),
+    user: CurrentUser = Depends(require_screen("my-corrections")),
 ) -> dict:
     return list_my_corrections(user.id, limit, offset)
 
 
 @member_router.post("/attendance/corrections", status_code=201)
-def submit_correction(request: CorrectionRequest, user: CurrentUser = Depends(require_role("MEMBER"))) -> dict:
+def submit_correction(request: CorrectionRequest, user: CurrentUser = Depends(require_screen("my-corrections"))) -> dict:
     return create_correction(user.id, request.model_dump())
 
 
 @member_router.delete("/attendance/corrections/{request_id}")
-def withdraw_correction(request_id: UUID, user: CurrentUser = Depends(require_role("MEMBER"))) -> dict:
+def withdraw_correction(request_id: UUID, user: CurrentUser = Depends(require_screen("my-corrections"))) -> dict:
     return cancel_correction(user.id, request_id)
 
 
@@ -100,7 +101,7 @@ def corrections_queue(
     status: str | None = Query(default=None, pattern="^(PENDING|APPROVED|REJECTED)$"),
     limit: int = Query(default=50, ge=1, le=200),
     offset: int = Query(default=0, ge=0),
-    user: CurrentUser = Depends(require_role("MANAGER")),
+    user: CurrentUser = Depends(require_screen("corrections")),
 ) -> dict:
     return list_corrections_for_manager(user.id, status, limit, offset)
 
@@ -109,6 +110,6 @@ def corrections_queue(
 def review(
     request_id: UUID,
     request: CorrectionReviewRequest,
-    user: CurrentUser = Depends(require_role("MANAGER")),
+    user: CurrentUser = Depends(require_action("corrections", "edit")),
 ) -> dict:
     return review_correction(user.id, request_id, request.decision, request.note)

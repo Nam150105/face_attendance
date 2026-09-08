@@ -6,10 +6,8 @@ import { useCallback, useEffect, useState } from "react";
 import { AppShell } from "../../components/AppShell";
 import { BiometricConsent } from "../../components/BiometricConsent";
 import { CameraCapture, type CapturePhase, type CapturedImage, type PhaseLabels } from "../../components/CameraCapture";
-import { RecognitionEnginePanel } from "../../components/RecognitionEnginePanel";
-import { Alert, Badge, Button, Card, DataList, playChime } from "../../components/ui";
+import { Alert, Button, Card, playChime } from "../../components/ui";
 import { ApiError, api } from "../../lib/api";
-import { formatDateTime } from "../../lib/geo";
 import { describeCode, describeError } from "../../lib/messages";
 import type { CurrentUser, EnrollmentResult, FaceEnrollmentStatus } from "../../lib/types";
 
@@ -29,7 +27,6 @@ export default function EnrollPage() {
   const [phase, setPhase] = useState<CapturePhase>("idle");
   const [message, setMessage] = useState<string | null>(null);
   const [tone, setTone] = useState<"danger" | "warning" | "success">("danger");
-  const [quality, setQuality] = useState<EnrollmentResult | null>(null);
   const [done, setDone] = useState(false);
 
   const load = useCallback(async () => {
@@ -54,7 +51,6 @@ export default function EnrollPage() {
     setCaptured(image);
     setPhase("idle");
     setMessage(null);
-    setQuality(null);
   }, []);
 
   async function submit() {
@@ -66,7 +62,6 @@ export default function EnrollPage() {
     try {
       const challenge = await api.startEnrollment();
       const result = await api.verifyEnrollment(challenge, captured.blob);
-      setQuality(result);
       if (result.status !== "ENROLLED") {
         setPhase("failed");
         setTone("warning");
@@ -92,12 +87,9 @@ export default function EnrollPage() {
         <div>
           <h1 className="page-title">Đăng ký khuôn mặt</h1>
           <p className="page-lead">
-            Ảnh của bạn được chuyển thành đặc trưng số đã mã hoá, chỉ dùng để đối chiếu khi ghi nhận.
+            Chụp một ảnh để hệ thống nhận ra bạn mỗi lần chấm công. Chỉ mất khoảng một phút.
           </p>
         </div>
-        <Badge tone={face?.enrolled ? "success" : "warning"}>
-          {face?.enrolled ? "Đã đăng ký" : "Chưa đăng ký"}
-        </Badge>
       </div>
 
       {face?.needs_reenrollment ? (
@@ -107,33 +99,13 @@ export default function EnrollPage() {
         </Alert>
       ) : null}
 
-      {face?.enrolled ? (
-        <Card title="Hồ sơ hiện tại" subtitle="Bạn có thể đăng ký lại bất cứ lúc nào nếu diện mạo thay đổi.">
-          <DataList
-            rows={[
-              {
-                key: "Trạng thái",
-                value: face.needs_reenrollment ? (
-                  <Badge tone="warning">Cần đăng ký lại</Badge>
-                ) : (
-                  <Badge tone="success">Đang hoạt động</Badge>
-                ),
-              },
-              { key: "Thời điểm đăng ký", value: face.enrolled_at ? formatDateTime(face.enrolled_at) : "—" },
-              { key: "Nhận diện bằng", value: face.model_name ?? "—" },
-            ]}
-          />
-        </Card>
+      {face?.enrolled && !face.needs_reenrollment ? (
+        <Alert tone="success">
+          Bạn đã đăng ký khuôn mặt. Chụp lại ở đây nếu diện mạo thay đổi — ảnh mới sẽ thay ảnh cũ.
+        </Alert>
       ) : null}
 
-      <RecognitionEnginePanel engine={face?.engine} />
-
-      <BiometricConsent />
-
-      <Card
-        title="Chụp ảnh khuôn mặt"
-        subtitle="Chọn nơi đủ sáng, nhìn thẳng vào camera, không đeo kính râm hay khẩu trang."
-      >
+      <Card title="Chụp ảnh khuôn mặt">
         <div className="stack">
           <CameraCapture
             captureLabel="Chụp ảnh"
@@ -142,29 +114,6 @@ export default function EnrollPage() {
             phase={phase}
             disabled={phase === "working"}
           />
-
-          {quality ? (
-            <div className="quality">
-              <div className="quality__item">
-                <p className="quality__value" style={{ color: quality.face_count === 1 ? "var(--color-success)" : "var(--color-danger)" }}>
-                  {quality.face_count ?? "0"}
-                </p>
-                <p className="quality__label">Khuôn mặt</p>
-              </div>
-              <div className="quality__item">
-                <p className="quality__value">
-                  {quality.blur_score ? `${quality.blur_score.toFixed(0)}` : "—"}
-                </p>
-                <p className="quality__label">Độ rõ nét</p>
-              </div>
-              <div className="quality__item">
-                <p className="quality__value">
-                  {quality.brightness_score ? `${quality.brightness_score.toFixed(0)}` : "—"}
-                </p>
-                <p className="quality__label">Độ sáng</p>
-              </div>
-            </div>
-          ) : null}
 
           {message ? <Alert tone={tone}>{message}</Alert> : null}
 
@@ -192,14 +141,15 @@ export default function EnrollPage() {
       </Card>
 
       {/* Guidance Tips Card */}
-      <Card title="Để ảnh đạt chất lượng tốt nhất">
+      <Card title="Ba điều giúp chụp đạt ngay lần đầu">
         <ul className="stack stack--tight" style={{ fontSize: "var(--text-sm)", color: "var(--text-secondary)", paddingLeft: "18px" }}>
-          <li>Chỉ để <strong>một người</strong> trong khung hình.</li>
-          <li>Chọn nơi có ánh sáng đều, tránh ngược sáng hoặc bóng đổ trên mặt.</li>
-          <li>Bỏ kính râm, khẩu trang và mũ che khuất trán hoặc mắt.</li>
-          <li>Giữ thiết bị cách mặt khoảng 40–60 cm, ngang tầm mắt.</li>
+          <li>Chỉ để <strong>một mình bạn</strong> trong khung hình.</li>
+          <li>Đứng nơi sáng đều, đừng để đèn hay cửa sổ ngay sau lưng.</li>
+          <li>Bỏ khẩu trang, kính râm và mũ che trán.</li>
         </ul>
       </Card>
+
+      <BiometricConsent />
     </AppShell>
   );
 }
