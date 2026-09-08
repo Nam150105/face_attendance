@@ -4,3 +4,12 @@ opencv-python-headless==4.10.0.84
 numpy==2.1.3
 python-multipart==0.0.20
 onnxruntime==1.20.1
+# Recognition core. dlib-bin ships the prebuilt wheel; installing plain `dlib`
+# would compile it from source on every image build.
+dlib-bin==20.0.1
+face_recognition_models==0.3.0
+# face_recognition_models reads its model paths through pkg_resources, which
+# setuptools 81 removed.
+setuptools==75.8.0
+click==8.1.8
+pillow==11.1.0

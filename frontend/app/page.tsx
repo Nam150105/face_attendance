@@ -4,7 +4,6 @@ import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 
 import { AppShell } from "../components/AppShell";
-import { MemberNav } from "../components/MemberNav";
 import { Alert, Badge, Button, Card, DataList, Empty, LoadingRows } from "../components/ui";
 import { ApiError, api } from "../lib/api";
 import { formatDateTime, formatDistance, isSecureContextReady } from "../lib/geo";
@@ -104,7 +103,6 @@ export default function DashboardPage() {
   if (loading) {
     return (
       <AppShell>
-        <MemberNav />
         <div className="page-header">
           <div>
             <h1 className="page-title">Trang chủ</h1>
@@ -121,7 +119,6 @@ export default function DashboardPage() {
   if (error || !data) {
     return (
       <AppShell>
-        <MemberNav />
         <h1 className="page-title">Trang chủ</h1>
         <Card>
           <div className="stack">
@@ -142,7 +139,6 @@ export default function DashboardPage() {
 
   return (
     <AppShell email={data.user.email}>
-      <MemberNav />
 
       <div className="page-header">
         <div>

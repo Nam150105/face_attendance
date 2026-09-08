@@ -4,7 +4,6 @@ import { useSearchParams } from "next/navigation";
 import { Suspense, useCallback, useEffect, useState } from "react";
 
 import { AppShell } from "../../components/AppShell";
-import { MemberNav } from "../../components/MemberNav";
 import {
   Alert,
   Badge,
@@ -99,7 +98,6 @@ function CorrectionsContent() {
 
   return (
     <AppShell email={user?.email} wide>
-      <MemberNav />
 
       <div className="page-header">
         <div>

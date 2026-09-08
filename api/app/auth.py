@@ -277,6 +277,17 @@ def get_current_user(token: Annotated[str, Depends(access_token)]) -> CurrentUse
     return CurrentUser(id=row[0], email=row[1], role=row[2], status=row[3], session_id=row[4])
 
 
+def require_roles(*roles: str):
+    """For actions two roles share — a manager acting on their group and a super
+    admin acting anywhere both adjust the same record."""
+    def dependency(user: Annotated[CurrentUser, Depends(get_current_user)]) -> CurrentUser:
+        if user.role not in roles:
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Insufficient permissions")
+        return user
+
+    return dependency
+
+
 def require_role(role: str):
     def dependency(user: Annotated[CurrentUser, Depends(get_current_user)]) -> CurrentUser:
         if user.role != role:

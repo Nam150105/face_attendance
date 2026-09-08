@@ -4,7 +4,6 @@ import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { AppShell } from "../../components/AppShell";
-import { MemberNav } from "../../components/MemberNav";
 import { CameraCapture, type CapturePhase, type CapturedImage, type PhaseLabels } from "../../components/CameraCapture";
 import { PermissionHelp } from "../../components/PermissionHelp";
 import { Alert, Badge, Button, Card, SelectField, TextAreaField, playChime } from "../../components/ui";
@@ -221,7 +220,6 @@ export default function AttendancePage() {
 
   return (
     <AppShell email={user?.email}>
-      <MemberNav />
 
       <div className="page-header">
         <div>

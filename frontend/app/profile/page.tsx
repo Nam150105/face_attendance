@@ -4,7 +4,6 @@ import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 
 import { AppShell } from "../../components/AppShell";
-import { MemberNav } from "../../components/MemberNav";
 import { Alert, Badge, Button, Card, DataList, Field, LoadingRows } from "../../components/ui";
 import { ApiError, api } from "../../lib/api";
 import { formatDateTime } from "../../lib/geo";
@@ -79,7 +78,6 @@ export default function ProfilePage() {
 
   return (
     <AppShell email={user?.email} wide>
-      <MemberNav />
 
       <div className="page-header">
         <div>

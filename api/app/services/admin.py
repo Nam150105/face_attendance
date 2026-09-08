@@ -194,6 +194,7 @@ def reset_user_password(actor_id: uuid.UUID, user_id: uuid.UUID, new_password: s
 
 
 DEPENDENT_TABLES = (
+    ("login_attempts", "user_id"),
     ("notifications", "user_id"),
     ("attendance_correction_requests", "member_id"),
     ("attendance_correction_requests", "reviewed_by"),
@@ -244,6 +245,11 @@ def delete_user(actor_id: uuid.UUID, user_id: uuid.UUID, reason: str) -> dict:
             connection.execute(f"DELETE FROM {table} WHERE {column} = %s", (user_id,))
         connection.execute(
             "UPDATE audit_logs SET actor_user_id = %s WHERE actor_user_id = %s", (actor_id, user_id)
+        )
+        # Permissions belong to the role, not to whoever last ticked the box.
+        # Deleting that person must not quietly reset what a role may open.
+        connection.execute(
+            "UPDATE role_permissions SET updated_by = NULL WHERE updated_by = %s", (user_id,)
         )
         connection.execute("DELETE FROM users WHERE id = %s", (user_id,))
         connection.commit()

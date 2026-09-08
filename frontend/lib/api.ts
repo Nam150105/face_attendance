@@ -16,10 +16,12 @@ import type {
   EnrollmentChallenge,
   EnrollmentResult,
   FaceEnrollmentStatus,
+  RecognitionEngine,
   GeofenceDecision,
   LocationInput,
   ManagedMember,
   AttendanceCalendar,
+  LoginHistory,
   ManagerAttendanceEvent,
   ManagerDashboard,
   CorrectionsResponse,
@@ -204,6 +206,21 @@ async function request<T>(path: string, options: RequestOptions = {}): Promise<T
   return (await response.json()) as T;
 }
 
+/** Private images come back as bytes, never as a public URL. */
+async function requestBlob(path: string): Promise<Blob> {
+  const tokens = readTokens();
+  if (!tokens) {
+    throw new ApiError(401, "NOT_AUTHENTICATED", "NOT_AUTHENTICATED");
+  }
+  const response = await fetch(`${API_BASE_URL}${path}`, {
+    headers: { "X-API-Key": tokens.access_token },
+  });
+  if (!response.ok) {
+    throw await toApiError(response);
+  }
+  return response.blob();
+}
+
 export const api = {
   register(email: string, password: string, role: UserRole) {
     return request<TokenPair>("/auth/register", {
@@ -250,6 +267,46 @@ export const api = {
   },
   faceStatus() {
     return request<FaceEnrollmentStatus>("/faces/me");
+  },
+  myScreens() {
+    return request<{ role: string; email: string; screens: string[] }>("/auth/me/screens");
+  },
+  adminPermissions() {
+    return request<{
+      screens: string[];
+      roles: Record<string, Record<string, boolean>>;
+      locked: Record<string, string[]>;
+    }>("/admin/permissions");
+  },
+  setPermission(role: string, screen: string, can_view: boolean) {
+    return request<{ role: string; screen: string; can_view: boolean }>("/admin/permissions", {
+      method: "PUT",
+      json: { role, screen, can_view },
+    });
+  },
+  adminTables() {
+    return request<{ tables: { name: string; label: string; rows: number }[] }>("/admin/data");
+  },
+  adminRows(table: string, params: { search?: string; limit?: number; offset?: number } = {}) {
+    return request<{
+      table: string;
+      label: string;
+      columns: { name: string; type: string; nullable: boolean; has_default: boolean; readonly: boolean }[];
+      total: number;
+      items: Record<string, unknown>[];
+    }>(`/admin/data/${table}${queryString(params)}`);
+  },
+  adminInsertRow(table: string, values: Record<string, unknown>) {
+    return request<Record<string, unknown>>(`/admin/data/${table}`, { method: "POST", json: { values } });
+  },
+  adminUpdateRow(table: string, rowId: string, values: Record<string, unknown>) {
+    return request<Record<string, unknown>>(`/admin/data/${table}/${rowId}`, { method: "PUT", json: { values } });
+  },
+  adminDeleteRow(table: string, rowId: string) {
+    return request<{ deleted: boolean }>(`/admin/data/${table}/${rowId}`, { method: "DELETE" });
+  },
+  recognitionEngine() {
+    return request<RecognitionEngine>("/faces/engine");
   },
   startEnrollment() {
     return request<EnrollmentChallenge>("/faces/enrollment/start", { method: "POST" });
@@ -446,6 +503,13 @@ export const api = {
   managerAttendance(filters: AttendanceFilters = {}) {
     return request<Paged<ManagerAttendanceEvent>>(`/manager/attendance${queryString(filters)}`);
   },
+  async memberFacePhoto(memberId: string): Promise<string> {
+    const blob = await requestBlob(`/manager/members/${memberId}/face-photo`);
+    return URL.createObjectURL(blob);
+  },
+  memberLoginHistory(memberId: string, limit = 50) {
+    return request<LoginHistory>(`/manager/members/${memberId}/login-history?limit=${limit}`);
+  },
   managerAttendanceCalendar(month: string) {
     return request<AttendanceCalendar>(`/manager/attendance/calendar?month=${month}`);
   },
@@ -453,17 +517,7 @@ export const api = {
     return request<ManagerAttendanceEvent>(`/manager/attendance/${eventId}`);
   },
   async managerAttendanceImage(eventId: string): Promise<string> {
-    const tokens = readTokens();
-    if (!tokens) {
-      throw new ApiError(401, "NOT_AUTHENTICATED", "NOT_AUTHENTICATED");
-    }
-    const response = await fetch(`${API_BASE_URL}/manager/attendance/${eventId}/image`, {
-      headers: { "X-API-Key": tokens.access_token },
-    });
-    if (!response.ok) {
-      throw await toApiError(response);
-    }
-    return URL.createObjectURL(await response.blob());
+    return URL.createObjectURL(await requestBlob(`/manager/attendance/${eventId}/image`));
   },
   manualAdjust(eventId: string, payload: { status?: string; server_time?: string; reason: string }) {
     return request<ManagerAttendanceEvent>(`/manager/attendance/${eventId}/manual-adjust`, {

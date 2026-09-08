@@ -21,6 +21,24 @@ from tests.security_probe import JPEG, call, cleanup, multipart, register
 
 LOCAL_ZONE = ZoneInfo(os.getenv("APP_TIMEZONE", "Asia/Ho_Chi_Minh"))
 
+# Working hours are wall-clock times on one day, and the table enforces
+# start < end. Deriving them from "N minutes ago" made the probe wrap past
+# midnight and fail depending on the hour it ran, so the cases below pin fixed
+# times and vary the allowance instead:
+#
+#   DAY_START   already past by the time any probe runs, so arrival is late
+#   DAY_END     late enough that start < end always holds
+#   FUTURE      still ahead, so arrival counts as early
+#
+# The one case that must track the clock is "late but inside the allowance",
+# because the allowance is capped at 240 minutes: the start has to sit a few
+# minutes behind now. That case is the only one that would misbehave in the
+# first five minutes after midnight, when "five minutes ago" is yesterday.
+DAY_START = "00:05:00"
+DAY_END = "23:55:00"
+FUTURE_START = "23:58:00"
+FUTURE_END = "23:59:00"
+
 results: list[tuple[bool, str, str]] = []
 
 
@@ -29,11 +47,7 @@ def check(name: str, passed: bool, detail: str = "") -> None:
     print(("PASS  " if passed else "FAIL  ") + name + ("  " + detail if detail else ""))
 
 
-def clock(minutes_ago: int) -> str:
-    return (datetime.now(LOCAL_ZONE) - timedelta(minutes=minutes_ago)).strftime("%H:%M:%S")
-
-
-def save_hours(manager: str, location_id: str, started_minutes_ago: int,
+def save_hours(manager: str, location_id: str, start: str, end: str,
                grace: int, enforce: bool) -> tuple[int, dict]:
     return call("PUT", f"/manager/locations/{location_id}", manager, {
         "name": "Hours probe",
@@ -43,11 +57,15 @@ def save_hours(manager: str, location_id: str, started_minutes_ago: int,
         "allow_radius_meters": 500,
         "warning_radius_meters": 900,
         "is_active": True,
-        "expected_check_in": clock(started_minutes_ago),
-        "expected_check_out": clock(started_minutes_ago - 480),
+        "expected_check_in": start,
+        "expected_check_out": end,
         "grace_minutes": grace,
         "enforce_hours": enforce,
     })
+
+
+def _minutes_ago(minutes: int) -> str:
+    return (datetime.now(LOCAL_ZONE) - timedelta(minutes=minutes)).strftime("%H:%M:%S")
 
 
 def attempt(member: str, location_id: str) -> tuple[int, str]:
@@ -91,7 +109,7 @@ def main() -> int:
               f"HTTP {code} {detail}")
 
         # Hours saved on the location, read back unchanged.
-        status, saved = save_hours(manager, location_id, started_minutes_ago=120, grace=10, enforce=False)
+        status, saved = save_hours(manager, location_id, DAY_START, DAY_END, grace=10, enforce=False)
         check("Lưu được giờ vào/ra, số phút muộn cho phép và ô cho phép vào muộn",
               status == 200 and saved.get("grace_minutes") == 10 and saved.get("enforce_hours") is False,
               f"HTTP {status} grace={saved.get('grace_minutes')} enforce={saved.get('enforce_hours')}")
@@ -102,19 +120,19 @@ def main() -> int:
               code == 409 and detail == "FACE_NOT_ENROLLED", f"HTTP {code} {detail}")
 
         # Same lateness, tick on: refused.
-        save_hours(manager, location_id, started_minutes_ago=120, grace=10, enforce=True)
+        save_hours(manager, location_id, DAY_START, DAY_END, grace=10, enforce=True)
         code, detail = attempt(member, location_id)
         check("Bật chặn thì quá số phút cho phép bị từ chối",
               code == 403 and detail == "CHECK_IN_TOO_LATE", f"HTTP {code} {detail}")
 
         # Still inside the allowed minutes, tick on: allowed through.
-        save_hours(manager, location_id, started_minutes_ago=5, grace=60, enforce=True)
+        save_hours(manager, location_id, _minutes_ago(5), DAY_END, grace=60, enforce=True)
         code, detail = attempt(member, location_id)
         check("Muộn trong mức cho phép thì vẫn vào được dù đang bật chặn",
               code == 409 and detail == "FACE_NOT_ENROLLED", f"HTTP {code} {detail}")
 
         # Arriving before the start time is never late.
-        save_hours(manager, location_id, started_minutes_ago=-30, grace=0, enforce=True)
+        save_hours(manager, location_id, FUTURE_START, FUTURE_END, grace=0, enforce=True)
         code, detail = attempt(member, location_id)
         check("Đến sớm không bao giờ bị coi là muộn",
               code == 409 and detail == "FACE_NOT_ENROLLED", f"HTTP {code} {detail}")

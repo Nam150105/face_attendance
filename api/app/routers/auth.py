@@ -31,6 +31,7 @@ from app.auth import (
     DATABASE_URL,
 )
 from app.security import clear_rate_limit, client_ip, enforce_rate_limit
+from app.services.permissions import allowed_screens
 from fastapi import Depends
 
 
@@ -61,17 +62,76 @@ def register(request: RegisterRequest, http_request: Request) -> TokenResponse:
         raise HTTPException(status_code=409, detail="Email is already registered") from error
 
 
+def _login_row(email: str, user_id, outcome: str, http_request: Request) -> tuple:
+    return (
+        email,
+        user_id,
+        outcome,
+        client_ip(http_request),
+        (http_request.headers.get("user-agent") or "")[:400],
+    )
+
+
+_LOGIN_INSERT = (
+    "INSERT INTO login_attempts (email, user_id, outcome, ip_address, user_agent)"
+    " VALUES (%s, %s, %s, %s, %s)"
+)
+
+
+def _record_login_here(connection: psycopg.Connection, email: str, user_id, outcome: str,
+                       http_request: Request) -> None:
+    """
+    Write the attempt on the caller's own connection.
+
+    A successful login holds `SELECT ... FOR UPDATE` on the user row for the
+    rest of its transaction. login_attempts has a foreign key to that row, so an
+    insert from a *second* connection would wait for a key-share lock the first
+    transaction will not release until it returns — the two would wait on each
+    other until the request timed out. Same connection, no wait.
+    """
+    try:
+        connection.execute(_LOGIN_INSERT, _login_row(email, user_id, outcome, http_request))
+    except psycopg.Error:
+        pass
+
+
+def _record_login_apart(email: str, user_id, outcome: str, http_request: Request) -> None:
+    """
+    For refusals, which raise and would roll the record back with the rest of the
+    transaction. Safe on its own connection because a rejected login holds no
+    row lock. History is evidence, not a gate: a logging failure must never be
+    the reason somebody cannot sign in.
+    """
+    try:
+        with psycopg.connect(DATABASE_URL) as connection:
+            connection.execute(_LOGIN_INSERT, _login_row(email, user_id, outcome, http_request))
+            connection.commit()
+    except psycopg.Error:
+        pass
+
+
 @router.post("/login", response_model=TokenResponse)
 def login(request: LoginRequest, http_request: Request) -> TokenResponse:
     email = str(request.email).lower()
     address = client_ip(http_request)
-    enforce_rate_limit("login-ip", address, limit=20, window_seconds=LOGIN_WINDOW_SECONDS)
-    enforce_rate_limit("login-account", email, limit=10, window_seconds=LOGIN_WINDOW_SECONDS)
+    try:
+        enforce_rate_limit("login-ip", address, limit=20, window_seconds=LOGIN_WINDOW_SECONDS)
+        enforce_rate_limit("login-account", email, limit=10, window_seconds=LOGIN_WINDOW_SECONDS)
+    except HTTPException:
+        _record_login_apart(email, None, "RATE_LIMITED", http_request)
+        raise
     with psycopg.connect(DATABASE_URL) as connection:
         row = connection.execute(
             "SELECT id, password_hash, role::text, status::text FROM users WHERE email = %s", (email,)
         ).fetchone()
-        if row is None or row[3] != "ACTIVE" or not password_context.verify(request.password, row[1]):
+        if row is None:
+            _record_login_apart(email, None, "NO_ACCOUNT", http_request)
+            raise unauthorized("Invalid email or password")
+        if row[3] != "ACTIVE":
+            _record_login_apart(email, row[0], "SUSPENDED", http_request)
+            raise unauthorized("Invalid email or password")
+        if not password_context.verify(request.password, row[1]):
+            _record_login_apart(email, row[0], "BAD_PASSWORD", http_request)
             raise unauthorized("Invalid email or password")
         # Hold the account row for the rest of the transaction: two logins racing
         # each other are serialised, so the loser revokes and re-inserts cleanly
@@ -82,6 +142,7 @@ def login(request: LoginRequest, http_request: Request) -> TokenResponse:
         # out a legitimate user for the rest of the window.
         clear_rate_limit("login-account", email, LOGIN_WINDOW_SECONDS)
         clear_rate_limit("login-ip", address, LOGIN_WINDOW_SECONDS)
+        _record_login_here(connection, email, row[0], "SUCCESS", http_request)
         return issue_tokens(
             connection, row[0], row[2], request.device_id, http_request.headers.get("user-agent")
         )
@@ -188,3 +249,10 @@ def reset_password(request: ResetPasswordRequest, http_request: Request) -> None
 @router.get("/me", response_model=CurrentUser)
 def me(user: CurrentUser = Depends(get_current_user)) -> CurrentUser:
     return user
+
+
+@router.get("/me/screens")
+def my_screens(user: CurrentUser = Depends(get_current_user)) -> dict:
+    """What this account may open. The sidebar is built from this, and every
+    screen behind it checks the same table again on its own endpoints."""
+    return {"role": user.role, "email": user.email, "screens": allowed_screens(user.role)}

@@ -3,7 +3,6 @@
 import { useCallback, useEffect, useState } from "react";
 
 import { AppShell } from "../../components/AppShell";
-import { MemberNav } from "../../components/MemberNav";
 import { Alert, Badge, Button, Card, DataList, Empty, LoadingRows } from "../../components/ui";
 import { api } from "../../lib/api";
 import { GeolocationUnavailableError, formatDistance, readPosition, type FixedPosition } from "../../lib/geo";
@@ -81,7 +80,6 @@ export default function MemberLocationsPage() {
 
   return (
     <AppShell email={user?.email} wide>
-      <MemberNav />
 
       <div className="page-header">
         <div>

@@ -2734,3 +2734,424 @@ body {
     text-align: left;
   }
 }
+
+/* Recognition pipeline panel ---------------------------------------------- */
+.engine {
+  display: grid;
+  gap: var(--space-2);
+  margin-bottom: var(--space-2);
+}
+
+.engine__stage {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+}
+
+.engine__step {
+  flex: 0 0 auto;
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  border-radius: var(--radius-full);
+  background: var(--color-primary-soft);
+  border: 1px solid var(--border-primary);
+  color: var(--color-primary);
+  font-size: var(--text-xs);
+  font-weight: 700;
+}
+
+.engine__name {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 8px;
+  font-size: var(--text-md);
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.engine__version {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  font-weight: 500;
+  color: var(--text-muted);
+}
+
+.engine__role {
+  margin-top: 2px;
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+  line-height: 1.55;
+}
+
+.engine__chain {
+  margin-top: 6px;
+  padding: 6px 10px;
+  border-radius: var(--radius-xs);
+  background: var(--surface-raised);
+  border: 1px solid var(--border-subtle);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--text-secondary);
+  overflow-x: auto;
+  white-space: nowrap;
+}
+
+/* Face comparison in the record detail ------------------------------------ */
+.face-compare {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-2);
+}
+
+.face-compare__cell {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.face-compare__label {
+  font-size: var(--text-xs);
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.face-compare__frame {
+  display: grid;
+  place-items: center;
+  min-height: 180px;
+  padding: 8px;
+  border-radius: var(--radius-sm);
+  background: var(--surface-raised);
+  border: 1px solid var(--border-subtle);
+}
+
+.face-compare__frame img {
+  max-width: 100%;
+  max-height: 320px;
+  border-radius: var(--radius-xs);
+}
+
+.face-compare__missing {
+  padding: 16px;
+  text-align: center;
+  font-size: var(--text-sm);
+  color: var(--text-muted);
+}
+
+.face-metric {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  padding: 12px;
+  border-radius: var(--radius-sm);
+  background: var(--surface-raised);
+  border: 1px solid var(--border-subtle);
+}
+
+.face-metric > div {
+  min-width: 110px;
+}
+
+.face-metric__label {
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+}
+
+.face-metric__value {
+  font-family: var(--font-mono);
+  font-size: var(--text-md);
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+@media (max-width: 640px) {
+  .face-compare {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* Application frame: sidebar + content ------------------------------------ */
+.layout {
+  display: grid;
+  grid-template-columns: 248px minmax(0, 1fr);
+  min-height: 100vh;
+}
+
+.sidebar {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-2);
+  background: var(--surface-panel);
+  border-right: 1px solid var(--border-subtle);
+  overflow-y: auto;
+}
+
+.sidebar__brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 6px;
+  text-decoration: none;
+}
+
+.sidebar__logo {
+  width: 32px;
+  height: 32px;
+  flex: 0 0 auto;
+}
+
+.sidebar__brand-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.sidebar__brand-title {
+  font-size: var(--text-md);
+  font-weight: 800;
+  color: var(--text-primary);
+  letter-spacing: -0.01em;
+}
+
+.sidebar__brand-sub {
+  font-size: var(--text-xs);
+  color: var(--color-cyan);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.sidebar__nav {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.sidebar__group {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.sidebar__group-label {
+  padding: 0 10px 6px;
+  font-size: var(--text-xs);
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.sidebar__link {
+  display: flex;
+  align-items: center;
+  min-height: 44px;
+  padding: 0 12px;
+  border-radius: var(--radius-sm);
+  font-size: var(--text-sm);
+  font-weight: 600;
+  color: var(--text-secondary);
+  text-decoration: none;
+  transition: background 120ms ease, color 120ms ease;
+}
+
+.sidebar__link:hover {
+  background: var(--surface-card);
+  color: var(--text-primary);
+}
+
+.sidebar__link[aria-current="page"] {
+  background: var(--color-primary-soft);
+  color: var(--text-primary);
+  box-shadow: inset 3px 0 0 var(--color-primary);
+}
+
+.layout__main {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+/* The topbar was a floating card inside the old centred shell; here it is the
+   page header, so it spans the column and squares off against the sidebar. */
+.layout__main > .topbar {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  margin-bottom: 0;
+  border-radius: 0;
+  border-width: 0 0 1px;
+  flex-wrap: nowrap;
+}
+
+.layout__scrim {
+  display: none;
+  border: 0;
+  background: var(--surface-overlay);
+}
+
+.topbar__menu {
+  display: none;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  background: var(--surface-card);
+  color: var(--text-primary);
+  cursor: pointer;
+}
+
+.topbar__title {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-size: var(--text-lg);
+  font-weight: 700;
+  color: var(--text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.topbar__clock {
+  font-size: 12px;
+  color: var(--color-cyan);
+}
+
+.content {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  width: 100%;
+  max-width: 1180px;
+  padding: var(--space-3) var(--space-3) var(--space-6);
+  margin: 0 auto;
+}
+
+.content--narrow {
+  max-width: 720px;
+}
+
+@media (max-width: 900px) {
+  .layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .sidebar {
+    position: fixed;
+    z-index: 40;
+    top: 0;
+    bottom: 0;
+    left: 0;
+    width: 264px;
+    transform: translateX(-100%);
+    transition: transform 160ms ease;
+  }
+
+  .layout.is-open .sidebar {
+    transform: translateX(0);
+  }
+
+  .layout.is-open .layout__scrim {
+    display: block;
+    position: fixed;
+    z-index: 30;
+    inset: 0;
+  }
+
+  .topbar__menu {
+    display: inline-flex;
+  }
+
+  .topbar__clock,
+  .user-badge__email {
+    display: none;
+  }
+
+  .content {
+    padding: var(--space-2) var(--space-2) var(--space-4);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sidebar {
+    transition: none;
+  }
+}
+
+/* Raw row browser: many narrow columns, none allowed to stretch the page --- */
+.table--dense th,
+.table--dense td {
+  font-size: var(--text-xs);
+  padding: 8px 10px;
+}
+
+/* A wide table scrolls sideways, so the edit buttons have to come with it or
+   they end up somewhere nobody scrolls to. */
+@media (min-width: 769px) {
+  .table--dense .cell-actions {
+    position: sticky;
+    right: 0;
+    background: var(--surface-card);
+    box-shadow: -8px 0 12px -8px rgba(0, 0, 0, 0.6);
+  }
+
+  .table--dense thead .cell-actions {
+    background: var(--surface-panel);
+  }
+}
+
+/* A permission matrix only makes sense as a grid: stacking it into cards turns
+   "which role may open what" into a list you have to hold in your head. Let it
+   scroll sideways instead, at every width. */
+.table--matrix,
+.table--matrix thead,
+.table--matrix tbody,
+.table--matrix tr,
+.table--matrix th,
+.table--matrix td {
+  display: revert;
+}
+
+.table--matrix {
+  display: table;
+  width: 100%;
+  min-width: 520px;
+}
+
+/* The stacked-table rules drop the wrapper's scrolling, because a stacked table
+   never needs it. This one still does. */
+.table-wrap:has(.table--matrix) {
+  overflow-x: auto;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+}
+
+.table--matrix thead {
+  position: static;
+  width: auto;
+  height: auto;
+  clip: auto;
+  overflow: visible;
+}
+
+.table--matrix td::before {
+  content: none;
+}
+
+.table--matrix td,
+.table--matrix th {
+  padding: 10px 12px;
+  text-align: left;
+}
+
+.table--matrix .checkbox {
+  min-height: 44px;
+  justify-content: flex-start;
+}

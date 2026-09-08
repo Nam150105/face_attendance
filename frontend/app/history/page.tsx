@@ -5,7 +5,6 @@ import { useCallback, useEffect, useState } from "react";
 
 import { AppShell } from "../../components/AppShell";
 import { Dialog } from "../../components/Dialog";
-import { MemberNav } from "../../components/MemberNav";
 import { Alert, Badge, Button, Card, DataList, Empty, Field, LoadingRows, SelectField } from "../../components/ui";
 import { ApiError, api } from "../../lib/api";
 import { formatDateTime, formatDistance } from "../../lib/geo";
@@ -86,7 +85,6 @@ export default function HistoryPage() {
 
   return (
     <AppShell email={user?.email} wide>
-      <MemberNav />
 
       <div className="page-header">
         <div>

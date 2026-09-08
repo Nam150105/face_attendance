@@ -175,14 +175,22 @@ def remove_location(manager_id: uuid.UUID, location_id: uuid.UUID) -> dict:
     return {"location_id": location_id, "is_active": False}
 
 
+def _assert_in_scope(connection: psycopg.Connection, manager_id: uuid.UUID, member_id: uuid.UUID) -> None:
+    """A manager who works on site checks in like everybody else, so they count
+    as being inside their own scope."""
+    if member_id == manager_id:
+        return
+    allowed = connection.execute(
+        "SELECT 1 FROM manager_memberships WHERE manager_user_id = %s AND member_user_id = %s AND status = 'ACTIVE'",
+        (manager_id, member_id),
+    ).fetchone()
+    if allowed is None:
+        raise HTTPException(status_code=404, detail="Member is outside manager scope")
+
+
 def assign_location(manager_id: uuid.UUID, member_id: uuid.UUID, location_id: uuid.UUID, is_default: bool) -> dict:
     with psycopg.connect(DATABASE_URL) as connection:
-        allowed = connection.execute(
-            "SELECT 1 FROM manager_memberships WHERE manager_user_id = %s AND member_user_id = %s AND status = 'ACTIVE'",
-            (manager_id, member_id),
-        ).fetchone()
-        if allowed is None:
-            raise HTTPException(status_code=404, detail="Member is outside manager scope")
+        _assert_in_scope(connection, manager_id, member_id)
         location = connection.execute(
             "SELECT id FROM locations WHERE manager_user_id = %s AND id = %s AND is_active = true",
             (manager_id, location_id),
@@ -250,12 +258,7 @@ def list_member_locations(member_id: uuid.UUID) -> list[dict]:
 
 def list_assigned_locations(manager_id: uuid.UUID, member_id: uuid.UUID) -> list[dict]:
     with psycopg.connect(DATABASE_URL) as connection:
-        allowed = connection.execute(
-            "SELECT 1 FROM manager_memberships WHERE manager_user_id = %s AND member_user_id = %s AND status = 'ACTIVE'",
-            (manager_id, member_id),
-        ).fetchone()
-        if allowed is None:
-            raise HTTPException(status_code=404, detail="Member is outside manager scope")
+        _assert_in_scope(connection, manager_id, member_id)
         rows = connection.execute(
             f"""
             SELECT {LOCATION_JOIN_COLUMNS}, ml.is_default
@@ -270,12 +273,7 @@ def list_assigned_locations(manager_id: uuid.UUID, member_id: uuid.UUID) -> list
 
 def unassign_location(manager_id: uuid.UUID, member_id: uuid.UUID, location_id: uuid.UUID) -> dict:
     with psycopg.connect(DATABASE_URL) as connection:
-        allowed = connection.execute(
-            "SELECT 1 FROM manager_memberships WHERE manager_user_id = %s AND member_user_id = %s AND status = 'ACTIVE'",
-            (manager_id, member_id),
-        ).fetchone()
-        if allowed is None:
-            raise HTTPException(status_code=404, detail="Member is outside manager scope")
+        _assert_in_scope(connection, manager_id, member_id)
         removed = connection.execute(
             """
             DELETE FROM member_locations ml USING locations l

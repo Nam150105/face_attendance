@@ -3,7 +3,6 @@
 import { useCallback, useEffect, useState } from "react";
 
 import { AppShell } from "../../components/AppShell";
-import { MemberNav } from "../../components/MemberNav";
 import { Alert, Badge, Button, Card, Empty, LoadingRows } from "../../components/ui";
 import { api } from "../../lib/api";
 import { formatDateTime } from "../../lib/geo";
@@ -58,7 +57,6 @@ export default function NotificationsPage() {
 
   return (
     <AppShell email={user?.email} wide>
-      <MemberNav />
 
       <div className="page-header">
         <div>

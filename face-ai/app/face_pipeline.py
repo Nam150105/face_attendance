@@ -6,11 +6,26 @@ from dataclasses import dataclass
 import cv2
 import numpy as np
 
+from app import recognition
 from app.model_runtime import ModelRuntime
 
 
 class FacePipelineError(ValueError):
     pass
+
+
+# Which engine decides identity. "face_recognition" is the dlib ResNet the
+# project is built around; "arcface" is the ONNX alternative kept for
+# comparison. They produce encodings of different length that mean different
+# things, so an encoding made by one is never fed to the other.
+ENGINE = os.environ.get("FACE_ENGINE", "face_recognition").lower()
+
+MINIMUM_SHARPNESS = float(os.environ.get("FACE_MIN_SHARPNESS", "40"))
+MINIMUM_BRIGHTNESS = float(os.environ.get("FACE_MIN_BRIGHTNESS", "35"))
+MAXIMUM_BRIGHTNESS = float(os.environ.get("FACE_MAX_BRIGHTNESS", "220"))
+# dlib places 68 landmarks on a face it can read properly. Well under that and
+# the encoding is guesswork.
+MINIMUM_LANDMARKS = int(os.environ.get("FACE_MIN_LANDMARKS", "60"))
 
 
 @dataclass(frozen=True)
@@ -19,17 +34,23 @@ class FaceAnalysis:
     blur_score: float | None
     brightness_score: float | None
     face_box: tuple[int, int, int, int] | None
+    landmark_count: int = 0
+    contrast_boosted: bool = False
 
 
 class FacePipeline:
     def __init__(self, model_runtime: ModelRuntime | None = None) -> None:
         cascade_path = cv2.data.haarcascades + "haarcascade_frontalface_default.xml"
-        self.detector = cv2.CascadeClassifier(cascade_path)
-        if self.detector.empty():
+        self.cascade = cv2.CascadeClassifier(cascade_path)
+        if self.cascade.empty():
             raise RuntimeError("OpenCV face detector could not be loaded")
         self.model_runtime = model_runtime
 
+    # ----------------------------------------------------------- OpenCV stage
+
     def decode(self, image_bytes: bytes) -> np.ndarray:
+        """OpenCV turns the uploaded bytes into a BGR matrix. Anything it cannot
+        decode was never an image, whatever the client called it."""
         if not image_bytes or len(image_bytes) > 10 * 1024 * 1024:
             raise FacePipelineError("IMAGE_INVALID")
         image = cv2.imdecode(np.frombuffer(image_bytes, dtype=np.uint8), cv2.IMREAD_COLOR)
@@ -40,33 +61,131 @@ class FacePipeline:
             raise FacePipelineError("IMAGE_TOO_SMALL")
         return image
 
-    def analyze(self, image_bytes: bytes) -> FaceAnalysis:
-        image = self.decode(image_bytes)
-        grayscale = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
-        detected = self.detect_faces(image)
-        blur_score = float(cv2.Laplacian(grayscale, cv2.CV_64F).var())
-        brightness_score = float(np.mean(grayscale))
-        face_box = tuple(int(value) for value in detected[0][0]) if len(detected) == 1 else None
-        return FaceAnalysis(len(detected), blur_score, brightness_score, face_box)
+    def prepare(self, image_bytes: bytes) -> tuple[np.ndarray, recognition.QualityReport]:
+        """Decode, then let OpenCV judge and if needed rescue the frame."""
+        return recognition.measure_quality(self.decode(image_bytes))
 
-    def validate_enrollment(self, image_bytes: bytes) -> FaceAnalysis:
-        analysis = self.analyze(image_bytes)
+    # ------------------------------------------------------- detection stage
+
+    def detect(self, image_bgr: np.ndarray) -> list[tuple[int, int, int, int]]:
+        if ENGINE == "face_recognition" and recognition.LIBRARY_AVAILABLE:
+            return recognition.locate_faces(recognition.to_rgb(image_bgr))
+        if self.model_runtime is not None and self.model_runtime.ready:
+            return [tuple(int(value) for value in box) for box, _ in self._detect_scrfd(image_bgr)]
+        return self._detect_haar(image_bgr)
+
+    def _detect_haar(self, image_bgr: np.ndarray) -> list[tuple[int, int, int, int]]:
+        """OpenCV's Haar cascade — the fallback when no learned detector is
+        loaded. Fast and old; misses angled faces the HOG detector catches."""
+        grayscale = cv2.cvtColor(image_bgr, cv2.COLOR_BGR2GRAY)
+        boxes = self.cascade.detectMultiScale(grayscale, scaleFactor=1.1, minNeighbors=5, minSize=(60, 60))
+        return [(int(x), int(y), int(x + width), int(y + height)) for x, y, width, height in boxes]
+
+    # --------------------------------------------------------- analysis stage
+
+    def analyze(self, image_bytes: bytes) -> tuple[np.ndarray, FaceAnalysis]:
+        image, quality = self.prepare(image_bytes)
+        boxes = self.detect(image)
+        box = boxes[0] if len(boxes) == 1 else None
+        landmarks = 0
+        if box is not None and ENGINE == "face_recognition" and recognition.LIBRARY_AVAILABLE:
+            landmarks = recognition.landmark_count(recognition.to_rgb(image), box)
+        return image, FaceAnalysis(
+            face_count=len(boxes),
+            blur_score=quality.sharpness,
+            brightness_score=quality.brightness,
+            face_box=box,
+            landmark_count=landmarks,
+            contrast_boosted=quality.contrast_boosted,
+        )
+
+    def validate(self, analysis: FaceAnalysis, strict: bool) -> None:
+        """
+        `strict` is enrolment: the reference face is compared against for months,
+        so a poor one poisons every check that follows. A daily check-in is held
+        to the looser bar because the person is standing there waiting.
+        """
         if analysis.face_count == 0:
             raise FacePipelineError("FACE_NOT_FOUND")
         if analysis.face_count > 1:
             raise FacePipelineError("MULTIPLE_FACES")
-        if analysis.blur_score is not None and analysis.blur_score < 40:
-            raise FacePipelineError("FACE_QUALITY_LOW")
-        if analysis.brightness_score is not None and not 35 <= analysis.brightness_score <= 220:
-            raise FacePipelineError("FACE_QUALITY_LOW")
-        return analysis
+        if analysis.blur_score is not None and analysis.blur_score < MINIMUM_SHARPNESS:
+            raise FacePipelineError("FACE_TOO_BLURRY")
+        if analysis.brightness_score is not None and analysis.brightness_score < MINIMUM_BRIGHTNESS:
+            raise FacePipelineError("LIGHTING_TOO_DARK")
+        if analysis.brightness_score is not None and analysis.brightness_score > MAXIMUM_BRIGHTNESS:
+            raise FacePipelineError("LIGHTING_TOO_BRIGHT")
+        if strict and ENGINE == "face_recognition" and analysis.landmark_count < MINIMUM_LANDMARKS:
+            raise FacePipelineError("FACE_NOT_CLEAR")
 
-    def detect_faces(self, image: np.ndarray) -> list[tuple[np.ndarray, np.ndarray]]:
-        if self.model_runtime is not None and self.model_runtime.ready:
-            return self._detect_scrfd(image)
-        grayscale = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
-        boxes = self.detector.detectMultiScale(grayscale, scaleFactor=1.1, minNeighbors=5, minSize=(60, 60))
-        return [(np.array([x, y, x + width, y + height], dtype=np.float32), np.empty((0, 2), dtype=np.float32)) for x, y, width, height in boxes]
+    # -------------------------------------------------------- encoding stage
+
+    def encode(self, image_bgr: np.ndarray, box: tuple[int, int, int, int]) -> tuple[np.ndarray, str, int]:
+        """Returns (encoding, engine name, dimension)."""
+        if ENGINE == "face_recognition":
+            if not recognition.LIBRARY_AVAILABLE:
+                raise FacePipelineError("FACE_MODEL_NOT_CONFIGURED")
+            try:
+                vector = recognition.encode(recognition.to_rgb(image_bgr), box)
+            except RuntimeError as error:
+                raise FacePipelineError(str(error)) from error
+            return vector, recognition.ENGINE_NAME, recognition.ENCODING_DIMENSION
+
+        if self.model_runtime is None or not self.model_runtime.ready:
+            raise FacePipelineError("FACE_MODEL_NOT_CONFIGURED")
+        vector = self._embed_arcface(image_bgr, np.array(box, dtype=np.float32), np.empty((0, 2), dtype=np.float32))
+        return vector, self.model_runtime.model_name, self.model_runtime.embedding_dimension
+
+    def compare(self, candidate: np.ndarray, reference: np.ndarray) -> dict:
+        """
+        Identity, and the numbers behind it. face_recognition decides on
+        Euclidean distance against its own tolerance; ArcFace on cosine
+        similarity against a threshold. Both are reported the same way so the
+        rest of the system does not have to know which engine ran.
+        """
+        if ENGINE == "face_recognition":
+            distance, similarity, matched = recognition.compare(candidate, reference)
+            return {
+                "matched": matched,
+                "metric": "euclidean_distance",
+                "distance": distance,
+                "similarity": similarity,
+                "threshold": recognition.TOLERANCE,
+            }
+        candidate = candidate / max(float(np.linalg.norm(candidate)), 1e-12)
+        reference = reference / max(float(np.linalg.norm(reference)), 1e-12)
+        similarity = float(np.dot(candidate, reference))
+        threshold = float(os.environ.get("FACE_MATCH_THRESHOLD", "0.35"))
+        return {
+            "matched": similarity >= threshold,
+            "metric": "cosine_similarity",
+            "distance": 1.0 - similarity,
+            "similarity": similarity,
+            "threshold": threshold,
+        }
+
+    def engine_info(self) -> dict:
+        if ENGINE == "face_recognition":
+            return recognition.describe()
+        return {
+            "engine": "arcface",
+            "available": self.model_runtime is not None and self.model_runtime.ready,
+            "detector": "SCRFD (ONNX)" if self.model_runtime and self.model_runtime.ready else "OpenCV Haar cascade",
+            "encoder": "ArcFace (ONNX Runtime)",
+            "dimension": self.model_runtime.embedding_dimension if self.model_runtime else 0,
+            "tolerance": float(os.environ.get("FACE_MATCH_THRESHOLD", "0.35")),
+            "preprocessing": ["cv2.imdecode", "cv2.cvtColor", "cv2.Laplacian variance", "cv2.warpAffine"],
+            "versions": recognition.library_versions(),
+            "error": "",
+        }
+
+    @property
+    def ready(self) -> bool:
+        if ENGINE == "face_recognition":
+            return recognition.LIBRARY_AVAILABLE
+        return self.model_runtime is not None and self.model_runtime.ready
+
+    # --------------------------------------------------------- ONNX fallback
 
     def _detect_scrfd(self, image: np.ndarray) -> list[tuple[np.ndarray, np.ndarray]]:
         session = self.model_runtime.detector_session
@@ -105,19 +224,20 @@ class FacePipeline:
         indices = cv2.dnn.NMSBoxes(boxes.tolist(), scores, 0.5, 0.4)
         return [(detections[int(index)][0], detections[int(index)][1]) for index in indices]
 
-    def embedding(self, image: np.ndarray, face_box: np.ndarray, landmarks: np.ndarray) -> np.ndarray:
-        if self.model_runtime is None or not self.model_runtime.ready:
-            raise FacePipelineError("FACE_MODEL_NOT_CONFIGURED")
+    def _embed_arcface(self, image: np.ndarray, face_box: np.ndarray, landmarks: np.ndarray) -> np.ndarray:
         if landmarks.shape != (5, 2):
             x1, y1, x2, y2 = face_box.astype(int)
             crop = image[max(0, y1):max(y1 + 1, y2), max(0, x1):max(x1 + 1, x2)]
             crop = cv2.resize(crop, (112, 112))
         else:
-            reference = np.array([[38.2946, 51.6963], [73.5318, 51.5014], [56.0252, 71.7366], [41.5493, 92.3655], [70.7299, 92.2041]], dtype=np.float32)
+            reference = np.array([
+                [38.2946, 51.6963], [73.5318, 51.5014], [56.0252, 71.7366],
+                [41.5493, 92.3655], [70.7299, 92.2041],
+            ], dtype=np.float32)
             transform, _ = cv2.estimateAffinePartial2D(landmarks.astype(np.float32), reference, method=cv2.RANSAC)
             crop = cv2.warpAffine(image, transform, (112, 112), borderValue=0)
         tensor = (crop[:, :, ::-1].astype(np.float32) - 127.5) / 127.5
         tensor = np.transpose(tensor, (2, 0, 1))[None, ...]
-        vector = self.model_runtime.embedding_session.run(None, {self.model_runtime.embedding_session.get_inputs()[0].name: tensor})[0][0]
-        vector = vector.astype(np.float32)
+        session = self.model_runtime.embedding_session
+        vector = session.run(None, {session.get_inputs()[0].name: tensor})[0][0].astype(np.float32)
         return vector / max(float(np.linalg.norm(vector)), 1e-12)

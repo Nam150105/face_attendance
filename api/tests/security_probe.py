@@ -106,6 +106,7 @@ def register(role: str, created: list[str]) -> tuple[str, str]:
 
 # Every table that points at users, in the order that satisfies the FKs.
 _DEPENDENTS = (
+    ("login_attempts", "user_id"),
     ("notifications", "user_id"),
     ("attendance_correction_requests", "member_id"),
     ("attendance_correction_requests", "reviewed_by"),
@@ -138,6 +139,7 @@ def cleanup(emails: list[str]) -> None:
             return
         for table, column in _DEPENDENTS:
             connection.execute(f"DELETE FROM {table} WHERE {column} = ANY(%s)", (ids,))
+        connection.execute("UPDATE role_permissions SET updated_by = NULL WHERE updated_by = ANY(%s)", (ids,))
         connection.execute("DELETE FROM users WHERE id = ANY(%s)", (ids,))
         connection.commit()
 

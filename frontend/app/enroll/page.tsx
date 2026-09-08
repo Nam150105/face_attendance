@@ -6,6 +6,7 @@ import { useCallback, useEffect, useState } from "react";
 import { AppShell } from "../../components/AppShell";
 import { BiometricConsent } from "../../components/BiometricConsent";
 import { CameraCapture, type CapturePhase, type CapturedImage, type PhaseLabels } from "../../components/CameraCapture";
+import { RecognitionEnginePanel } from "../../components/RecognitionEnginePanel";
 import { Alert, Badge, Button, Card, DataList, playChime } from "../../components/ui";
 import { ApiError, api } from "../../lib/api";
 import { formatDateTime } from "../../lib/geo";
@@ -99,16 +100,33 @@ export default function EnrollPage() {
         </Badge>
       </div>
 
+      {face?.needs_reenrollment ? (
+        <Alert tone="warning">
+          Khuôn mặt bạn đăng ký trước đây dùng mô hình cũ nên hệ thống không so sánh được nữa. Bạn
+          chụp lại một lần ở đây là xong, dữ liệu cũ sẽ được thay thế.
+        </Alert>
+      ) : null}
+
       {face?.enrolled ? (
         <Card title="Hồ sơ hiện tại" subtitle="Bạn có thể đăng ký lại bất cứ lúc nào nếu diện mạo thay đổi.">
           <DataList
             rows={[
-              { key: "Trạng thái", value: <Badge tone="success">Đang hoạt động</Badge> },
+              {
+                key: "Trạng thái",
+                value: face.needs_reenrollment ? (
+                  <Badge tone="warning">Cần đăng ký lại</Badge>
+                ) : (
+                  <Badge tone="success">Đang hoạt động</Badge>
+                ),
+              },
               { key: "Thời điểm đăng ký", value: face.enrolled_at ? formatDateTime(face.enrolled_at) : "—" },
+              { key: "Nhận diện bằng", value: face.model_name ?? "—" },
             ]}
           />
         </Card>
       ) : null}
+
+      <RecognitionEnginePanel engine={face?.engine} />
 
       <BiometricConsent />
 

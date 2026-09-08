@@ -40,12 +40,28 @@ export interface MemberLocation {
   is_default: boolean;
 }
 
+export interface RecognitionEngine {
+  engine: string;
+  available: boolean;
+  detector?: string;
+  encoder?: string;
+  dimension?: number;
+  tolerance?: number;
+  jitters?: number;
+  preprocessing?: string[];
+  versions?: Record<string, string>;
+  error?: string;
+}
+
 export interface FaceEnrollmentStatus {
   enrolled: boolean;
   embedding_id: string | null;
   model_name: string | null;
   model_version: string | null;
   enrolled_at: string | null;
+  has_photo: boolean;
+  needs_reenrollment: boolean;
+  engine: RecognitionEngine;
 }
 
 export interface EnrollmentChallenge {
@@ -215,6 +231,18 @@ export interface AttendanceCalendar {
   days: CalendarDay[];
 }
 
+export interface LoginAttempt {
+  outcome: "SUCCESS" | "BAD_PASSWORD" | "NO_ACCOUNT" | "SUSPENDED" | "RATE_LIMITED";
+  ip_address: string | null;
+  user_agent: string | null;
+  created_at: string;
+}
+
+export interface LoginHistory {
+  totals: Record<string, number>;
+  items: LoginAttempt[];
+}
+
 export interface ManagerAttendanceEvent {
   id: string;
   member_id: string;
@@ -237,6 +265,10 @@ export interface ManagerAttendanceEvent {
   failure_code: string | null;
   minutes_late: number | null;
   minutes_early_leave: number | null;
+  deleted_at?: string | null;
+  face_distance: number | null;
+  face_engine: string | null;
+  has_enrollment_photo: boolean;
 }
 
 export interface AttendanceFilters {

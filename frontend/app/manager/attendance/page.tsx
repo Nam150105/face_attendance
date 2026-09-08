@@ -23,6 +23,7 @@ import { describeError, describeFailure } from "../../../lib/messages";
 import { describeMinutes } from "../../../lib/member";
 import type {
   AttendanceFilters,
+  LoginHistory,
   AttendanceStatus,
   ManagedMember,
   ManagerAttendanceEvent,
@@ -89,6 +90,60 @@ function exportToCsv(events: ManagerAttendanceEvent[]) {
   document.body.removeChild(link);
 }
 
+const LOGIN_LABEL: Record<string, string> = {
+  SUCCESS: "Vào được",
+  BAD_PASSWORD: "Sai mật khẩu",
+  NO_ACCOUNT: "Không có tài khoản",
+  SUSPENDED: "Tài khoản bị khoá",
+  RATE_LIMITED: "Bị chặn tạm thời",
+};
+
+const LOGIN_TONE: Record<string, "success" | "warning" | "danger" | "neutral"> = {
+  SUCCESS: "success",
+  BAD_PASSWORD: "warning",
+  NO_ACCOUNT: "neutral",
+  SUSPENDED: "danger",
+  RATE_LIMITED: "danger",
+};
+
+/** A run of wrong passwords ending in a block is what a lockout looks like. */
+function LOGIN_SUMMARY(totals: Record<string, number>): string {
+  const parts: string[] = [];
+  if (totals.SUCCESS) parts.push(`${totals.SUCCESS} lần vào được`);
+  if (totals.BAD_PASSWORD) parts.push(`${totals.BAD_PASSWORD} lần sai mật khẩu`);
+  if (totals.RATE_LIMITED) parts.push(`${totals.RATE_LIMITED} lần bị chặn vì thử quá nhiều`);
+  if (totals.SUSPENDED) parts.push(`${totals.SUSPENDED} lần vào khi tài khoản đang khoá`);
+  return parts.length > 0 ? parts.join(" · ") : "Chưa có lần đăng nhập nào được ghi lại.";
+}
+
+/** The browser and system, without the version soup nobody reads. */
+function shortDevice(userAgent: string | null): string {
+  if (!userAgent) {
+    return "—";
+  }
+  const system = /Android/i.test(userAgent)
+    ? "Android"
+    : /iPhone|iPad|iOS/i.test(userAgent)
+      ? "iOS"
+      : /Windows/i.test(userAgent)
+        ? "Windows"
+        : /Mac OS/i.test(userAgent)
+          ? "macOS"
+          : /Linux/i.test(userAgent)
+            ? "Linux"
+            : "Khác";
+  const browser = /Edg\//i.test(userAgent)
+    ? "Edge"
+    : /Chrome\//i.test(userAgent)
+      ? "Chrome"
+      : /Safari\//i.test(userAgent)
+        ? "Safari"
+        : /Firefox\//i.test(userAgent)
+          ? "Firefox"
+          : "Trình duyệt khác";
+  return `${browser} trên ${system}`;
+}
+
 export default function ManagerAttendancePage() {
   const [view, setView] = useState<"calendar" | "table">("calendar");
   const [search, setSearch] = useState("");
@@ -104,6 +159,9 @@ export default function ManagerAttendancePage() {
   const [selected, setSelected] = useState<ManagerAttendanceEvent | null>(null);
   const [imageUrl, setImageUrl] = useState<string | null>(null);
   const [imageError, setImageError] = useState<string | null>(null);
+  const [faceUrl, setFaceUrl] = useState<string | null>(null);
+  const [faceError, setFaceError] = useState<string | null>(null);
+  const [logins, setLogins] = useState<LoginHistory | null>(null);
   const [adjustStatus, setAdjustStatus] = useState("");
   const [adjustReason, setAdjustReason] = useState("");
   const [adjustError, setAdjustError] = useState<string | null>(null);
@@ -149,6 +207,14 @@ export default function ManagerAttendancePage() {
     };
   }, [imageUrl]);
 
+  useEffect(() => {
+    return () => {
+      if (faceUrl) {
+        URL.revokeObjectURL(faceUrl);
+      }
+    };
+  }, [faceUrl]);
+
   function updateFilter(patch: AttendanceFilters) {
     setPage(0);
     setFilters((current) => ({ ...current, ...patch }));
@@ -158,6 +224,9 @@ export default function ManagerAttendancePage() {
     setSelected(event);
     setImageUrl(null);
     setImageError(null);
+    setFaceUrl(null);
+    setFaceError(null);
+    setLogins(null);
     setAdjustStatus(event.status);
     setAdjustReason("");
     setAdjustError(null);
@@ -170,6 +239,19 @@ export default function ManagerAttendancePage() {
         setImageError(describeError(cause));
       }
     }
+    // The registered face and the face that turned up, so the comparison is a
+    // person's judgement and not only a number the system produced.
+    if (event.has_enrollment_photo) {
+      try {
+        setFaceUrl(await api.memberFacePhoto(event.member_id));
+      } catch (cause) {
+        setFaceError(describeError(cause));
+      }
+    }
+    api
+      .memberLoginHistory(event.member_id, 20)
+      .then(setLogins)
+      .catch(() => undefined);
   }
 
   async function removeRecord() {
@@ -433,23 +515,64 @@ export default function ManagerAttendancePage() {
       {selected ? (
         <Dialog title="Chi tiết lượt chấm công" onClose={() => setSelected(null)}>
           <div className="stack">
-            {/* Image Preview Box */}
-            {selected.has_image ? (
-              <div className="evidence-box">
-                <span className="evidence-box__label">Ảnh chụp lúc chấm công</span>
-                <div className="evidence-img-wrap">
-                  {imageUrl ? (
-                    <img src={imageUrl} alt="Ảnh chụp lúc ghi nhận" className="evidence-img" />
-                  ) : imageError ? (
-                    <p style={{ color: "var(--color-danger)", padding: 16 }}>{imageError}</p>
-                  ) : (
+            {/* The registered face beside the face that turned up */}
+            <div className="face-compare">
+              <div className="face-compare__cell">
+                <span className="face-compare__label">Ảnh đã đăng ký</span>
+                <div className="face-compare__frame">
+                  {faceUrl ? (
+                    <img src={faceUrl} alt="Ảnh khuôn mặt đã đăng ký" />
+                  ) : faceError ? (
+                    <p className="face-compare__missing">{faceError}</p>
+                  ) : selected.has_enrollment_photo ? (
                     <span className="spinner" />
+                  ) : (
+                    <p className="face-compare__missing">
+                      Người này đăng ký khuôn mặt trước khi hệ thống lưu ảnh, nên không có ảnh gốc để đối chiếu.
+                    </p>
                   )}
                 </div>
               </div>
-            ) : (
-              <Alert tone="info">Lượt này không có ảnh kèm theo.</Alert>
-            )}
+              <div className="face-compare__cell">
+                <span className="face-compare__label">Ảnh lúc chấm công</span>
+                <div className="face-compare__frame">
+                  {imageUrl ? (
+                    <img src={imageUrl} alt="Ảnh chụp lúc ghi nhận" />
+                  ) : imageError ? (
+                    <p className="face-compare__missing" style={{ color: "var(--color-danger)" }}>{imageError}</p>
+                  ) : selected.has_image ? (
+                    <span className="spinner" />
+                  ) : (
+                    <p className="face-compare__missing">Lượt này không có ảnh kèm theo.</p>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            {selected.face_match_score !== null || selected.face_distance !== null ? (
+              <div className="face-metric">
+                <div>
+                  <p className="face-metric__label">Khoảng cách khuôn mặt</p>
+                  <p className="face-metric__value">
+                    {selected.face_distance !== null ? selected.face_distance.toFixed(3) : "—"}
+                  </p>
+                </div>
+                <div>
+                  <p className="face-metric__label">Độ tương đồng</p>
+                  <p className="face-metric__value">
+                    {selected.face_match_score !== null
+                      ? `${(selected.face_match_score * 100).toFixed(1)}%`
+                      : "—"}
+                  </p>
+                </div>
+                <div>
+                  <p className="face-metric__label">Thư viện nhận diện</p>
+                  <p className="face-metric__value" style={{ fontSize: "var(--text-sm)" }}>
+                    {selected.face_engine ?? "—"}
+                  </p>
+                </div>
+              </div>
+            ) : null}
 
             <DataList
               rows={[
@@ -481,8 +604,54 @@ export default function ManagerAttendancePage() {
                   : []),
                 { key: "Giải trình của thành viên", value: selected.reason ?? "Không có" },
                 { key: "Lưu vào hệ thống lúc", value: formatDateTime(selected.created_at) },
+                { key: "Mã bản ghi", value: <span className="mono">{selected.id}</span> },
+                {
+                  key: "Toạ độ ghi nhận",
+                  value: (
+                    <span className="mono">
+                      {selected.latitude.toFixed(6)}, {selected.longitude.toFixed(6)}
+                    </span>
+                  ),
+                },
               ]}
             />
+
+            {logins && logins.items.length > 0 ? (
+              <div>
+                <h3 style={{ fontSize: "var(--text-sm)", fontWeight: 700, marginBottom: "8px" }}>
+                  Lần đăng nhập gần đây của người này
+                </h3>
+                <p className="event__meta" style={{ marginBottom: "8px" }}>
+                  {LOGIN_SUMMARY(logins.totals)}
+                </p>
+                <div className="table-wrap">
+                  <table className="table">
+                    <thead>
+                      <tr>
+                        <th>Thời điểm</th>
+                        <th>Kết quả</th>
+                        <th>Thiết bị</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {logins.items.slice(0, 8).map((attempt, index) => (
+                        <tr key={`${attempt.created_at}-${index}`}>
+                          <td data-label="Thời điểm">{formatDateTime(attempt.created_at)}</td>
+                          <td data-label="Kết quả">
+                            <Badge tone={LOGIN_TONE[attempt.outcome] ?? "neutral"}>
+                              {LOGIN_LABEL[attempt.outcome] ?? attempt.outcome}
+                            </Badge>
+                          </td>
+                          <td data-label="Thiết bị">
+                            <span className="event__meta">{shortDevice(attempt.user_agent)}</span>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            ) : null}
 
             {/* Manual Status Adjustment Box */}
             <div

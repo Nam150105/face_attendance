@@ -7,8 +7,9 @@ from datetime import date, datetime, timedelta
 import psycopg
 from fastapi import HTTPException
 
-from app.auth import DATABASE_URL
+from app.auth import CurrentUser, DATABASE_URL
 from app.services.member_portal import APP_TIMEZONE
+from app.services.permissions import assert_can_see_member, visible_member_ids
 from app.services.storage import PrivateObjectStorage
 
 
@@ -19,7 +20,10 @@ EVENT_COLUMNS = """
     e.location_id, l.name, e.latitude, e.longitude, e.gps_accuracy_meters, e.distance_meters,
     e.face_match_score, e.liveness_score, e.image_object_key IS NOT NULL, e.reason, e.created_at,
     e.minutes_late, e.minutes_early_leave,
-    e.failure_code, e.deleted_at
+    e.failure_code, e.deleted_at,
+    e.face_distance, e.face_engine,
+    EXISTS (SELECT 1 FROM face_embeddings f
+            WHERE f.member_id = e.member_id AND f.revoked_at IS NULL AND f.image_object_key IS NOT NULL)
 """
 
 
@@ -47,6 +51,9 @@ def _event(row: tuple) -> dict:
         "minutes_late": row[18],
         "minutes_early_leave": row[19],
         "deleted_at": row[21],
+        "face_distance": float(row[22]) if row[22] is not None else None,
+        "face_engine": row[23],
+        "has_enrollment_photo": row[24],
     }
 
 
@@ -63,7 +70,20 @@ def _managed_member_ids(connection: psycopg.Connection, manager_id: uuid.UUID) -
 LIVE_ONLY = "e.deleted_at IS NULL"
 
 
-def _scoped_event(connection: psycopg.Connection, manager_id: uuid.UUID, event_id: uuid.UUID) -> tuple:
+def _scope(connection: psycopg.Connection, user: CurrentUser) -> tuple[str, list]:
+    """
+    SQL for "rows this viewer is allowed to see". A super admin gets everything,
+    a manager their group plus their own attendance, anyone else only their own.
+    Screens are opened by permission; this is what decides whose data appears.
+    """
+    visible = visible_member_ids(connection, user)
+    if visible is None:
+        return "TRUE", []
+    return "e.member_id = ANY(%s)", [visible]
+
+
+def _scoped_event(connection: psycopg.Connection, user: CurrentUser, event_id: uuid.UUID) -> tuple:
+    scope, scope_params = _scope(connection, user)
     row = connection.execute(
         f"""
         SELECT {EVENT_COLUMNS}
@@ -71,19 +91,20 @@ def _scoped_event(connection: psycopg.Connection, manager_id: uuid.UUID, event_i
         JOIN users u ON u.id = e.member_id
         LEFT JOIN member_profiles mp ON mp.user_id = e.member_id
         JOIN locations l ON l.id = e.location_id
-        JOIN manager_memberships mm ON mm.member_user_id = e.member_id
-        WHERE e.id = %s AND mm.manager_user_id = %s AND mm.status = 'ACTIVE'
+        WHERE e.id = %s AND {scope}
         """,
-        (event_id, manager_id),
+        [event_id, *scope_params],
     ).fetchone()
     if row is None:
-        raise HTTPException(status_code=404, detail="Attendance event is outside manager scope")
+        raise HTTPException(status_code=404, detail="Attendance event is outside your scope")
     return row
 
 
-def list_attendance(manager_id: uuid.UUID, filters: dict) -> dict:
-    conditions = ["mm.manager_user_id = %s", "mm.status = 'ACTIVE'", LIVE_ONLY]
-    parameters: list = [manager_id]
+def list_attendance(user: CurrentUser, filters: dict) -> dict:
+    with psycopg.connect(DATABASE_URL) as scope_connection:
+        scope, scope_params = _scope(scope_connection, user)
+    conditions = [scope, LIVE_ONLY]
+    parameters: list = [*scope_params]
     if filters.get("member_id"):
         conditions.append("e.member_id = %s")
         parameters.append(filters["member_id"])
@@ -109,7 +130,6 @@ def list_attendance(manager_id: uuid.UUID, filters: dict) -> dict:
             f"""
             SELECT count(*)
             FROM attendance_events e
-            JOIN manager_memberships mm ON mm.member_user_id = e.member_id
             WHERE {where}
             """,
             parameters,
@@ -121,7 +141,6 @@ def list_attendance(manager_id: uuid.UUID, filters: dict) -> dict:
             JOIN users u ON u.id = e.member_id
             LEFT JOIN member_profiles mp ON mp.user_id = e.member_id
             JOIN locations l ON l.id = e.location_id
-            JOIN manager_memberships mm ON mm.member_user_id = e.member_id
             WHERE {where}
             ORDER BY e.server_time DESC
             LIMIT %s OFFSET %s
@@ -131,14 +150,14 @@ def list_attendance(manager_id: uuid.UUID, filters: dict) -> dict:
     return {"total": total, "items": [_event(row) for row in rows]}
 
 
-def get_attendance(manager_id: uuid.UUID, event_id: uuid.UUID) -> dict:
+def get_attendance(user: CurrentUser, event_id: uuid.UUID) -> dict:
     with psycopg.connect(DATABASE_URL) as connection:
-        return _event(_scoped_event(connection, manager_id, event_id))
+        return _event(_scoped_event(connection, user, event_id))
 
 
-def attendance_image(manager_id: uuid.UUID, event_id: uuid.UUID) -> tuple[bytes, str]:
+def attendance_image(user: CurrentUser, event_id: uuid.UUID) -> tuple[bytes, str]:
     with psycopg.connect(DATABASE_URL) as connection:
-        _scoped_event(connection, manager_id, event_id)
+        _scoped_event(connection, user, event_id)
         row = connection.execute(
             "SELECT image_object_key FROM attendance_events WHERE id = %s", (event_id,)
         ).fetchone()
@@ -147,7 +166,46 @@ def attendance_image(manager_id: uuid.UUID, event_id: uuid.UUID) -> tuple[bytes,
     return PrivateObjectStorage().get_private(row[0])
 
 
-def manual_adjust(manager_id: uuid.UUID, event_id: uuid.UUID, payload: dict) -> dict:
+def enrollment_photo(user: CurrentUser, member_id: uuid.UUID) -> tuple[bytes, str]:
+    """The face this person registered, so it can sit next to the face that
+    turned up. Anyone enrolled before this was stored has no photo to show."""
+    with psycopg.connect(DATABASE_URL) as connection:
+        assert_can_see_member(connection, user, member_id)
+        row = connection.execute(
+            "SELECT image_object_key FROM face_embeddings WHERE member_id = %s AND revoked_at IS NULL"
+            " ORDER BY created_at DESC LIMIT 1",
+            (member_id,),
+        ).fetchone()
+    if row is None or not row[0]:
+        raise HTTPException(status_code=404, detail="ENROLLMENT_PHOTO_MISSING")
+    return PrivateObjectStorage().get_private(row[0])
+
+
+def login_history(user: CurrentUser, member_id: uuid.UUID, limit: int) -> dict:
+    """Sign-in attempts for one account. A run of BAD_PASSWORD followed by
+    RATE_LIMITED is what being locked out looks like from the outside."""
+    with psycopg.connect(DATABASE_URL) as connection:
+        assert_can_see_member(connection, user, member_id)
+        rows = connection.execute(
+            "SELECT outcome, ip_address, user_agent, created_at FROM login_attempts"
+            " WHERE user_id = %s ORDER BY created_at DESC LIMIT %s",
+            (member_id, limit),
+        ).fetchall()
+        totals = connection.execute(
+            "SELECT outcome, count(*) FROM login_attempts WHERE user_id = %s GROUP BY outcome",
+            (member_id,),
+        ).fetchall()
+    return {
+        "totals": {row[0]: row[1] for row in totals},
+        "items": [
+            {"outcome": row[0], "ip_address": row[1], "user_agent": row[2], "created_at": row[3]}
+            for row in rows
+        ],
+    }
+
+
+def manual_adjust(user: CurrentUser, event_id: uuid.UUID, payload: dict) -> dict:
+    manager_id = user.id
     reason = (payload.get("reason") or "").strip()
     if not reason:
         raise HTTPException(status_code=422, detail="ADJUST_REASON_REQUIRED")
@@ -159,7 +217,7 @@ def manual_adjust(manager_id: uuid.UUID, event_id: uuid.UUID, payload: dict) -> 
         raise HTTPException(status_code=422, detail="INVALID_ATTENDANCE_STATUS")
 
     with psycopg.connect(DATABASE_URL) as connection:
-        current = _event(_scoped_event(connection, manager_id, event_id))
+        current = _event(_scoped_event(connection, user, event_id))
         before = {"status": current["status"], "server_time": current["server_time"].isoformat()}
         after = {
             "status": new_status or current["status"],
@@ -179,7 +237,7 @@ def manual_adjust(manager_id: uuid.UUID, event_id: uuid.UUID, payload: dict) -> 
             (manager_id, event_id, json.dumps(before), json.dumps(after), reason),
         )
         connection.commit()
-        return _event(_scoped_event(connection, manager_id, event_id))
+        return _event(_scoped_event(connection, user, event_id))
 
 
 def list_audit_logs(manager_id: uuid.UUID, filters: dict) -> dict:
@@ -225,11 +283,10 @@ def list_audit_logs(manager_id: uuid.UUID, filters: dict) -> dict:
     }
 
 
-def member_attendance(manager_id: uuid.UUID, member_id: uuid.UUID, filters: dict) -> dict:
+def member_attendance(user: CurrentUser, member_id: uuid.UUID, filters: dict) -> dict:
     with psycopg.connect(DATABASE_URL) as connection:
-        if member_id not in _managed_member_ids(connection, manager_id):
-            raise HTTPException(status_code=404, detail="Member is outside manager scope")
-    return list_attendance(manager_id, {**filters, "member_id": member_id})
+        assert_can_see_member(connection, user, member_id)
+    return list_attendance(user, {**filters, "member_id": member_id})
 
 
 def manager_dashboard(manager_id: uuid.UUID) -> dict:
@@ -329,7 +386,7 @@ def manager_dashboard(manager_id: uuid.UUID) -> dict:
 
 
 
-def attendance_calendar(manager_id: uuid.UUID, month: str) -> dict:
+def attendance_calendar(user: CurrentUser, month: str) -> dict:
     """
     One month of attendance shaped for a wall calendar: a row per member per
     local day, so a manager sees who turned up and how the day went without
@@ -345,8 +402,9 @@ def attendance_calendar(manager_id: uuid.UUID, month: str) -> dict:
     last = (first + timedelta(days=32)).replace(day=1)
 
     with psycopg.connect(DATABASE_URL) as connection:
+        scope, scope_params = _scope(connection, user)
         rows = connection.execute(
-            """
+            f"""
             SELECT
                 (e.server_time AT TIME ZONE %s)::date AS work_date,
                 e.member_id,
@@ -365,18 +423,17 @@ def attendance_calendar(manager_id: uuid.UUID, month: str) -> dict:
                 count(*) FILTER (WHERE e.status = 'WARNING_CONFIRMED') AS off_radius,
                 (array_agg(l.name ORDER BY e.server_time))[1] AS location_name
             FROM attendance_events e
-            JOIN manager_memberships mm ON mm.member_user_id = e.member_id
             JOIN users u ON u.id = e.member_id
             LEFT JOIN member_profiles mp ON mp.user_id = u.id
             LEFT JOIN locations l ON l.id = e.location_id
-            WHERE mm.manager_user_id = %s AND mm.status = 'ACTIVE'
+            WHERE {scope}
               AND e.deleted_at IS NULL
               AND (e.server_time AT TIME ZONE %s)::date >= %s
               AND (e.server_time AT TIME ZONE %s)::date < %s
             GROUP BY work_date, e.member_id, u.email, mp.full_name
             ORDER BY work_date, first_check_in NULLS LAST, u.email
             """,
-            (APP_TIMEZONE, manager_id, APP_TIMEZONE, first, APP_TIMEZONE, last),
+            (APP_TIMEZONE, *scope_params, APP_TIMEZONE, first, APP_TIMEZONE, last),
         ).fetchall()
 
     days: dict[str, list[dict]] = {}
@@ -433,7 +490,8 @@ def attendance_calendar(manager_id: uuid.UUID, month: str) -> dict:
     }
 
 
-def delete_attendance(manager_id: uuid.UUID, event_id: uuid.UUID, reason: str) -> dict:
+def delete_attendance(user: CurrentUser, event_id: uuid.UUID, reason: str) -> dict:
+    manager_id = user.id
     """
     Remove a record from the books. Soft delete on purpose: a manager can undo a
     mistake only if the row still exists, and the evidence photo stays attached
@@ -443,7 +501,7 @@ def delete_attendance(manager_id: uuid.UUID, event_id: uuid.UUID, reason: str) -
     if len(reason) < 3:
         raise HTTPException(status_code=422, detail="DELETE_REASON_REQUIRED")
     with psycopg.connect(DATABASE_URL) as connection:
-        current = _event(_scoped_event(connection, manager_id, event_id))
+        current = _event(_scoped_event(connection, user, event_id))
         if current.get("deleted_at"):
             raise HTTPException(status_code=409, detail="ATTENDANCE_ALREADY_DELETED")
         connection.execute(

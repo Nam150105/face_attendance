@@ -30,6 +30,17 @@ class ReasonRequest(BaseModel):
     reason: str = Field(min_length=3, max_length=500)
 
 
+from app.services.admin_data import (
+    browse_table,
+    delete_row,
+    insert_row,
+    list_permissions,
+    list_tables,
+    set_permission,
+    update_row,
+)
+
+
 router = APIRouter(prefix="/admin", tags=["admin"])
 admin_only = require_role("SUPER_ADMIN")
 
@@ -97,3 +108,58 @@ def purge(event_id: UUID, reason: str = Query(min_length=3, max_length=500),
 @router.post("/attendance/{event_id}/restore")
 def restore(event_id: UUID, user: CurrentUser = Depends(admin_only)) -> dict:
     return restore_attendance(user.id, event_id)
+
+
+# ------------------------------------------------------------- permissions
+
+class PermissionRequest(BaseModel):
+    role: str = Field(pattern="^(MEMBER|MANAGER|SUPER_ADMIN)$")
+    screen: str = Field(min_length=1, max_length=64)
+    can_view: bool
+
+
+@router.get("/permissions")
+def permissions(user: CurrentUser = Depends(admin_only)) -> dict:
+    return list_permissions()
+
+
+@router.put("/permissions")
+def change_permission(request: PermissionRequest, user: CurrentUser = Depends(admin_only)) -> dict:
+    return set_permission(user.id, request.role, request.screen, request.can_view)
+
+
+# ------------------------------------------------------------- data browser
+
+class RowRequest(BaseModel):
+    values: dict
+
+
+@router.get("/data")
+def tables(user: CurrentUser = Depends(admin_only)) -> dict:
+    return list_tables()
+
+
+@router.get("/data/{table}")
+def rows(
+    table: str,
+    search: str | None = None,
+    limit: int = Query(default=50, ge=1, le=200),
+    offset: int = Query(default=0, ge=0),
+    user: CurrentUser = Depends(admin_only),
+) -> dict:
+    return browse_table(table, search, limit, offset)
+
+
+@router.post("/data/{table}", status_code=201)
+def create_row(table: str, request: RowRequest, user: CurrentUser = Depends(admin_only)) -> dict:
+    return insert_row(user.id, table, request.values)
+
+
+@router.put("/data/{table}/{row_id}")
+def edit_row(table: str, row_id: str, request: RowRequest, user: CurrentUser = Depends(admin_only)) -> dict:
+    return update_row(user.id, table, row_id, request.values)
+
+
+@router.delete("/data/{table}/{row_id}")
+def remove_row(table: str, row_id: str, user: CurrentUser = Depends(admin_only)) -> dict:
+    return delete_row(user.id, table, row_id)

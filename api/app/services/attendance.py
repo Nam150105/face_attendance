@@ -23,20 +23,29 @@ def _face_ai_not_configured(response: dict) -> bool:
     return response.get("code") == "FACE_MODEL_NOT_CONFIGURED" or response.get("status") == "NOT_CONFIGURED"
 
 
-def _reference_embedding(connection: psycopg.Connection, member_id: uuid.UUID) -> list[float] | None:
+def _reference_embedding(connection: psycopg.Connection, member_id: uuid.UUID) -> tuple[list[float], str] | None:
+    """The registered encoding and the engine that made it. The engine travels
+    with it: 128 dlib numbers and 512 ArcFace numbers are not comparable, and a
+    comparison across them would still return a plausible-looking score."""
     row = connection.execute(
-        "SELECT embedding::text FROM face_embeddings WHERE member_id = %s AND revoked_at IS NULL ORDER BY created_at DESC LIMIT 1",
+        "SELECT embedding::text, model_name FROM face_embeddings WHERE member_id = %s AND revoked_at IS NULL"
+        " ORDER BY created_at DESC LIMIT 1",
         (member_id,),
     ).fetchone()
-    return json.loads(row[0]) if row else None
+    return (json.loads(row[0]), row[1]) if row else None
 
 
-def _verify_face(image: bytes, member_id: uuid.UUID, reference_embedding: list[float] | None) -> dict:
+def _verify_face(image: bytes, member_id: uuid.UUID, reference: tuple[list[float], str] | None) -> dict:
+    embedding, model_name = reference if reference else (None, "")
     try:
         response = httpx.post(
             "http://face-ai:8001/v1/verify",
             files={"image": ("attendance.jpg", image, "image/jpeg")},
-            data={"member_id": str(member_id), "reference_embedding": json.dumps(reference_embedding) if reference_embedding else ""},
+            data={
+                "member_id": str(member_id),
+                "reference_embedding": json.dumps(embedding) if embedding else "",
+                "reference_model": model_name or "",
+            },
             timeout=30,
         )
         response.raise_for_status()
@@ -428,11 +437,11 @@ def check_in(
         event_status = "WARNING_CONFIRMED" if decision.status == GeofenceStatus.WARNING_REASON_REQUIRED else "SUCCESS"
         row = connection.execute(
             """
-            INSERT INTO attendance_events (member_id, location_id, event_type, status, server_time, latitude, longitude, gps_accuracy_meters, distance_meters, face_match_score, liveness_score, image_object_key, reason, idempotency_key, minutes_late)
-            VALUES (%s, %s, 'CHECK_IN', %s::attendance_status, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            INSERT INTO attendance_events (member_id, location_id, event_type, status, server_time, latitude, longitude, gps_accuracy_meters, distance_meters, face_match_score, face_distance, face_engine, liveness_score, image_object_key, reason, idempotency_key, minutes_late)
+            VALUES (%s, %s, 'CHECK_IN', %s::attendance_status, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
             RETURNING status::text, id, distance_meters
             """,
-            (user.id, location_id, event_status, _utc_now(), latitude, longitude, gps_accuracy_meters, decision.distance_meters, face_result.get("face_match_score"), face_result.get("liveness_score"), object_key, reason, idempotency_key, late_minutes or None),
+            (user.id, location_id, event_status, _utc_now(), latitude, longitude, gps_accuracy_meters, decision.distance_meters, face_result.get("face_match_score"), face_result.get("face_distance"), face_result.get("model_name"), face_result.get("liveness_score"), object_key, reason, idempotency_key, late_minutes or None),
         ).fetchone()
         _notify_check_in(connection, user.id, location[0], decision.distance_meters, event_status, late_minutes)
         connection.commit()
@@ -529,11 +538,11 @@ def check_out(
 
         row = connection.execute(
             """
-            INSERT INTO attendance_events (member_id, location_id, event_type, status, server_time, latitude, longitude, gps_accuracy_meters, distance_meters, face_match_score, liveness_score, image_object_key, idempotency_key, minutes_early_leave)
-            VALUES (%s, %s, 'CHECK_OUT', 'SUCCESS', %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            INSERT INTO attendance_events (member_id, location_id, event_type, status, server_time, latitude, longitude, gps_accuracy_meters, distance_meters, face_match_score, face_distance, face_engine, liveness_score, image_object_key, idempotency_key, minutes_early_leave)
+            VALUES (%s, %s, 'CHECK_OUT', 'SUCCESS', %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
             RETURNING status::text, id, distance_meters
             """,
-            (user.id, location_id, _utc_now(), latitude, longitude, gps_accuracy_meters, decision.distance_meters, face_result.get("face_match_score"), face_result.get("liveness_score"), object_key, idempotency_key, early_minutes or None),
+            (user.id, location_id, _utc_now(), latitude, longitude, gps_accuracy_meters, decision.distance_meters, face_result.get("face_match_score"), face_result.get("face_distance"), face_result.get("model_name"), face_result.get("liveness_score"), object_key, idempotency_key, early_minutes or None),
         ).fetchone()
         _notify_check_out(connection, user.id, location_id, decision.distance_meters, early_minutes)
         connection.commit()
