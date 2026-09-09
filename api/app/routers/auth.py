@@ -301,9 +301,19 @@ def my_screens(user: CurrentUser = Depends(get_current_user)) -> dict:
     endpoint checks the same table again for itself.
     """
     permissions = permissions_for(user.role)
+    with psycopg.connect(DATABASE_URL) as connection:
+        has_face = connection.execute(
+            "SELECT 1 FROM face_embeddings"
+            " WHERE member_id = %s AND revoked_at IS NULL AND image_object_key IS NOT NULL LIMIT 1",
+            (user.id,),
+        ).fetchone() is not None
     return {
         "role": user.role,
         "email": user.email,
+        # So the shell knows whether to ask for an avatar at all. Asking and
+        # getting a 404 works, but it puts a red line in everybody's console
+        # for a situation that is completely normal.
+        "has_face_photo": has_face,
         "screens": [screen for screen, actions in permissions.items() if actions["view"]],
         "permissions": permissions,
     }

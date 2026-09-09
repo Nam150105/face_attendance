@@ -138,6 +138,12 @@ export function describeError(error: unknown): string {
     }
     return STATUS_FALLBACK[error.statusCode] ?? "Thao tác chưa thành công. Bạn thử lại giúp nhé.";
   }
+  // Errors this app raised itself already carry a sentence written for the
+  // person reading it — throwing that away was how "you denied location access"
+  // turned into "check your connection".
+  if (error instanceof Error && (error as { userFacing?: boolean }).userFacing) {
+    return error.message;
+  }
   return "Thao tác chưa thành công. Bạn kiểm tra kết nối mạng rồi thử lại nhé.";
 }
 

@@ -10,6 +10,7 @@ from app.security import safe_image_content_type
 from app.services.manager_attendance import (
     attendance_calendar,
     attendance_image,
+    attendance_sessions,
     delete_attendance,
     enrollment_photo,
     get_attendance,
@@ -53,6 +54,32 @@ def attendance(
             "date_to": date_to,
             "status": status,
             "event_type": event_type,
+            "limit": limit,
+            "offset": offset,
+        },
+    )
+
+
+@router.get("/attendance/sessions")
+def attendance_pairs(
+    member_id: UUID | None = None,
+    location_id: UUID | None = None,
+    date_from: date | None = None,
+    date_to: date | None = None,
+    include_invalid: bool = Query(default=False),
+    limit: int = Query(default=25, ge=1, le=200),
+    offset: int = Query(default=0, ge=0),
+    user: CurrentUser = Depends(require_screen("records")),
+) -> dict:
+    """Paired check-in / check-out, one row per person per day."""
+    return attendance_sessions(
+        user,
+        {
+            "member_id": member_id,
+            "location_id": location_id,
+            "date_from": date_from,
+            "date_to": date_to,
+            "include_invalid": include_invalid,
             "limit": limit,
             "offset": offset,
         },

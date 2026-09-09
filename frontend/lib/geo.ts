@@ -8,6 +8,9 @@ export interface FixedPosition {
 export type GeolocationFailure = "UNSUPPORTED" | "DENIED" | "UNAVAILABLE" | "TIMEOUT";
 
 export class GeolocationUnavailableError extends Error {
+  /** Its message was written for the person reading it, so show it as-is. */
+  readonly userFacing = true;
+
   readonly reason: GeolocationFailure;
 
   constructor(message: string, reason: GeolocationFailure) {

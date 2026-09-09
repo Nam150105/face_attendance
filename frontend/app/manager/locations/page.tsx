@@ -33,6 +33,8 @@ export default function ManagerLocationsPage() {
   const [assigning, setAssigning] = useState<ManagerLocation | null>(null);
   const [roster, setRoster] = useState<ManagedMember[] | null>(null);
   const [assignedTo, setAssignedTo] = useState<Set<string>>(new Set());
+  const [draftAssigned, setDraftAssigned] = useState<Set<string>>(new Set());
+  const [memberSearch, setMemberSearch] = useState("");
   const [assignBusy, setAssignBusy] = useState<string | null>(null);
   const [assignError, setAssignError] = useState<string | null>(null);
   const [locations, setLocations] = useState<ManagerLocation[] | null>(null);
@@ -169,7 +171,9 @@ export default function ManagerLocationsPage() {
     setAssigning(location);
     setAssignError(null);
     setRoster(null);
+    setMemberSearch("");
     setAssignedTo(new Set());
+    setDraftAssigned(new Set());
     try {
       const members = await api.managerMembers();
       setRoster(members);
@@ -179,38 +183,84 @@ export default function ManagerLocationsPage() {
           return places.some((place) => place.id === location.id) ? member.user_id : null;
         }),
       );
-      setAssignedTo(new Set(pairs.filter((id): id is string => id !== null)));
+      const already = new Set(pairs.filter((id): id is string => id !== null));
+      setAssignedTo(already);
+      setDraftAssigned(new Set(already));
     } catch (cause) {
       setAssignError(describeError(cause));
     }
   }
 
-  async function toggleAssignment(member: ManagedMember, next: boolean) {
+  /**
+   * Tick freely, save once.
+   *
+   * Firing a request on every tick meant twenty people was twenty round trips,
+   * with no way to change your mind halfway. Only the difference is sent now.
+   */
+  function toggleAssignment(member: ManagedMember, next: boolean) {
+    setDraftAssigned((current) => {
+      const updated = new Set(current);
+      if (next) {
+        updated.add(member.user_id);
+      } else {
+        updated.delete(member.user_id);
+      }
+      return updated;
+    });
+  }
+
+  async function saveAssignments() {
     if (!assigning) {
       return;
     }
-    setAssignBusy(member.user_id);
+    const added = [...draftAssigned].filter((id) => !assignedTo.has(id));
+    const removed = [...assignedTo].filter((id) => !draftAssigned.has(id));
+    if (added.length === 0 && removed.length === 0) {
+      setAssigning(null);
+      return;
+    }
+    setAssignBusy("saving");
     setAssignError(null);
     try {
-      if (next) {
-        await api.assignLocation(member.user_id, assigning.id, false);
-      } else {
-        await api.unassignLocation(member.user_id, assigning.id);
+      for (const memberId of added) {
+        await api.assignLocation(memberId, assigning.id, false);
       }
-      setAssignedTo((current) => {
-        const updated = new Set(current);
-        if (next) {
-          updated.add(member.user_id);
-        } else {
-          updated.delete(member.user_id);
-        }
-        return updated;
-      });
+      for (const memberId of removed) {
+        await api.unassignLocation(memberId, assigning.id);
+      }
+      setAssignedTo(new Set(draftAssigned));
+      setAssigning(null);
     } catch (cause) {
       setAssignError(describeError(cause));
     } finally {
       setAssignBusy(null);
     }
+  }
+
+  const visibleRoster = (roster ?? []).filter((member) => {
+    const needle = memberSearch.trim().toLowerCase();
+    return (
+      !needle ||
+      (member.full_name ?? "").toLowerCase().includes(needle) ||
+      member.email.toLowerCase().includes(needle)
+    );
+  });
+  const allVisiblePicked =
+    visibleRoster.length > 0 && visibleRoster.every((member) => draftAssigned.has(member.user_id));
+
+  /** Select-all applies to what the search is showing, never to hidden rows. */
+  function toggleVisible() {
+    setDraftAssigned((current) => {
+      const updated = new Set(current);
+      for (const member of visibleRoster) {
+        if (allVisiblePicked) {
+          updated.delete(member.user_id);
+        } else {
+          updated.add(member.user_id);
+        }
+      }
+      return updated;
+    });
   }
 
   return (
@@ -438,24 +488,40 @@ export default function ManagerLocationsPage() {
             ) : roster.length === 0 ? (
               <Empty>Bạn chưa quản lý thành viên nào.</Empty>
             ) : (
-              <div className="stack stack--tight">
-                {roster.map((member) => (
-                  <label className="pick" key={member.user_id}>
-                    <input
-                      type="checkbox"
-                      checked={assignedTo.has(member.user_id)}
-                      disabled={assignBusy === member.user_id}
-                      onChange={(event) => void toggleAssignment(member, event.target.checked)}
-                    />
-                    <span className="pick__body">
-                      <span className="person__name">{member.full_name ?? member.email}</span>
-                      <span className="event__meta">{member.email}</span>
-                    </span>
-                  </label>
-                ))}
-              </div>
+              <>
+                <div className="picker-bar">
+                  <input
+                    className="input"
+                    placeholder="Tìm nhanh trong danh sách"
+                    value={memberSearch}
+                    onChange={(event) => setMemberSearch(event.target.value)}
+                  />
+                  <button type="button" className="picker-bar__all" onClick={toggleVisible}>
+                    {allVisiblePicked ? "Bỏ chọn tất cả" : "Chọn tất cả"}
+                  </button>
+                </div>
+
+                <div className="pick-list">
+                  {visibleRoster.map((member) => (
+                    <label className="pick" key={member.user_id}>
+                      <input
+                        type="checkbox"
+                        checked={draftAssigned.has(member.user_id)}
+                        onChange={(event) => toggleAssignment(member, event.target.checked)}
+                      />
+                      <span className="pick__body">
+                        <span className="person__name">{member.full_name ?? member.email}</span>
+                        <span className="event__meta">{member.email}</span>
+                      </span>
+                    </label>
+                  ))}
+                </div>
+
+                <Button onClick={() => void saveAssignments()} loading={assignBusy === "saving"} block>
+                  Lưu · {draftAssigned.size} người chấm công tại đây
+                </Button>
+              </>
             )}
-            <p className="field__hint">Tích vào là người đó chấm công được ở đây, bỏ tích là gỡ ra. Lưu ngay, không cần bấm thêm.</p>
           </div>
         </Dialog>
       ) : null}

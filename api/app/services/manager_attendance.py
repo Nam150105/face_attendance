@@ -154,6 +154,99 @@ def list_attendance(user: CurrentUser, filters: dict) -> dict:
     return {"total": total, "items": [_event(row) for row in rows]}
 
 
+
+def attendance_sessions(user: CurrentUser, filters: dict) -> dict:
+    """
+    One row per person per local day: first check-in, last check-out, and what
+    happened in between. Reading two separate event rows and pairing them by eye
+    is exactly the work a manager should not be doing.
+    """
+    with psycopg.connect(DATABASE_URL) as connection:
+        scope, scope_params = _scope(connection, user)
+        conditions = [scope, "e.deleted_at IS NULL"]
+        parameters: list = [*scope_params]
+        if not filters.get("include_invalid"):
+            conditions.append("e.status IN ('SUCCESS', 'WARNING_CONFIRMED')")
+        if filters.get("member_id"):
+            conditions.append("e.member_id = %s")
+            parameters.append(filters["member_id"])
+        if filters.get("location_id"):
+            conditions.append("e.location_id = %s")
+            parameters.append(filters["location_id"])
+        if filters.get("date_from"):
+            conditions.append("(e.server_time AT TIME ZONE %s)::date >= %s")
+            parameters.extend([APP_TIMEZONE, filters["date_from"]])
+        if filters.get("date_to"):
+            conditions.append("(e.server_time AT TIME ZONE %s)::date <= %s")
+            parameters.extend([APP_TIMEZONE, filters["date_to"]])
+        where = " AND ".join(conditions)
+
+        grouped = f"""
+            SELECT
+                (e.server_time AT TIME ZONE %s)::date AS work_date,
+                e.member_id,
+                u.email,
+                mp.full_name,
+                min(e.server_time) FILTER (
+                    WHERE e.event_type = 'CHECK_IN' AND e.status IN ('SUCCESS', 'WARNING_CONFIRMED')
+                ) AS first_in,
+                max(e.server_time) FILTER (
+                    WHERE e.event_type = 'CHECK_OUT' AND e.status IN ('SUCCESS', 'WARNING_CONFIRMED')
+                ) AS last_out,
+                max(e.minutes_late) FILTER (WHERE e.event_type = 'CHECK_IN') AS minutes_late,
+                max(e.minutes_early_leave) FILTER (WHERE e.event_type = 'CHECK_OUT') AS minutes_early,
+                count(*) FILTER (WHERE e.status IN ('BLOCKED', 'FAILED')) AS rejected,
+                (array_agg(l.name ORDER BY e.server_time))[1] AS location_name,
+                (array_agg(e.id ORDER BY e.server_time)
+                 FILTER (WHERE e.event_type = 'CHECK_IN'))[1] AS check_in_id,
+                (array_agg(e.id ORDER BY e.server_time DESC)
+                 FILTER (WHERE e.event_type = 'CHECK_OUT'))[1] AS check_out_id
+            FROM attendance_events e
+            JOIN users u ON u.id = e.member_id
+            LEFT JOIN member_profiles mp ON mp.user_id = u.id
+            LEFT JOIN locations l ON l.id = e.location_id
+            WHERE {where}
+            GROUP BY work_date, e.member_id, u.email, mp.full_name
+        """
+
+        total = connection.execute(
+            f"SELECT count(*) FROM ({grouped}) AS sessions", [APP_TIMEZONE, *parameters]
+        ).fetchone()[0]
+        rows = connection.execute(
+            f"{grouped} ORDER BY work_date DESC, first_in DESC NULLS LAST LIMIT %s OFFSET %s",
+            [APP_TIMEZONE, *parameters, filters.get("limit", 25), filters.get("offset", 0)],
+        ).fetchall()
+
+    items = []
+    for row in rows:
+        check_in, check_out = row[4], row[5]
+        minutes_late = row[6] or 0
+        if check_in is None:
+            status = "REJECTED"
+        elif check_out is None:
+            status = "OPEN"
+        elif minutes_late > 0:
+            status = "LATE"
+        else:
+            status = "ON_TIME"
+        items.append({
+            "work_date": row[0].isoformat(),
+            "member_id": row[1],
+            "member_email": row[2],
+            "member_name": row[3],
+            "check_in": check_in,
+            "check_out": check_out,
+            "minutes_late": minutes_late,
+            "minutes_early_leave": row[7] or 0,
+            "rejected": row[8],
+            "location_name": row[9],
+            "check_in_id": row[10],
+            "check_out_id": row[11],
+            "status": status,
+        })
+    return {"total": total, "items": items}
+
+
 def get_attendance(user: CurrentUser, event_id: uuid.UUID) -> dict:
     with psycopg.connect(DATABASE_URL) as connection:
         return _event(_scoped_event(connection, user, event_id))

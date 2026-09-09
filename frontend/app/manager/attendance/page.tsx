@@ -145,6 +145,43 @@ function shortDevice(userAgent: string | null): string {
   return `${browser} trên ${system}`;
 }
 
+interface Session {
+  work_date: string;
+  member_id: string;
+  member_email: string;
+  member_name: string | null;
+  check_in: string | null;
+  check_out: string | null;
+  minutes_late: number;
+  minutes_early_leave: number;
+  rejected: number;
+  location_name: string | null;
+  check_in_id: string | null;
+  check_out_id: string | null;
+  status: "ON_TIME" | "LATE" | "OPEN" | "REJECTED";
+}
+
+const SESSION_LABEL: Record<Session["status"], string> = {
+  ON_TIME: "Đủ vào ra",
+  LATE: "Đi muộn",
+  OPEN: "Chưa chấm ra",
+  REJECTED: "Không chấm được",
+};
+
+const SESSION_TONE: Record<Session["status"], "success" | "warning" | "danger" | "neutral"> = {
+  ON_TIME: "success",
+  LATE: "danger",
+  OPEN: "warning",
+  REJECTED: "neutral",
+};
+
+function shortClock(value: string | null): string {
+  if (!value) {
+    return "—";
+  }
+  return new Date(value).toLocaleTimeString("vi-VN", { hour: "2-digit", minute: "2-digit" });
+}
+
 export default function ManagerAttendancePage() {
   const may = usePermissions("records");
   const [view, setView] = useState<"calendar" | "table">("calendar");
@@ -155,6 +192,7 @@ export default function ManagerAttendancePage() {
   const [filters, setFilters] = useState<AttendanceFilters>({});
   const [page, setPage] = useState(0);
   const [events, setEvents] = useState<ManagerAttendanceEvent[] | null>(null);
+  const [sessions, setSessions] = useState<Session[] | null>(null);
   const [total, setTotal] = useState(0);
   const [members, setMembers] = useState<ManagedMember[]>([]);
   const [locations, setLocations] = useState<ManagerLocation[]>([]);
@@ -178,20 +216,23 @@ export default function ManagerAttendancePage() {
     if (view !== "table") {
       return;
     }
-    setEvents(null);
+    setSessions(null);
     try {
-      const result = await api.managerAttendance({
-        ...filters,
+      const result = await api.managerAttendanceSessions({
+        member_id: filters.member_id,
+        location_id: filters.location_id,
+        date_from: filters.date_from,
+        date_to: filters.date_to,
         include_invalid: includeInvalid,
         limit: PAGE_SIZE,
         offset: page * PAGE_SIZE,
       });
-      setEvents(result.items);
+      setSessions(result.items);
       setTotal(result.total);
       setError(null);
     } catch (cause) {
       setError(describeError(cause));
-      setEvents([]);
+      setSessions([]);
     }
   }, [filters, page, view, includeInvalid]);
 
@@ -227,6 +268,18 @@ export default function ManagerAttendancePage() {
   function updateFilter(patch: AttendanceFilters) {
     setPage(0);
     setFilters((current) => ({ ...current, ...patch }));
+  }
+
+  async function openPair(session: Session) {
+    const id = session.check_in_id ?? session.check_out_id;
+    if (!id) {
+      return;
+    }
+    try {
+      await openDetail(await api.managerAttendanceDetail(id));
+    } catch (cause) {
+      setError(describeError(cause));
+    }
   }
 
   async function openDetail(event: ManagerAttendanceEvent) {
@@ -461,59 +514,66 @@ export default function ManagerAttendancePage() {
         ) : null}
       </Card>
 
-      {/* Attendance Records Table */}
-      <Card title={`Kết quả (${total} bản ghi)`}>
-        {events === null ? (
+      {/* One row per person per day: in, out, and what is missing */}
+      <Card title={`Ngày công (${total})`}>
+        {sessions === null ? (
           <LoadingRows count={5} />
-        ) : events.length === 0 ? (
-          <Empty>Không có bản ghi nào khớp với bộ lọc hiện tại.</Empty>
+        ) : sessions.length === 0 ? (
+          <Empty>Không có ngày công nào khớp với bộ lọc hiện tại.</Empty>
         ) : (
           <>
             <div className="table-wrap">
-              <table className="table">
+              <table className="table table--grid">
                 <thead>
                   <tr>
+                    <th>Ngày</th>
                     <th>Thành viên</th>
-                    <th>Sự kiện</th>
-                    <th>Địa điểm</th>
-                    <th>Thời điểm</th>
-                    <th>Khoảng cách</th>
-                    <th>Trạng thái</th>
-                    <th>Chi tiết</th>
+                    <th>Vào</th>
+                    <th>Ra</th>
+                    <th>Nơi</th>
+                    <th>Tình trạng</th>
+                    <th aria-label="Chi tiết" />
                   </tr>
                 </thead>
                 <tbody>
-                  {events.map((event) => (
-                    <tr key={event.id}>
+                  {sessions.map((session) => (
+                    <tr key={`${session.member_id}-${session.work_date}`}>
+                      <td data-label="Ngày">{session.work_date.split("-").reverse().join("/")}</td>
                       <td data-label="Thành viên">
-                        <p className="person__name">{event.member_name ?? event.member_email}</p>
-                        {event.member_name ? <p className="event__meta">{event.member_email}</p> : null}
+                        <p className="person__name">{session.member_name ?? session.member_email}</p>
                       </td>
-                      <td data-label="Sự kiện">
-                        <span style={{ fontWeight: 600, color: event.event_type === "CHECK_IN" ? "var(--color-primary)" : "var(--color-cyan)" }}>
-                          {event.event_type === "CHECK_IN" ? "Check-in" : "Check-out"}
-                        </span>
-                      </td>
-                      <td data-label="Địa điểm">{event.location_name}</td>
-                      <td data-label="Thời điểm" className="numeric">
-                        {formatDateTime(event.server_time)}
-                      </td>
-                      <td data-label="Khoảng cách" className="numeric">
-                        {formatDistance(event.distance_meters)}
-                      </td>
-                      <td data-label="Trạng thái">
-                        <Badge tone={STATUS_TONE[event.status]}>
-                          {STATUS_LABELS[event.status] ?? event.status}
-                        </Badge>
-                        {event.failure_code ? (
+                      <td data-label="Vào" className="numeric">
+                        {shortClock(session.check_in)}
+                        {session.minutes_late > 0 ? (
                           <p className="event__meta" style={{ color: "var(--color-danger)" }}>
-                            {describeFailure(event.failure_code)}
+                            muộn {describeMinutes(session.minutes_late)}
                           </p>
                         ) : null}
                       </td>
+                      <td data-label="Ra" className="numeric">
+                        {session.check_out ? (
+                          shortClock(session.check_out)
+                        ) : (
+                          <span style={{ color: "var(--color-warning)" }}>chưa ra</span>
+                        )}
+                        {session.minutes_early_leave > 0 ? (
+                          <p className="event__meta">sớm {describeMinutes(session.minutes_early_leave)}</p>
+                        ) : null}
+                      </td>
+                      <td data-label="Nơi">{session.location_name ?? "—"}</td>
+                      <td data-label="Tình trạng">
+                        <Badge tone={SESSION_TONE[session.status]}>
+                          {SESSION_LABEL[session.status]}
+                        </Badge>
+                      </td>
                       <td data-label="Chi tiết">
-                        <Button size="sm" variant="secondary" onClick={() => void openDetail(event)}>
-                          {event.has_image ? "Xem ảnh" : "Chi tiết"}
+                        <Button
+                          size="sm"
+                          variant="secondary"
+                          onClick={() => void openPair(session)}
+                          disabled={!session.check_in_id && !session.check_out_id}
+                        >
+                          Xem
                         </Button>
                       </td>
                     </tr>
@@ -522,13 +582,12 @@ export default function ManagerAttendancePage() {
               </table>
             </div>
 
-            {/* Pagination Controls */}
             <div className="pagination">
               <Button variant="secondary" size="sm" disabled={page === 0} onClick={() => setPage(page - 1)}>
                 ← Trước
               </Button>
               <span className="mono">
-                Trang {page + 1} / {lastPage + 1} · {total} bản ghi
+                Trang {page + 1} / {lastPage + 1} · {total} ngày công
               </span>
               <Button variant="secondary" size="sm" disabled={page >= lastPage} onClick={() => setPage(page + 1)}>
                 Sau →

@@ -14,6 +14,7 @@ interface Access {
   role: string;
   email: string;
   screens: string[];
+  has_face_photo?: boolean;
 }
 
 const ROLE_LABEL: Record<string, string> = {
@@ -48,6 +49,10 @@ export function Shell({ children, narrow }: { children: ReactNode; narrow?: bool
   // frame at people who are signed in.
   const [signedIn, setSignedIn] = useState<boolean | undefined>(undefined);
   const [face, setFace] = useState<string | null>(null);
+  // A manager sees fourteen items. Showing all of them at once means the ones
+  // they came for are somewhere below the fold on a phone, so only the group
+  // holding the current screen stays open.
+  const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
 
   useEffect(() => {
     setSignedIn(readTokens() !== null);
@@ -82,7 +87,7 @@ export function Shell({ children, narrow }: { children: ReactNode; narrow?: bool
   // The registered face as the avatar: people should see which photo the
   // system matches them against, not two letters from their email.
   useEffect(() => {
-    if (signedIn !== true) {
+    if (signedIn !== true || access?.has_face_photo !== true) {
       return;
     }
     let url: string | null = null;
@@ -98,7 +103,7 @@ export function Shell({ children, narrow }: { children: ReactNode; narrow?: bool
         URL.revokeObjectURL(url);
       }
     };
-  }, [signedIn]);
+  }, [signedIn, access?.has_face_photo]);
 
   // A route change should not leave the mobile drawer covering the new page.
   useEffect(() => {
@@ -179,21 +184,39 @@ export function Shell({ children, narrow }: { children: ReactNode; narrow?: bool
         </Link>
 
         <nav className="sidebar__nav">
-          {sections.map((section) => (
-            <div className="sidebar__group" key={section.group}>
-              <p className="sidebar__group-label">{section.group}</p>
-              {section.items.map((item) => (
-                <Link
-                  key={item.key}
-                  href={item.href}
-                  className="sidebar__link"
-                  aria-current={current?.key === item.key ? "page" : undefined}
+          {sections.map((section, index) => {
+            const holdsCurrent = section.items.some((item) => item.key === current?.key);
+            const open = collapsed[section.group] ?? (holdsCurrent || index === 0);
+            return (
+              <div className="sidebar__group" key={section.group}>
+                <button
+                  type="button"
+                  className="sidebar__group-label"
+                  aria-expanded={open}
+                  onClick={() =>
+                    setCollapsed((state) => ({ ...state, [section.group]: !open }))
+                  }
                 >
-                  {item.label}
-                </Link>
-              ))}
-            </div>
-          ))}
+                  <span>{section.group}</span>
+                  <span className="sidebar__chevron" aria-hidden="true">
+                    {open ? "−" : "+"}
+                  </span>
+                </button>
+                {open
+                  ? section.items.map((item) => (
+                      <Link
+                        key={item.key}
+                        href={item.href}
+                        className="sidebar__link"
+                        aria-current={current?.key === item.key ? "page" : undefined}
+                      >
+                        {item.label}
+                      </Link>
+                    ))
+                  : null}
+              </div>
+            );
+          })}
           {access === null ? <LoadingRows count={5} /> : null}
         </nav>
       </aside>

@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 
 import { AdminShell } from "../../../components/AdminShell";
 import { Dialog } from "../../../components/Dialog";
+import { SelectableTable } from "../../../components/SelectableTable";
 import {
   Alert,
   Badge,
@@ -38,9 +39,11 @@ export default function AdminUsersPage() {
   const [newRole, setNewRole] = useState("");
   const [newStatus, setNewStatus] = useState("");
   const [newPassword, setNewPassword] = useState("");
-  const [deleteReason, setDeleteReason] = useState("");
   const [busy, setBusy] = useState(false);
   const [dialogError, setDialogError] = useState<string | null>(null);
+  const [picked, setPicked] = useState<Set<string>>(new Set());
+  const [removing, setRemoving] = useState<string[] | null>(null);
+  const [bulkReason, setBulkReason] = useState("");
 
   const load = useCallback(async () => {
     setData(null);
@@ -57,12 +60,33 @@ export default function AdminUsersPage() {
     void load();
   }, [load]);
 
+  async function removeAccounts() {
+    if (!removing) {
+      return;
+    }
+    setBusy(true);
+    setDialogError(null);
+    try {
+      for (const id of removing) {
+        await api.adminDeleteUser(id, bulkReason.trim());
+      }
+      setNotice(`Đã xoá ${removing.length} tài khoản.`);
+      setRemoving(null);
+      setBulkReason("");
+      setPicked(new Set());
+      await load();
+    } catch (cause) {
+      setDialogError(describeError(cause));
+    } finally {
+      setBusy(false);
+    }
+  }
+
   function open(user: AdminUser) {
     setSelected(user);
     setNewRole(user.role);
     setNewStatus(user.status);
     setNewPassword("");
-    setDeleteReason("");
     setDialogError(null);
   }
 
@@ -113,60 +137,117 @@ export default function AdminUsersPage() {
       <Card title={data ? `Danh sách (${data.total})` : "Danh sách"}>
         {data === null && !error ? (
           <LoadingRows count={5} />
-        ) : data && data.items.length === 0 ? (
-          <Empty>Không có tài khoản nào khớp.</Empty>
         ) : (
-          <div className="table-wrap">
-            <table className="table">
-              <thead>
-                <tr>
-                  <th>Người dùng</th>
-                  <th>Vai trò</th>
-                  <th>Trạng thái</th>
-                  <th>Dữ liệu</th>
-                  <th>Đăng nhập gần nhất</th>
-                  <th aria-label="Thao tác" />
-                </tr>
-              </thead>
-              <tbody>
-                {(data?.items ?? []).map((user) => {
+          <SelectableTable
+            rows={data?.items ?? []}
+            idOf={(user) => user.id}
+            selected={picked}
+            onSelectedChange={setPicked}
+            empty={<Empty>Không có tài khoản nào khớp.</Empty>}
+            actions={(ids) => (
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={() => {
+                  setRemoving(ids);
+                  setBulkReason("");
+                  setDialogError(null);
+                }}
+                style={{ color: "var(--color-danger)" }}
+              >
+                Xoá {ids.length} tài khoản
+              </Button>
+            )}
+            columns={[
+              {
+                key: "user",
+                label: "Người dùng",
+                render: (user) => (
+                  <>
+                    <p className="person__name">{user.full_name ?? user.email}</p>
+                    {user.full_name ? <p className="event__meta">{user.email}</p> : null}
+                  </>
+                ),
+              },
+              {
+                key: "role",
+                label: "Vai trò",
+                render: (user) => {
                   const meta = ROLE_LABEL[user.role] ?? { label: user.role, tone: "neutral" as const };
-                  return (
-                    <tr key={user.id}>
-                      <td data-label="Người dùng">
-                        <p className="person__name">{user.full_name ?? user.email}</p>
-                        {user.full_name ? <p className="event__meta">{user.email}</p> : null}
-                      </td>
-                      <td data-label="Vai trò">
-                        <Badge tone={meta.tone}>{meta.label}</Badge>
-                      </td>
-                      <td data-label="Trạng thái">
-                        <Badge tone={user.status === "ACTIVE" ? "success" : "warning"}>
-                          {user.status === "ACTIVE" ? "Đang dùng được" : "Bị khoá"}
-                        </Badge>
-                      </td>
-                      <td data-label="Dữ liệu">
-                        <p className="event__meta">{user.attendance_count} bản ghi chấm công</p>
-                        {user.managed_members > 0 ? (
-                          <p className="event__meta">Quản lý {user.managed_members} người</p>
-                        ) : null}
-                      </td>
-                      <td data-label="Đăng nhập gần nhất">
-                        {user.last_login_at ? formatDateTime(user.last_login_at) : "Chưa bao giờ"}
-                      </td>
-                      <td data-label="Thao tác">
-                        <Button size="sm" variant="secondary" onClick={() => open(user)}>
-                          Quản lý
-                        </Button>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
+                  return <Badge tone={meta.tone}>{meta.label}</Badge>;
+                },
+              },
+              {
+                key: "status",
+                label: "Trạng thái",
+                render: (user) => (
+                  <Badge tone={user.status === "ACTIVE" ? "success" : "warning"}>
+                    {user.status === "ACTIVE" ? "Đang dùng được" : "Bị khoá"}
+                  </Badge>
+                ),
+              },
+              {
+                key: "data",
+                label: "Dữ liệu",
+                numeric: true,
+                render: (user) => (
+                  <>
+                    <p className="event__meta">{user.attendance_count} bản ghi</p>
+                    {user.managed_members > 0 ? (
+                      <p className="event__meta">Quản lý {user.managed_members} người</p>
+                    ) : null}
+                  </>
+                ),
+              },
+              {
+                key: "seen",
+                label: "Đăng nhập gần nhất",
+                render: (user) =>
+                  user.last_login_at ? formatDateTime(user.last_login_at) : "Chưa bao giờ",
+              },
+              {
+                key: "actions",
+                label: "Thao tác",
+                render: (user) => (
+                  <Button size="sm" variant="secondary" onClick={() => open(user)}>
+                    Quản lý
+                  </Button>
+                ),
+              },
+            ]}
+          />
         )}
       </Card>
+
+      {removing ? (
+        <Dialog
+          title={`Xoá ${removing.length} tài khoản`}
+          onClose={() => setRemoving(null)}
+        >
+          <div className="stack">
+            {dialogError ? <Alert tone="danger">{dialogError}</Alert> : null}
+            <Alert tone="danger">
+              Xoá là vĩnh viễn: mất toàn bộ bản ghi chấm công, ảnh và dữ liệu khuôn mặt của những
+              người này.
+            </Alert>
+            <TextAreaField
+              label="Lý do xoá"
+              placeholder="Bắt buộc. Lý do này được lưu vào nhật ký."
+              value={bulkReason}
+              onChange={(event) => setBulkReason(event.target.value)}
+            />
+            <Button
+              variant="danger"
+              onClick={() => void removeAccounts()}
+              loading={busy}
+              disabled={bulkReason.trim().length < 3}
+              block
+            >
+              Xoá vĩnh viễn
+            </Button>
+          </div>
+        </Dialog>
+      ) : null}
 
       {selected ? (
         <Dialog title={selected.full_name ?? selected.email} onClose={() => setSelected(null)}>
@@ -237,31 +318,6 @@ export default function AdminUsersPage() {
               Đặt lại mật khẩu
             </Button>
 
-            <hr className="divider" />
-
-            <TextAreaField
-              label="Lý do xoá tài khoản"
-              placeholder="Bắt buộc. Lý do này được lưu vào nhật ký."
-              value={deleteReason}
-              onChange={(e) => setDeleteReason(e.target.value)}
-            />
-            <Alert tone="danger">
-              Xoá tài khoản là vĩnh viễn: mất toàn bộ bản ghi chấm công, ảnh và dữ liệu khuôn mặt của người này.
-            </Alert>
-            <Button
-              variant="danger"
-              onClick={() => {
-                if (!window.confirm(`Xoá vĩnh viễn ${selected.email}? Không hoàn tác được.`)) {
-                  return;
-                }
-                void run(() => api.adminDeleteUser(selected.id, deleteReason), "Đã xoá tài khoản.");
-              }}
-              loading={busy}
-              disabled={deleteReason.trim().length < 3}
-              block
-            >
-              Xoá tài khoản này
-            </Button>
           </div>
         </Dialog>
       ) : null}

@@ -377,6 +377,7 @@ export const api = {
       role: string;
       email: string;
       screens: string[];
+      has_face_photo: boolean;
       permissions: Record<string, Record<"view" | "create" | "edit" | "delete", boolean>>;
     }>("/auth/me/screens");
   },
@@ -625,6 +626,34 @@ export const api = {
   },
   memberLoginHistory(memberId: string, limit = 50) {
     return request<LoginHistory>(`/manager/members/${memberId}/login-history?limit=${limit}`);
+  },
+  managerAttendanceSessions(params: {
+    member_id?: string;
+    location_id?: string;
+    date_from?: string;
+    date_to?: string;
+    include_invalid?: boolean;
+    limit?: number;
+    offset?: number;
+  }) {
+    return request<{
+      total: number;
+      items: {
+        work_date: string;
+        member_id: string;
+        member_email: string;
+        member_name: string | null;
+        check_in: string | null;
+        check_out: string | null;
+        minutes_late: number;
+        minutes_early_leave: number;
+        rejected: number;
+        location_name: string | null;
+        check_in_id: string | null;
+        check_out_id: string | null;
+        status: "ON_TIME" | "LATE" | "OPEN" | "REJECTED";
+      }[];
+    }>(`/manager/attendance/sessions${queryString(params)}`);
   },
   managerAttendanceCalendar(month: string, includeInvalid = false) {
     return request<AttendanceCalendar>(

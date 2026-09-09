@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 
 import { Dialog } from "../../../components/Dialog";
+import { SelectableTable } from "../../../components/SelectableTable";
 import { usePermissions } from "../../../lib/permissions";
 import { ManagerShell } from "../../../components/ManagerShell";
 import {
@@ -29,9 +30,12 @@ function initials(name: string | null, email: string): string {
 
 export default function ManagerMembersPage() {
   const may = usePermissions("members");
+  const [picked, setPicked] = useState<Set<string>>(new Set());
+  const [bulkFor, setBulkFor] = useState<string[] | null>(null);
   const [members, setMembers] = useState<ManagedMember[] | null>(null);
   const [locations, setLocations] = useState<ManagerLocation[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
   const [search, setSearch] = useState("");
   const [emails, setEmails] = useState("");
   const [adding, setAdding] = useState(false);
@@ -89,6 +93,53 @@ export default function ManagerMembersPage() {
       setAddError(describeError(cause));
     } finally {
       setAdding(false);
+    }
+  }
+
+  /** One dialog, many people: assigning a place is the same act for each. */
+  function openBulkAssign(ids: string[]) {
+    setBulkFor(ids);
+    setDialogError(null);
+    setLocationId(locations[0]?.id ?? "");
+  }
+
+  async function bulkAssign() {
+    if (!bulkFor || !locationId) {
+      return;
+    }
+    setBusy(true);
+    setDialogError(null);
+    try {
+      for (const memberId of bulkFor) {
+        await api.assignLocation(memberId, locationId, false);
+      }
+      setNotice(`Đã gán địa điểm cho ${bulkFor.length} người.`);
+      setBulkFor(null);
+      setPicked(new Set());
+    } catch (cause) {
+      setDialogError(describeError(cause));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function bulkStatus(ids: string[], status: string) {
+    const verb = status === "REMOVED" ? "gỡ khỏi nhóm" : "tạm ngưng";
+    if (!window.confirm(`Bạn muốn ${verb} ${ids.length} người đã chọn?`)) {
+      return;
+    }
+    setBusy(true);
+    try {
+      for (const memberId of ids) {
+        await api.updateMembership(memberId, status);
+      }
+      setNotice(`Đã ${verb} ${ids.length} người.`);
+      setPicked(new Set());
+      await load();
+    } catch (cause) {
+      setError(describeError(cause));
+    } finally {
+      setBusy(false);
     }
   }
 
@@ -181,6 +232,7 @@ export default function ManagerMembersPage() {
       </div>
 
       {error ? <Alert tone="danger">{error}</Alert> : null}
+      {notice ? <Alert tone="success">{notice}</Alert> : null}
 
       {/* Bulk Add Member Card */}
       {may.create ? (
@@ -264,87 +316,128 @@ export default function ManagerMembersPage() {
       >
         {members === null ? (
           <LoadingRows count={4} />
-        ) : filteredMembers.length === 0 ? (
-          <Empty>Không tìm thấy thành viên nào phù hợp.</Empty>
         ) : (
-          <div className="table-wrap">
-            <table className="table">
-              <thead>
-                <tr>
-                  <th>Thành viên</th>
-                  <th>Đơn vị / Mã</th>
-                  <th>Chức danh / Điện thoại</th>
-                  <th>Trạng thái</th>
-                  <th aria-label="Thao tác" />
-                </tr>
-              </thead>
-              <tbody>
-                {filteredMembers.map((member) => (
-                  <tr key={member.user_id}>
-                    <td data-label="Thành viên">
-                      <div className="row">
-                        <span className="person__avatar" aria-hidden="true">
-                          {initials(member.full_name, member.email)}
-                        </span>
-                        <div>
-                          <p className="person__name">{member.full_name ?? member.email}</p>
-                          <p className="event__meta">{member.email}</p>
-                        </div>
-                      </div>
-                    </td>
-                    <td data-label="Đơn vị">
-                      <p className="event__label">{member.department ?? "—"}</p>
-                      {member.employee_code ? (
-                        <p className="event__meta mono">{member.employee_code}</p>
-                      ) : null}
-                    </td>
-                    <td data-label="Chức danh">
-                      <p className="event__label">{member.position ?? "—"}</p>
-                      {member.phone ? <p className="event__meta">{member.phone}</p> : null}
-                    </td>
-                    <td data-label="Trạng thái">
-                      <Badge tone={member.membership_status === "ACTIVE" ? "success" : "neutral"}>
-                        {member.membership_status === "ACTIVE" ? "Đang hoạt động" : "Tạm ngưng"}
-                      </Badge>
-                    </td>
-                    <td data-label="Thao tác">
-                      <div className="row">
-                        {may.edit ? (
-                          <Button size="sm" variant="secondary" onClick={() => void openAssign(member)}>
-                            Địa điểm
-                          </Button>
-                        ) : null}
-                        {may.edit ? (
-                          <Button
-                            size="sm"
-                            variant="ghost"
-                            onClick={() => void changeStatus(member, member.membership_status === "ACTIVE" ? "SUSPENDED" : "ACTIVE")}
-                            style={{ color: member.membership_status === "ACTIVE" ? "var(--color-warning)" : "var(--color-success)" }}
-                          >
-                            {member.membership_status === "ACTIVE" ? "Tạm ngưng" : "Kích hoạt"}
-                          </Button>
-                        ) : null}
-                        {may.delete ? (
-                          <Button
-                            size="sm"
-                            variant="ghost"
-                            onClick={() => void removeMember(member)}
-                            style={{ color: "var(--color-danger)" }}
-                          >
-                            Gỡ
-                          </Button>
-                        ) : null}
-                      </div>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+          <SelectableTable
+            rows={filteredMembers}
+            idOf={(member) => member.user_id}
+            selected={picked}
+            onSelectedChange={setPicked}
+            empty={<Empty>Không tìm thấy thành viên nào phù hợp.</Empty>}
+            actions={(ids) => (
+              <>
+                {may.edit ? (
+                  <Button size="sm" onClick={() => openBulkAssign(ids)}>
+                    Gán địa điểm
+                  </Button>
+                ) : null}
+                {may.edit ? (
+                  <Button size="sm" variant="secondary" onClick={() => void bulkStatus(ids, "SUSPENDED")}>
+                    Tạm ngưng
+                  </Button>
+                ) : null}
+                {may.delete ? (
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    onClick={() => void bulkStatus(ids, "REMOVED")}
+                    style={{ color: "var(--color-danger)" }}
+                  >
+                    Gỡ khỏi nhóm
+                  </Button>
+                ) : null}
+              </>
+            )}
+            columns={[
+              {
+                key: "person",
+                label: "Thành viên",
+                render: (member) => (
+                  <div className="row">
+                    <span className="person__avatar" aria-hidden="true">
+                      {initials(member.full_name, member.email)}
+                    </span>
+                    <div>
+                      <p className="person__name">{member.full_name ?? member.email}</p>
+                      <p className="event__meta">{member.email}</p>
+                    </div>
+                  </div>
+                ),
+              },
+              {
+                key: "unit",
+                label: "Đơn vị / Mã",
+                render: (member) => (
+                  <>
+                    <p className="event__label">{member.department ?? "—"}</p>
+                    {member.employee_code ? (
+                      <p className="event__meta mono">{member.employee_code}</p>
+                    ) : null}
+                  </>
+                ),
+              },
+              {
+                key: "role",
+                label: "Chức danh / Điện thoại",
+                render: (member) => (
+                  <>
+                    <p className="event__label">{member.position ?? "—"}</p>
+                    {member.phone ? <p className="event__meta">{member.phone}</p> : null}
+                  </>
+                ),
+              },
+              {
+                key: "status",
+                label: "Trạng thái",
+                render: (member) => (
+                  <Badge tone={member.membership_status === "ACTIVE" ? "success" : "warning"}>
+                    {member.membership_status === "ACTIVE" ? "Đang hoạt động" : "Tạm ngưng"}
+                  </Badge>
+                ),
+              },
+              {
+                key: "actions",
+                label: "Thao tác",
+                render: (member) =>
+                  may.edit ? (
+                    <Button size="sm" variant="secondary" onClick={() => void openAssign(member)}>
+                      Địa điểm
+                    </Button>
+                  ) : null,
+              },
+            ]}
+          />
         )}
       </Card>
 
       {/* Which places this member may check in at */}
+      {bulkFor ? (
+        <Dialog title={`Gán địa điểm cho ${bulkFor.length} người`} onClose={() => setBulkFor(null)}>
+          <div className="stack">
+            {dialogError ? <Alert tone="danger">{dialogError}</Alert> : null}
+            {locations.length === 0 ? (
+              <Alert tone="warning">Chưa có địa điểm nào đang bật. Hãy tạo địa điểm trước.</Alert>
+            ) : (
+              <>
+                <SelectField
+                  label="Chọn địa điểm"
+                  value={locationId}
+                  onChange={(event) => setLocationId(event.target.value)}
+                >
+                  {locations.map((item) => (
+                    <option key={item.id} value={item.id}>
+                      {item.name}
+                    </option>
+                  ))}
+                </SelectField>
+                <Button onClick={() => void bulkAssign()} loading={busy} block>
+                  Gán cho cả {bulkFor.length} người
+                </Button>
+              </>
+            )}
+          </div>
+        </Dialog>
+      ) : null}
+
       {selected ? (
         <Dialog
           title={`Nơi chấm công của ${selected.full_name ?? selected.email}`}
