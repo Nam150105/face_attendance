@@ -55,6 +55,9 @@ export default function AttendancePage() {
   const [tone, setTone] = useState<"info" | "success" | "warning" | "danger">("info");
   const [needsReason, setNeedsReason] = useState(false);
   const [reason, setReason] = useState("");
+  // Leaving from a site other than the one the day was opened at. A separate
+  // field from the geofence reason: they answer different questions.
+  const [placeReason, setPlaceReason] = useState("");
   const [blocked, setBlocked] = useState(false);
   const [retryable, setRetryable] = useState(false);
   const [locationDenied, setLocationDenied] = useState(false);
@@ -109,6 +112,12 @@ export default function AttendancePage() {
     () => locations.find((item) => item.id === locationId) ?? null,
     [locations, locationId],
   );
+  const openedAt = useMemo(
+    () => locations.find((item) => item.id === state?.open_check_in_location_id) ?? null,
+    [locations, state?.open_check_in_location_id],
+  );
+  // Checking out somewhere other than where the day started.
+  const movedPlace = Boolean(checkedIn && openedAt && locationId !== openedAt.id);
 
   const send = useCallback(
     async (image: Blob, position: FixedPosition, withReason?: string) => {
@@ -119,10 +128,15 @@ export default function AttendancePage() {
         image,
       };
       return checkedIn
-        ? api.checkOut({ ...shared, idempotencyKey: newIdempotencyKey("checkout") })
+        ? api.checkOut({
+            ...shared,
+            idempotencyKey: newIdempotencyKey("checkout"),
+            locationId,
+            reason: movedPlace ? placeReason.trim() : undefined,
+          })
         : api.checkIn({ ...shared, locationId, idempotencyKey: newIdempotencyKey("checkin"), reason: withReason });
     },
-    [checkedIn, locationId],
+    [checkedIn, locationId, movedPlace, placeReason],
   );
 
   const run = useCallback(
@@ -247,87 +261,38 @@ export default function AttendancePage() {
         </Badge>
       </div>
 
-      {!checkedIn && locations.length > 1 ? (
-        <Card title="Địa điểm">
-          <SelectField
-            label="Chọn địa điểm ghi nhận hôm nay"
-            value={locationId}
-            onChange={(event) => setLocationId(event.target.value)}
-          >
-            {locations.map((item) => (
-              <option key={item.id} value={item.id}>
-                {item.name} {item.is_default ? "(Mặc định)" : ""} · phạm vi {item.allow_radius_meters}m
-              </option>
-            ))}
-          </SelectField>
-        </Card>
-      ) : null}
-
-      <div className="readiness">
-        <div className="readiness__item">
-          <span
-            className={`readiness__dot ${
-              gpsPhase === "ready" ? "readiness__dot--ok" : gpsPhase === "locating" ? "readiness__dot--busy" : gpsPhase === "failed" ? "readiness__dot--bad" : ""
-            }`}
-          />
-          <div className="readiness__text">
-            <p className="readiness__label">Vị trí</p>
-            <p className="readiness__value">
-              {gpsPhase === "ready" && fix
-                ? "Đã xác định"
-                : gpsPhase === "locating"
-                  ? "Đang tìm…"
-                  : gpsPhase === "failed"
-                    ? "Chưa lấy được"
-                    : "Chưa đo"}
-            </p>
-          </div>
-        </div>
-
-        <div className="readiness__item">
-          <span className={`readiness__dot ${distance === null ? "" : "readiness__dot--ok"}`} />
-          <div className="readiness__text">
-            <p className="readiness__label">Cách nơi làm việc</p>
-            <p className="readiness__value">
-              {distance !== null
-                ? formatDistance(distance)
-                : activeLocation
-                  ? `Cần trong ${activeLocation.allow_radius_meters} m`
-                  : "—"}
-            </p>
-          </div>
-        </div>
-
-        <div className="readiness__item">
-          <span
-            className={`readiness__dot ${
-              phase === "done" ? "readiness__dot--ok" : phase === "working" ? "readiness__dot--busy" : phase === "failed" ? "readiness__dot--bad" : ""
-            }`}
-          />
-          <div className="readiness__text">
-            <p className="readiness__label">Khuôn mặt</p>
-            <p className="readiness__value">
-              {phase === "done"
-                ? "Đã nhận ra bạn"
-                : phase === "working"
-                  ? "Đang đối chiếu…"
-                  : phase === "failed"
-                    ? "Chưa nhận ra"
-                    : "Chờ chụp ảnh"}
-            </p>
-          </div>
-        </div>
-      </div>
-
       <Card
-        title="Xác thực khuôn mặt"
-        subtitle={
-          activeLocation
-            ? `${activeLocation.name} · chấm công được khi ở trong ${activeLocation.allow_radius_meters}m`
-            : "Giữ điện thoại ngang tầm mắt."
-        }
+        title={checkedIn ? "Chấm ra" : "Chấm vào"}
+        subtitle={activeLocation ? activeLocation.name : "Giữ điện thoại ngang tầm mắt."}
       >
         <div className="stack">
+          {!successInfo && locations.length > 1 ? (
+            <div className="stack stack--tight">
+              <SelectField
+                label={checkedIn ? "Nơi chấm ra" : "Nơi chấm công hôm nay"}
+                value={locationId}
+                onChange={(event) => setLocationId(event.target.value)}
+              >
+                {locations.map((item) => (
+                  <option key={item.id} value={item.id}>
+                    {item.name}
+                    {checkedIn && item.id === state?.open_check_in_location_id ? " (nơi bạn chấm vào)" : ""}
+                    {!checkedIn && item.is_default ? " (mặc định)" : ""}
+                  </option>
+                ))}
+              </SelectField>
+
+              {movedPlace ? (
+                <TextAreaField
+                  label={`Vì sao chấm ra ở ${activeLocation?.name ?? "nơi khác"}?`}
+                  required
+                  placeholder={`Bạn chấm vào ở ${openedAt?.name ?? "nơi khác"}. Nêu lý do để người quản lý nắm được.`}
+                  value={placeReason}
+                  onChange={(event) => setPlaceReason(event.target.value)}
+                />
+              ) : null}
+            </div>
+          ) : null}
           {successInfo ? (
             <div
               style={{
@@ -383,7 +348,11 @@ export default function AttendancePage() {
               labels={LABELS}
               onCaptured={onCaptured}
               phase={phase}
-              disabled={phase === "working" || (needsReason && !reason.trim())}
+              disabled={
+                phase === "working" ||
+                (needsReason && !reason.trim()) ||
+                (movedPlace && placeReason.trim().length < 5)
+              }
             />
           )}
 

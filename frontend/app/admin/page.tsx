@@ -98,7 +98,10 @@ export default function AdminHomePage() {
           </div>
         </>
       ) : null}
-      <RecognitionEnginePanel />
+      <details className="disclosure">
+        <summary>Công nghệ nhận diện đang chạy</summary>
+        <RecognitionEnginePanel />
+      </details>
     </AdminShell>
   );
 }

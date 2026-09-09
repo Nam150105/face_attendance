@@ -566,12 +566,21 @@ export const api = {
     gpsAccuracyMeters: number;
     idempotencyKey: string;
     image: Blob;
+    /** Only when leaving from somewhere other than where the day was opened. */
+    locationId?: string;
+    reason?: string;
   }) {
     const form = new FormData();
     form.append("latitude", String(payload.latitude));
     form.append("longitude", String(payload.longitude));
     form.append("gps_accuracy_meters", String(payload.gpsAccuracyMeters));
     form.append("idempotency_key", payload.idempotencyKey);
+    if (payload.locationId) {
+      form.append("location_id", payload.locationId);
+    }
+    if (payload.reason) {
+      form.append("reason", payload.reason);
+    }
     form.append("image", payload.image, "check-out.jpg");
     return request<AttendanceResult>("/attendance/check-out", { method: "POST", form });
   },

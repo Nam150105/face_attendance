@@ -282,18 +282,21 @@ export default function ProfilePage() {
           </Card>
         )}
 
-        <Card title="Bảo mật">
-          <div className="detail-grid">
-            <Detail label="Tài khoản">
-              <Badge tone={user?.status === "ACTIVE" ? "success" : "warning"}>
-                {user?.status === "ACTIVE" ? "Đang hoạt động" : (user?.status ?? "—")}
-              </Badge>
-            </Detail>
-          </div>
-          <Button size="sm" variant="secondary" onClick={() => router.push("/profile/password")}>
-            Đổi mật khẩu
-          </Button>
-        </Card>
+        <details className="disclosure">
+          <summary>Bảo mật tài khoản</summary>
+          <Card>
+            <div className="detail-grid">
+              <Detail label="Tài khoản">
+                <Badge tone={user?.status === "ACTIVE" ? "success" : "warning"}>
+                  {user?.status === "ACTIVE" ? "Đang hoạt động" : (user?.status ?? "—")}
+                </Badge>
+              </Detail>
+            </div>
+            <Button size="sm" variant="secondary" onClick={() => router.push("/profile/password")}>
+              Đổi mật khẩu
+            </Button>
+          </Card>
+        </details>
       </div>
     </AppShell>
   );

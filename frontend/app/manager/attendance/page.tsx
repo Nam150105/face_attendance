@@ -358,65 +358,26 @@ export default function ManagerAttendancePage() {
           ) : shownSessions.length === 0 ? (
             <Empty>Không ai chấm công ngày này.</Empty>
           ) : (
-            <div className="table-wrap">
-              <table className="table table--grid">
-                <thead>
-                  <tr>
-                    <th>Thành viên</th>
-                    <th>Vào</th>
-                    <th>Ra</th>
-                    <th>Có mặt</th>
-                    <th>Nơi</th>
-                    <th>Tình trạng</th>
-                    <th aria-label="Chi tiết" />
-                  </tr>
-                </thead>
-                <tbody>
-                  {shownSessions.map((session) => (
-                    <tr key={`${session.member_id}-${session.work_date}`}>
-                      <td data-label="Thành viên">
-                        <p className="person__name">{session.member_name ?? session.member_email}</p>
-                        <p className="event__meta">{session.member_email}</p>
-                      </td>
-                      <td data-label="Vào" className="numeric">
-                        {shortClock(session.check_in)}
-                        {session.minutes_late > 0 ? (
-                          <p className="event__meta" style={{ color: "var(--color-danger)" }}>
-                            muộn {describeMinutes(session.minutes_late)}
-                          </p>
-                        ) : null}
-                      </td>
-                      <td data-label="Ra" className="numeric">
-                        {session.check_out ? (
-                          shortClock(session.check_out)
-                        ) : (
-                          <span style={{ color: "var(--color-warning)" }}>chưa ra</span>
-                        )}
-                        {session.minutes_early_leave > 0 ? (
-                          <p className="event__meta">sớm {describeMinutes(session.minutes_early_leave)}</p>
-                        ) : null}
-                      </td>
-                      <td data-label="Có mặt" className="numeric">
-                        {presenceOf(session)}
-                      </td>
-                      <td data-label="Nơi">{session.location_name ?? "—"}</td>
-                      <td data-label="Tình trạng">
-                        <Badge tone={SESSION_TONE[session.status]}>{SESSION_LABEL[session.status]}</Badge>
-                      </td>
-                      <td data-label="Chi tiết">
-                        <Button
-                          size="sm"
-                          variant="secondary"
-                          onClick={() => void openPair(session)}
-                          disabled={!session.check_in_id && !session.check_out_id}
-                        >
-                          Xem
-                        </Button>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+            <div className="stack stack--tight">
+              {shownSessions.map((session) => (
+                <button
+                  type="button"
+                  className="day-line"
+                  key={`${session.member_id}-${session.work_date}`}
+                  onClick={() => void openPair(session)}
+                  disabled={!session.check_in_id && !session.check_out_id}
+                >
+                  <span className="day-line__who">
+                    <span className="person__name">{session.member_name ?? session.member_email}</span>
+                    <span className="event__meta">
+                      {shortClock(session.check_in)} → {session.check_out ? shortClock(session.check_out) : "chưa ra"}
+                      {session.check_out ? ` · ${presenceOf(session)}` : ""}
+                      {session.location_name ? ` · ${session.location_name}` : ""}
+                    </span>
+                  </span>
+                  <Badge tone={SESSION_TONE[session.status]}>{SESSION_LABEL[session.status]}</Badge>
+                </button>
+              ))}
             </div>
           )}
         </Card>
@@ -477,58 +438,46 @@ export default function ManagerAttendancePage() {
               ) : null}
             </div>
 
-            {pairFor ? (
-              <div className="face-metric">
+            {/* One strip: when they came and went, and how sure the match was.
+                Two strips of three numbers each was a wall to read past. */}
+            <div className="face-metric">
+              {pairFor ? (
+                <>
+                  <div>
+                    <p className="face-metric__label">Vào</p>
+                    <p className="face-metric__value">{clockOf(pairFor.check_in)}</p>
+                  </div>
+                  <div>
+                    <p className="face-metric__label">Ra</p>
+                    <p className="face-metric__value">{clockOf(pairFor.check_out)}</p>
+                  </div>
+                  <div>
+                    <p className="face-metric__label">Có mặt</p>
+                    <p className="face-metric__value">{presenceOf(pairFor)}</p>
+                  </div>
+                </>
+              ) : null}
+              {selected.face_distance !== null || selected.face_match_score !== null ? (
                 <div>
-                  <p className="face-metric__label">Giờ vào</p>
-                  <p className="face-metric__value">{clockOf(pairFor.check_in)}</p>
-                </div>
-                <div>
-                  <p className="face-metric__label">Giờ ra</p>
-                  <p className="face-metric__value">{clockOf(pairFor.check_out)}</p>
-                </div>
-                <div>
-                  <p className="face-metric__label">Tổng thời gian có mặt</p>
-                  <p className="face-metric__value">{presenceOf(pairFor)}</p>
-                </div>
-              </div>
-            ) : null}
-
-            {selected.face_match_score !== null || selected.face_distance !== null ? (
-              <div className="face-metric">
-                <div>
-                  <p className="face-metric__label">Khoảng cách khuôn mặt</p>
+                  <p className="face-metric__label">Khuôn mặt</p>
                   <p className="face-metric__value">
                     {selected.face_distance !== null ? selected.face_distance.toFixed(3) : "—"}
-                  </p>
-                </div>
-                <div>
-                  <p className="face-metric__label">Độ tương đồng</p>
-                  <p className="face-metric__value">
                     {selected.face_match_score !== null
-                      ? `${(selected.face_match_score * 100).toFixed(1)}%`
-                      : "—"}
+                      ? ` · ${(selected.face_match_score * 100).toFixed(0)}%`
+                      : ""}
                   </p>
                 </div>
-                <div>
-                  <p className="face-metric__label">Thư viện nhận diện</p>
-                  <p className="face-metric__value" style={{ fontSize: "var(--text-sm)" }}>
-                    {selected.face_engine ?? "—"}
-                  </p>
-                </div>
-              </div>
-            ) : null}
+              ) : null}
+            </div>
 
             <DataList
               rows={[
-                { key: "Thành viên", value: selected.member_name ? `${selected.member_name} (${selected.member_email})` : selected.member_email },
-                { key: "Sự kiện", value: selected.event_type === "CHECK_IN" ? "Check-in" : "Check-out" },
+                { key: "Thành viên", value: selected.member_name ?? selected.member_email },
                 { key: "Địa điểm", value: selected.location_name },
-                { key: "Thời điểm ghi nhận", value: formatDateTime(selected.server_time) },
-                { key: "Cách địa điểm", value: `${selected.distance_meters.toFixed(1)} m (sai số định vị khoảng ${selected.gps_accuracy_meters.toFixed(0)} m)` },
                 { key: "Trạng thái", value: <Badge tone={STATUS_TONE[selected.status]}>{STATUS_LABELS[selected.status] ?? selected.status}</Badge> },
+                { key: "Cách địa điểm", value: `${selected.distance_meters.toFixed(1)} m` },
                 // Two different things were both called "lý do": why the system
-                // refused, and what the member typed. They are separate rows now.
+                // refused, and what the member typed. They are separate rows.
                 ...(selected.failure_code
                   ? [
                       {
@@ -547,20 +496,35 @@ export default function ManagerAttendancePage() {
                 ...(selected.minutes_early_leave
                   ? [{ key: "Ra sớm", value: describeMinutes(selected.minutes_early_leave) }]
                   : []),
-                { key: "Giải trình của thành viên", value: selected.reason ?? "Không có" },
-                { key: "Lưu vào hệ thống lúc", value: formatDateTime(selected.created_at) },
-                { key: "Mã bản ghi", value: <span className="mono">{selected.id}</span> },
-                {
-                  key: "Toạ độ ghi nhận",
-                  value: (
-                    <span className="mono">
-                      {selected.latitude.toFixed(6)}, {selected.longitude.toFixed(6)}
-                    </span>
-                  ),
-                },
+                ...(selected.reason
+                  ? [{ key: "Giải trình của thành viên", value: selected.reason }]
+                  : []),
               ]}
             />
 
+            {/* The audit trail: needed when something is disputed, in the way
+                the rest of the time. */}
+            <details className="disclosure">
+              <summary>Thông tin kỹ thuật</summary>
+              <DataList
+                rows={[
+                  { key: "Sự kiện", value: selected.event_type === "CHECK_IN" ? "Check-in" : "Check-out" },
+                  { key: "Thời điểm ghi nhận", value: formatDateTime(selected.server_time) },
+                  { key: "Lưu vào hệ thống lúc", value: formatDateTime(selected.created_at) },
+                  { key: "Sai số định vị", value: `${selected.gps_accuracy_meters.toFixed(0)} m` },
+                  {
+                    key: "Toạ độ ghi nhận",
+                    value: (
+                      <span className="mono">
+                        {selected.latitude.toFixed(6)}, {selected.longitude.toFixed(6)}
+                      </span>
+                    ),
+                  },
+                  { key: "Thư viện nhận diện", value: selected.face_engine ?? "—" },
+                  { key: "Mã bản ghi", value: <span className="mono">{selected.id}</span> },
+                ]}
+              />
+            </details>
 
             {/* Manual Status Adjustment Box */}
             {may.edit ? (

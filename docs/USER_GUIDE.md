@@ -49,19 +49,20 @@ Chưa duyệt thì họ chưa chấm công được ở đâu cả.
 
 **Bản ghi** là một tấm lịch tháng. Mỗi ngày hiện chồng người kèm chấm màu: xanh là đúng giờ, vàng là chưa chấm ra, đỏ là đi muộn.
 
-Bấm vào một ngày, bảng ngày đó hiện ngay bên dưới: mỗi dòng là một người, có giờ vào, giờ ra và tổng thời gian có mặt. Ai quên chấm ra thì cột "Ra" ghi chữ **chưa ra** màu vàng. Bấm **Xuất CSV** để lấy đúng ngày đang xem.
+Bấm vào một ngày, danh sách ngày đó hiện ngay bên dưới: **mỗi người một dòng** — tên, giờ vào → giờ ra, tổng thời gian có mặt, nơi chấm công, và một nhãn tình trạng. Bấm vào dòng để mở chi tiết. Trên điện thoại, mười người vẫn nằm gọn trong một màn hình rưỡi. Bấm **Xuất CSV** để lấy đúng ngày đang xem.
 
 Mặc định chỉ hiện những lượt hợp lệ. Muốn xem cả lượt bị từ chối thì tích **Hiện cả lượt không hợp lệ**.
 
 ### Xem chi tiết một lượt
 
-Bấm **Xem** trên một dòng. Bạn thấy:
+Bấm vào một dòng. Bạn thấy:
 
-- Ảnh đã đăng ký, ảnh lúc vào, ảnh lúc ra — đặt cạnh nhau để đối chiếu
-- Giờ vào, giờ ra, tổng thời gian có mặt
-- Khoảng cách tới địa điểm và sai số định vị
-- Kết quả nhận diện khuôn mặt
-- Lý do nếu lượt đó không hợp lệ
+- Ảnh đã đăng ký, ảnh lúc vào, ảnh lúc ra — **xếp ngang cạnh nhau** ở mọi khổ màn hình để đối chiếu trong một tầm mắt
+- Một dải số: giờ vào, giờ ra, tổng thời gian có mặt, khoảng cách khuôn mặt
+- Thành viên, địa điểm, tình trạng, khoảng cách tới địa điểm
+- Lý do nếu lượt đó không hợp lệ, hoặc giải trình của thành viên
+
+Toạ độ, sai số định vị, mã bản ghi và thư viện nhận diện nằm trong mục **Thông tin kỹ thuật** — mở ra khi cần đối chất, còn lại thì gấp gọn.
 
 Nếu có sai sót, bạn **Điều chỉnh trạng thái** kèm lý do, hoặc **Xoá bản ghi** kèm lý do. Cả hai đều vào nhật ký, và bản ghi đã xoá thì quản trị hệ thống vẫn khôi phục được.
 
@@ -123,6 +124,8 @@ Vào **Chấm công**:
 3. Bấm chụp ảnh
 4. Bấm **Chấm công vào** (hoặc **ra** khi kết thúc)
 
+**Lúc chấm ra**, ô địa điểm để sẵn nơi bạn đã chấm vào. Nếu cuối ca bạn ở một nơi khác cũng thuộc danh sách của mình, chọn nơi đó và **nêu lý do** — chưa nêu thì chưa mở được camera. Lý do đi kèm bản ghi để người quản lý đọc.
+
 Kết quả có thể là:
 
 | Màn hình báo | Nghĩa là |
@@ -135,6 +138,9 @@ Kết quả có thể là:
 | Chưa nhận ra bạn | Bỏ khẩu trang, kính râm, ra chỗ sáng hơn |
 | Chỗ bạn đứng hơi tối | Ra gần cửa sổ hoặc chỗ có đèn |
 | Hôm nay bạn đã chấm đủ vào và ra rồi | Một ngày chỉ một phiên. Cần sửa thì gửi yêu cầu chỉnh công |
+| Bạn chấm ra ở nơi khác nơi đã chấm vào | Nêu lý do rồi chụp lại |
+
+Màn hình chỉ báo khi có gì đó không khớp — khuôn mặt, vị trí, hoặc cả hai. Không có báo lỗi nghĩa là mọi thứ bình thường.
 
 Chấm công xong, màn hình hiện khoảng cách khuôn mặt mà bộ nhận diện đo được và ngưỡng dùng để quyết định — càng gần 0 càng chắc chắn là bạn.
 

@@ -75,6 +75,13 @@ export default function ManagerHomePage() {
   const enrollRate = data.active_members > 0 ? Math.round((data.members_with_face / data.active_members) * 100) : 0;
   const activeRate = data.active_members > 0 ? Math.round((data.currently_checked_in / data.active_members) * 100) : 0;
 
+  // Who is still out comes first, and only the first few: this is a glance,
+  // not the roster. The roster is one link away and always complete.
+  const roster = [...data.members]
+    .sort((left, right) => Number(Boolean(left.checked_in_at)) - Number(Boolean(right.checked_in_at)))
+    .slice(0, 6);
+  const hidden = data.members.length - roster.length;
+
   return (
     <ManagerShell>
       <div className="page-header">
@@ -233,7 +240,7 @@ export default function ManagerHomePage() {
           <Empty>Chưa có thành viên nào trong danh sách bạn quản lý.</Empty>
         ) : (
           <ul className="people">
-            {data.members.map((member) => (
+            {roster.map((member) => (
               <li className="person" key={member.member_id}>
                 <span
                   className={`person__avatar ${member.checked_in_at ? "person__avatar--active" : ""}`}
@@ -261,6 +268,11 @@ export default function ManagerHomePage() {
             ))}
           </ul>
         )}
+        {hidden > 0 ? (
+          <p className="event__meta" style={{ marginTop: "var(--space-1)" }}>
+            Còn {hidden} người nữa trong Quản lý nhóm.
+          </p>
+        ) : null}
       </Card>
     </ManagerShell>
   );

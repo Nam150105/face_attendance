@@ -38,12 +38,17 @@ async def check_out_route(
     gps_accuracy_meters: float = Form(...),
     idempotency_key: str = Form(..., min_length=8, max_length=200),
     image: UploadFile = File(...),
+    location_id: UUID | None = Form(default=None),
+    reason: str = Form(default=""),
     user: CurrentUser = Depends(require_screen("attendance")),
 ) -> dict:
     enforce_rate_limit("attendance", str(user.id), limit=20, window_seconds=60)
     content = await image.read(MAX_IMAGE_BYTES + 1)
     media_type = validate_image_upload(content)
-    return check_out(user, latitude, longitude, gps_accuracy_meters, idempotency_key, content, media_type)
+    return check_out(
+        user, latitude, longitude, gps_accuracy_meters, idempotency_key, content, media_type,
+        location_id, reason,
+    )
 
 
 @router.get("/me/state")

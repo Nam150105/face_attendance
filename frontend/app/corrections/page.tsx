@@ -109,7 +109,9 @@ function CorrectionsContent() {
       {error ? <Alert tone="danger">{error}</Alert> : null}
       {notice ? <Alert tone="success">{notice}</Alert> : null}
 
-      <Card title="Gửi yêu cầu mới" subtitle="Mỗi ngày chỉ có một yêu cầu đang chờ duyệt.">
+      <details className="disclosure">
+        <summary>Gửi yêu cầu mới</summary>
+        <Card subtitle="Mỗi ngày chỉ có một yêu cầu đang chờ duyệt.">
         <form className="stack" onSubmit={submit}>
           <div className="filters-bar">
             <Field
@@ -162,7 +164,8 @@ function CorrectionsContent() {
             Gửi yêu cầu
           </Button>
         </form>
-      </Card>
+        </Card>
+      </details>
 
       <Card title={data ? `Yêu cầu của bạn (${data.total})` : "Yêu cầu của bạn"}>
         {data === null && !error ? (

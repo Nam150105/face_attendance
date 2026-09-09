@@ -266,37 +266,22 @@ export default function DashboardPage() {
         </div>
       </Card>
 
-      {/* Workplace Locations Card */}
-      <Card title="Nơi bạn chấm công được">
-        {data.locations.length === 0 ? (
-          <Empty>Chưa có địa điểm nào. Hãy báo người quản lý.</Empty>
-        ) : (
-          <div className="stack stack--tight">
-            {data.locations.map((location) => (
-              <div className="event" key={location.id}>
-                <div>
-                  <p className="event__label">{location.name}</p>
-                  <p className="event__meta">
-                    {location.address ?? `${location.latitude.toFixed(5)}, ${location.longitude.toFixed(5)}`}
-                  </p>
-                </div>
-                <div className="row">
-                  {location.is_default ? <Badge tone="info">Mặc định</Badge> : null}
-                  <Badge tone="neutral">Phạm vi {location.allow_radius_meters}m</Badge>
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
-      </Card>
-
       {/* Recent Attendance Activity Card */}
-      <Card title="Hoạt động gần đây">
+      <Card
+        title="Hoạt động gần đây"
+        action={
+          data.history.length > 0 ? (
+            <Link href="/history" className="link">
+              Xem cả bảng công
+            </Link>
+          ) : null
+        }
+      >
         {data.history.length === 0 ? (
           <Empty>Chưa có bản ghi nào.</Empty>
         ) : (
           <div>
-            {data.history.map((event) => {
+            {data.history.slice(0, 4).map((event) => {
               const isSuccess = event.status === "SUCCESS";
               const isWarning = event.status === "WARNING_CONFIRMED";
               return (

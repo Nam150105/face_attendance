@@ -28,6 +28,12 @@ const LOGIN_TONE: Record<string, "success" | "warning" | "danger" | "neutral"> =
   PASSWORD_CHANGED: "neutral",
 };
 
+function clock(value: string | null): string {
+  return value
+    ? new Date(value).toLocaleTimeString("vi-VN", { hour: "2-digit", minute: "2-digit" })
+    : "—";
+}
+
 function Detail({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <div className="detail">
@@ -113,48 +119,23 @@ export function MemberDetail({ member, onClose }: { member: ManagedMember; onClo
           ) : sessions.length === 0 ? (
             <Empty>Chưa có ngày công nào tại địa điểm của bạn.</Empty>
           ) : (
-            <div className="table-wrap">
-              <table className="table table--grid table--dense">
-                <thead>
-                  <tr>
-                    <th>Ngày</th>
-                    <th>Vào</th>
-                    <th>Ra</th>
-                    <th>Nơi</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {sessions.map((row) => (
-                    <tr key={row.work_date}>
-                      <td data-label="Ngày">{row.work_date.split("-").reverse().join("/")}</td>
-                      <td data-label="Vào">
-                        {row.check_in
-                          ? new Date(row.check_in).toLocaleTimeString("vi-VN", {
-                              hour: "2-digit",
-                              minute: "2-digit",
-                            })
-                          : "—"}
-                        {row.minutes_late > 0 ? (
-                          <p className="event__meta" style={{ color: "var(--color-danger)" }}>
-                            muộn {describeMinutes(row.minutes_late)}
-                          </p>
-                        ) : null}
-                      </td>
-                      <td data-label="Ra">
-                        {row.check_out ? (
-                          new Date(row.check_out).toLocaleTimeString("vi-VN", {
-                            hour: "2-digit",
-                            minute: "2-digit",
-                          })
-                        ) : (
-                          <span style={{ color: "var(--color-warning)" }}>chưa ra</span>
-                        )}
-                      </td>
-                      <td data-label="Nơi">{row.location_name ?? "—"}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+            <div className="stack stack--tight">
+              {/* One day, one line. As a table this became four stacked
+                  label/value pairs per day on a phone. */}
+              {sessions.map((row) => (
+                <div className="line" key={row.work_date}>
+                  <div className="line__body">
+                    <p className="person__name">{row.work_date.split("-").reverse().join("/")}</p>
+                    <p className="event__meta">
+                      Vào {clock(row.check_in)} → {row.check_out ? clock(row.check_out) : "chưa ra"}
+                      {row.location_name ? ` · ${row.location_name}` : ""}
+                    </p>
+                  </div>
+                  {row.minutes_late > 0 ? (
+                    <Badge tone="danger">Muộn {describeMinutes(row.minutes_late)}</Badge>
+                  ) : null}
+                </div>
+              ))}
             </div>
           )}
         </div>

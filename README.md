@@ -23,6 +23,7 @@ Người dùng mở web trên điện thoại, chụp một tấm ảnh, hệ th
 - Kiểm tra vị trí theo bán kính quanh địa điểm; ngoài vùng cho phép thì không ghi nhận
 - Giờ làm việc theo từng địa điểm, có mức cho phép đến muộn
 - Một ngày một phiên: đã đủ cặp vào–ra thì không mở phiên mới trong ngày
+- Chấm ra ở nơi khác nơi chấm vào được, nhưng phải giải trình và bản ghi giữ lại lý do
 - Tự đóng phiên sau 24 giờ nếu quên chấm ra
 - Người chấm công nhìn thấy đúng số đo mà bộ nhận diện đã dùng để quyết định
 

@@ -95,7 +95,9 @@ export default function HistoryPage() {
 
       {error ? <Alert tone="danger">{error}</Alert> : null}
 
-      <Card className="filter-card">
+      <details className="disclosure">
+        <summary>Chọn tháng, khoảng ngày hoặc lọc theo trạng thái</summary>
+        <Card className="filter-card">
         <div className="filters-bar filters-bar--compact">
           <SelectField label="Xem" value={mode} onChange={(e) => setMode(e.target.value as Mode)}>
             <option value="month">Cả tháng</option>
@@ -123,7 +125,8 @@ export default function HistoryPage() {
             ))}
           </SelectField>
         </div>
-      </Card>
+        </Card>
+      </details>
 
       {data ? (
         <div className="tiles">
@@ -138,8 +141,9 @@ export default function HistoryPage() {
             <div className="tile__head">
               <span className="tile__label">Tổng giờ làm</span>
             </div>
-            <p className="tile__value">{Math.floor(data.summary.total_worked_minutes / 60)}
-              <span className="tile__of">giờ</span>
+            <p className="tile__value">
+              {Math.floor(data.summary.total_worked_minutes / 60)}
+              <span className="tile__of"> giờ</span>
             </p>
             <p className="tile__foot">{formatMinutes(data.summary.total_worked_minutes)}</p>
           </div>
@@ -170,18 +174,23 @@ export default function HistoryPage() {
             {days.map((day) => {
               const meta = DAY_STATUS[day.status as DayStatus];
               return (
-                <li className="daylist__row" key={day.work_date}>
-                  <div className="daylist__main">
-                    <p className="daylist__date">{dayLabel(day.work_date)}</p>
-                    <p className="daylist__times">
-                      Vào {clockOf(day.check_in)} · Ra {clockOf(day.check_out)}
-                      {day.worked_minutes ? ` · làm ${formatMinutes(day.worked_minutes)}` : ""}
-                    </p>
-                  </div>
-                  <Badge tone={meta.tone}>{meta.label}</Badge>
-                  <Button size="sm" variant="secondary" onClick={() => void openDetail(day.work_date)}>
-                    Chi tiết
-                  </Button>
+                <li key={day.work_date}>
+                  {/* The row is the button. A separate "Chi tiết" pushed every
+                      day onto a third line on a phone. */}
+                  <button
+                    type="button"
+                    className="day-line"
+                    onClick={() => void openDetail(day.work_date)}
+                  >
+                    <span className="day-line__who">
+                      <span className="daylist__date">{dayLabel(day.work_date)}</span>
+                      <span className="daylist__times">
+                        Vào {clockOf(day.check_in)} · Ra {clockOf(day.check_out)}
+                        {day.worked_minutes ? ` · làm ${formatMinutes(day.worked_minutes)}` : ""}
+                      </span>
+                    </span>
+                    <Badge tone={meta.tone}>{meta.label}</Badge>
+                  </button>
                 </li>
               );
             })}

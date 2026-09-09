@@ -509,6 +509,8 @@ def check_out(
     idempotency_key: str,
     image: bytes,
     content_type: str,
+    location_id: uuid.UUID | None = None,
+    reason: str | None = None,
 ) -> dict:
     if gps_accuracy_meters < 0:
         raise _reject(422, "GPS accuracy must be non-negative")
@@ -531,13 +533,26 @@ def check_out(
         open_event = _open_state(connection, user.id)
         if open_event is None:
             raise _reject(409, "CHECK_OUT_WITHOUT_CHECK_IN")
-        location_id = open_event[1]
-        checkout_location = connection.execute(
-            "SELECT latitude, longitude, allow_radius_meters, warning_radius_meters FROM locations WHERE id = %s AND is_active = true",
-            (location_id,),
-        ).fetchone()
-        if checkout_location is None:
-            raise _reject(404, "Checkout location is inactive")
+        opened_at = open_event[1]
+        # Leaving from somewhere else is allowed — a shift can end at another
+        # site of the same organisation — but it is not the default, and it is
+        # not silent: the person says why, and the record carries the reason.
+        elsewhere = location_id is not None and location_id != opened_at
+        if elsewhere:
+            granted = _location_for_member(connection, user.id, location_id)
+            if granted is None:
+                raise _reject(404, "Location is not assigned to this member")
+            if len((reason or "").strip()) < 5:
+                raise _reject(422, "CHECKOUT_LOCATION_REASON_REQUIRED")
+            checkout_location = (granted[1], granted[2], granted[3], granted[4])
+        else:
+            location_id = opened_at
+            checkout_location = connection.execute(
+                "SELECT latitude, longitude, allow_radius_meters, warning_radius_meters FROM locations WHERE id = %s AND is_active = true",
+                (location_id,),
+            ).fetchone()
+            if checkout_location is None:
+                raise _reject(404, "Checkout location is inactive")
 
         decision = evaluate_geofence(
             latitude, longitude, gps_accuracy_meters, float(checkout_location[0]), float(checkout_location[1]),
@@ -574,13 +589,16 @@ def check_out(
             )
             raise _reject(403, code)
 
+        # Same-place check-outs stay plain SUCCESS. One at another site is
+        # valid too, but flagged so the manager reading the day sees it.
+        event_status = "WARNING_CONFIRMED" if elsewhere else "SUCCESS"
         row = connection.execute(
             """
-            INSERT INTO attendance_events (member_id, location_id, event_type, status, server_time, latitude, longitude, gps_accuracy_meters, distance_meters, face_match_score, face_distance, face_engine, liveness_score, image_object_key, idempotency_key, minutes_early_leave)
-            VALUES (%s, %s, 'CHECK_OUT', 'SUCCESS', %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            INSERT INTO attendance_events (member_id, location_id, event_type, status, server_time, latitude, longitude, gps_accuracy_meters, distance_meters, face_match_score, face_distance, face_engine, liveness_score, image_object_key, idempotency_key, minutes_early_leave, reason)
+            VALUES (%s, %s, 'CHECK_OUT', %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
             RETURNING status::text, id, distance_meters
             """,
-            (user.id, location_id, _utc_now(), latitude, longitude, gps_accuracy_meters, decision.distance_meters, face_result.get("face_match_score"), face_result.get("face_distance"), face_result.get("model_name"), face_result.get("liveness_score"), object_key, idempotency_key, early_minutes or None),
+            (user.id, location_id, event_status, _utc_now(), latitude, longitude, gps_accuracy_meters, decision.distance_meters, face_result.get("face_match_score"), face_result.get("face_distance"), face_result.get("model_name"), face_result.get("liveness_score"), object_key, idempotency_key, early_minutes or None, (reason or "").strip() or None),
         ).fetchone()
         _notify_check_out(connection, user.id, location_id, decision.distance_meters, early_minutes)
         connection.commit()
@@ -591,6 +609,8 @@ def check_out(
         if early_minutes > 0
         else "Đã ghi nhận giờ ra."
     )
+    if elsewhere:
+        message += " Bạn chấm ra ở nơi khác nơi chấm vào, lý do đã được ghi lại."
     return {
         "status": row[0],
         "event_id": row[1],

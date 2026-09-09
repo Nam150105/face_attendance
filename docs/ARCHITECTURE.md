@@ -163,6 +163,10 @@ Nên: lần đầu áp dụng ngay (không có gì để so, và cửa vào đã
 
 Đã có một cặp vào–ra trong ngày (cắt theo `APP_TIMEZONE`) thì lượt vào tiếp theo bị từ chối với `ALREADY_WORKED_TODAY`. Không có ràng buộc này thì chấm ra lúc 17:00 rồi chấm vào lúc 17:01 sinh ra hai ngày công cho cùng một ngày. Phiên còn mở vẫn bị chặn như cũ bằng `CHECK_IN_ALREADY_EXISTS`, và phiên quên chấm ra tự đóng sau 24 giờ.
 
+### Chấm ra ở nơi khác nơi chấm vào
+
+Mặc định giờ ra ghi vào đúng địa điểm đã mở phiên. Chọn nơi khác thì nơi đó phải nằm trong danh sách được gán, và phải có lời giải trình (`CHECKOUT_LOCATION_REASON_REQUIRED` nếu thiếu). Bản ghi khi đó mang trạng thái `WARNING_CONFIRMED` — vẫn hợp lệ, vẫn tính công, nhưng người quản lý nhìn là thấy ngay có chuyện cần đọc. Geofence tính lại theo nơi được chọn, không phải nơi chấm vào.
+
 ### Ngày cắt theo múi giờ tổ chức
 
 `APP_TIMEZONE`, mặc định `Asia/Ho_Chi_Minh`. Gộp theo UTC thì một lượt vào lúc 6 giờ sáng bị tính sang ngày hôm trước, và số liệu hai màn hình sẽ khác nhau cho cùng một ngày.
@@ -176,6 +180,10 @@ Thông báo do **ứng dụng tự viết** (ví dụ "Bạn đã từ chối qu
 ### Menu ngắn, màn hình gộp
 
 Người quản lý có bốn mục: Tổng quan nhóm, Bản ghi, Quản lý nhóm, Nhật ký. Bốn màn hình cũ — yêu cầu vào nhóm, đổi khuôn mặt, duyệt chỉnh công, địa điểm — vẫn còn khoá quyền riêng ở phía máy chủ nhưng không nằm trong menu nữa (`hidden: true` trong `screens.ts`); nội dung của chúng nằm trong **Quản lý nhóm**. Duyệt người và giao việc cho người là một việc; tách ra bốn màn hình là cách để quên mất một trong bốn.
+
+### Một dòng một người, phần còn lại nằm sau cú chạm
+
+Danh sách chấm công theo ngày, ngày công trong hồ sơ thành viên và bảng công cá nhân đều là **một dòng một bản ghi** (`.day-line`, `.line`), không phải bảng. Bảng HTML trên điện thoại tự xếp thành bảy cặp nhãn–giá trị cho mỗi người, nên mười người là một trang không ai đọc nổi. Ô lịch trên màn hình hẹp cũng chỉ hiện số lượt thay vì xếp chồng ảnh đại diện, để mọi tuần cao bằng nhau.
 
 ### Không quyền thì không thấy
 
@@ -244,7 +252,7 @@ Không có mock. Mọi probe chạy trên hệ thống thật đang chạy.
 | `rbac_probe` (50) | Phân quyền màn hình và hành động, trình duyệt dữ liệu |
 | `isolation_probe` (17) | Phạm vi đọc theo địa điểm; địa điểm theo nhóm |
 | `rules_probe` (11) | Một người một quản lý; một phiên mỗi ngày |
-| `reading_probe` (10) | Số đo OpenCV/face_recognition trả về đúng cho người dùng |
+| `reading_probe` (16) | Một ngày thật: đăng ký → chấm vào → chấm ra; số đo OpenCV/face_recognition và chấm ra ở nơi khác |
 | `teams_probe` (35) | Mã đơn vị, duyệt/từ chối vào nhóm |
 | `face_change_probe` (27) | Duyệt đổi khuôn mặt, dùng ảnh chân dung thật |
 | `sessions_probe` (10) | Gộp cặp vào/ra theo ngày |
