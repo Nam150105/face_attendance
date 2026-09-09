@@ -6,6 +6,7 @@ import { useCallback, useEffect, useState } from "react";
 import { AppShell } from "../../components/AppShell";
 import { BiometricConsent } from "../../components/BiometricConsent";
 import { CameraCapture, type CapturePhase, type CapturedImage, type PhaseLabels } from "../../components/CameraCapture";
+import { RecognitionEnginePanel } from "../../components/RecognitionEnginePanel";
 import { Alert, Button, Card, Field, playChime } from "../../components/ui";
 import { ApiError, api } from "../../lib/api";
 import { describeCode, describeError } from "../../lib/messages";
@@ -18,6 +19,43 @@ const ENROLL_LABELS: PhaseLabels = {
   done: "Đăng ký thành công",
   failed: "Chất lượng ảnh chưa đạt",
 };
+
+/** The numbers the two libraries produced for this exact photo. */
+function PipelineReading({ reading }: { reading: EnrollmentResult }) {
+  const stages = [
+    {
+      library: "OpenCV",
+      what: "Đo độ nét và độ sáng",
+      value: [
+        reading.blur_score !== undefined ? `độ nét ${reading.blur_score.toFixed(0)}` : null,
+        reading.brightness_score !== undefined ? `độ sáng ${reading.brightness_score.toFixed(0)}` : null,
+      ]
+        .filter(Boolean)
+        .join(" · "),
+    },
+    {
+      library: "face_recognition",
+      what: `Tìm khuôn mặt bằng ${reading.detector ?? "dlib"}`,
+      value: `${reading.face_count ?? 1} khuôn mặt trong ảnh`,
+    },
+    {
+      library: reading.encoder ?? "dlib ResNet",
+      what: "Quy khuôn mặt thành vector đặc trưng",
+      value: `${reading.dimension ?? 128} chiều`,
+    },
+  ];
+  return (
+    <div className="reading">
+      {stages.map((stage) => (
+        <div className="reading__row" key={stage.library}>
+          <span className="reading__lib">{stage.library}</span>
+          <span className="reading__what">{stage.what}</span>
+          <span className="reading__value mono">{stage.value || "—"}</span>
+        </div>
+      ))}
+    </div>
+  );
+}
 
 export default function EnrollPage() {
   const router = useRouter();
@@ -33,6 +71,10 @@ export default function EnrollPage() {
   const changing = Boolean(face?.enrolled);
   const [tone, setTone] = useState<"danger" | "warning" | "success">("danger");
   const [done, setDone] = useState(false);
+  // What the two libraries actually measured on this photo. Shown afterwards
+  // rather than as a wall of text beforehand: before the shutter, the only
+  // thing that helps is where to stand.
+  const [reading, setReading] = useState<EnrollmentResult | null>(null);
 
   const load = useCallback(async () => {
     try {
@@ -56,6 +98,7 @@ export default function EnrollPage() {
     setCaptured(image);
     setPhase("idle");
     setMessage(null);
+    setReading(null);
   }, []);
 
   useEffect(() => {
@@ -74,6 +117,7 @@ export default function EnrollPage() {
     try {
       const challenge = await api.startEnrollment();
       const result = await api.verifyEnrollment(challenge, captured.blob, reason.trim() || undefined);
+      setReading(result);
       if (result.status === "PENDING_APPROVAL") {
         setPhase("done");
         setTone("success");
@@ -148,6 +192,8 @@ export default function EnrollPage() {
 
           {message ? <Alert tone={tone}>{message}</Alert> : null}
 
+          {reading ? <PipelineReading reading={reading} /> : null}
+
           {done ? (
             <div className="row">
               <Button onClick={() => router.push("/attendance")} block>
@@ -180,6 +226,11 @@ export default function EnrollPage() {
       <p className="field__hint" style={{ textAlign: "center" }}>
         Một mình bạn trong khung hình · nơi sáng đều · bỏ khẩu trang, kính râm và mũ.
       </p>
+
+      <details className="disclosure">
+        <summary>Ảnh của bạn được xử lý như thế nào?</summary>
+        <RecognitionEnginePanel engine={face?.engine} />
+      </details>
 
       <BiometricConsent />
     </AppShell>

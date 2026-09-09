@@ -1,4 +1,19 @@
-# Face Attendance System — Claude Documentation Pack
+# Tài liệu Face Attendance
+
+Tài liệu chia làm hai nhóm. Nhóm đầu mô tả **hệ thống đang chạy**; nhóm sau là **đặc tả thiết kế ban đầu**, giữ lại làm nguồn sự thật về ý định và tiêu chí nghiệm thu.
+
+## Hệ thống đang chạy — đọc trước
+
+| Tệp | Dành cho |
+|---|---|
+| [`ARCHITECTURE.md`](ARCHITECTURE.md) | Người tiếp nhận, bảo trì, nâng cấp. Kiến trúc thật, mô hình quyền, lý do các quyết định |
+| [`INSTALL.md`](INSTALL.md) | Dựng lại hệ thống trên máy khác, sao lưu, khôi phục |
+| [`USER_GUIDE.md`](USER_GUIDE.md) | Người quản lý và thành viên |
+| [`13_OPERATIONS_RUNBOOK.md`](13_OPERATIONS_RUNBOOK.md) | Vận hành hằng ngày |
+
+> Khi đặc tả và `ARCHITECTURE.md` mâu thuẫn nhau: đặc tả nói hệ thống *nên* thế nào, `ARCHITECTURE.md` nói hệ thống *đang* thế nào. Sửa code thì cập nhật `ARCHITECTURE.md`; đổi ý định thì sửa đặc tả trước.
+
+## Đặc tả thiết kế
 
 Đọc theo thứ tự:
 

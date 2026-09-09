@@ -25,6 +25,7 @@ def dashboard(user: CurrentUser = Depends(require_screen("team-overview"))) -> d
 
 class AddMemberRequest(BaseModel):
     email: EmailStr
+    team_id: UUID | None = None
 
 
 class BulkAddRequest(BaseModel):
@@ -42,7 +43,7 @@ def members(user: CurrentUser = Depends(require_screen("members"))) -> list[dict
 
 @router.post("/members/add-by-email", status_code=201)
 def add_member(request: AddMemberRequest, user: CurrentUser = Depends(require_action("members", "create"))) -> dict:
-    return add_member_by_email(user, str(request.email))
+    return add_member_by_email(user, str(request.email), request.team_id)
 
 
 @router.post("/members/bulk-add", status_code=201)

@@ -238,6 +238,26 @@ def delete_user(actor_id: uuid.UUID, user_id: uuid.UUID, reason: str) -> dict:
             connection, actor_id, "ADMIN_USER_DELETED", "user", user_id,
             {"email": found[0], "role": found[1]}, None, reason,
         )
+        # Rows other people own that point at this account's locations. Deleting
+        # the locations without clearing these fails on the foreign key, so a
+        # manager who ever assigned a place to somebody could not be removed.
+        connection.execute(
+            "DELETE FROM member_locations WHERE location_id IN"
+            " (SELECT id FROM locations WHERE manager_user_id = %s)",
+            (user_id,),
+        )
+        connection.execute(
+            "UPDATE attendance_events SET deleted_at = COALESCE(deleted_at, now())"
+            " WHERE location_id IN (SELECT id FROM locations WHERE manager_user_id = %s)"
+            "   AND member_id <> %s",
+            (user_id, user_id),
+        )
+        connection.execute(
+            "DELETE FROM attendance_events WHERE location_id IN"
+            " (SELECT id FROM locations WHERE manager_user_id = %s)",
+            (user_id,),
+        )
+
         for table, column in DEPENDENT_TABLES:
             if (table, column) == ("audit_logs", "actor_user_id"):
                 # Keep what this account did; only detach the foreign key.

@@ -15,6 +15,15 @@ export interface ScreenDefinition {
   group: string;
   /** Longest-prefix matching decides the active item, so order does not matter. */
   match?: string[];
+  /**
+   * Reachable, but not drawn in the sidebar.
+   *
+   * Approving people, places and requests is one job done from one screen, so
+   * those pages moved inside "Quản lý nhóm". They keep their own screen key
+   * because the server still checks it per endpoint; what changed is that a
+   * manager no longer hunts for them in a menu of fourteen items.
+   */
+  hidden?: boolean;
 }
 
 export const GROUPS = ["Chấm công", "Quản lý", "Hệ thống"] as const;
@@ -43,11 +52,19 @@ export const SCREENS: ScreenDefinition[] = [
 
   { key: "team-overview", href: "/manager", label: "Tổng quan nhóm", group: "Quản lý" },
   { key: "records", href: "/manager/attendance", label: "Bản ghi", group: "Quản lý" },
-  { key: "join-requests", href: "/manager/join-requests", label: "Quản lý nhóm", group: "Quản lý" },
-  { key: "face-requests", href: "/manager/face-requests", label: "Đổi khuôn mặt", group: "Quản lý" },
-  { key: "members", href: "/manager/members", label: "Thành viên", group: "Quản lý" },
-  { key: "locations", href: "/manager/locations", label: "Địa điểm", group: "Quản lý" },
-  { key: "corrections", href: "/manager/corrections", label: "Duyệt chỉnh công", group: "Quản lý" },
+  {
+    key: "members",
+    href: "/manager/teams",
+    label: "Quản lý nhóm",
+    group: "Quản lý",
+    // Units and the people in them are one subject; splitting them across two
+    // menu entries made a manager hop back and forth to do one job.
+    match: ["/manager/teams"],
+  },
+  { key: "join-requests", href: "/manager/join-requests", label: "Yêu cầu vào nhóm", group: "Quản lý", hidden: true },
+  { key: "face-requests", href: "/manager/face-requests", label: "Đổi khuôn mặt", group: "Quản lý", hidden: true },
+  { key: "locations", href: "/manager/locations", label: "Địa điểm", group: "Quản lý", hidden: true },
+  { key: "corrections", href: "/manager/corrections", label: "Duyệt chỉnh công", group: "Quản lý", hidden: true },
   { key: "audit", href: "/manager/audit-logs", label: "Nhật ký", group: "Quản lý" },
 
   { key: "admin-overview", href: "/admin", label: "Tổng quan hệ thống", group: "Hệ thống" },
@@ -88,7 +105,9 @@ export function screensByGroup(
   return order
     .map((group) => ({
       group,
-      items: SCREENS.filter((screen) => screen.group === group && permitted.has(screen.key)),
+      items: SCREENS.filter(
+        (screen) => screen.group === group && !screen.hidden && permitted.has(screen.key),
+      ),
     }))
     .filter((section) => section.items.length > 0);
 }

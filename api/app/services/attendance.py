@@ -11,7 +11,7 @@ from fastapi import HTTPException
 
 from app.auth import CurrentUser, DATABASE_URL
 from app.domain.geofence import GeofencePolicy, GeofenceStatus, evaluate_geofence
-from app.services.member_portal import LOCAL_ZONE, notify
+from app.services.member_portal import APP_TIMEZONE, LOCAL_ZONE, notify
 from app.services.storage import PrivateObjectStorage
 
 
@@ -55,13 +55,21 @@ def _verify_face(image: bytes, member_id: uuid.UUID, reference: tuple[list[float
 
 
 def _location_for_member(connection: psycopg.Connection, member_id: uuid.UUID, location_id: uuid.UUID) -> tuple | None:
+    # Either granted to this person directly or attached to a unit they are in.
     return connection.execute(
         """
         SELECT l.id, l.latitude, l.longitude, l.allow_radius_meters, l.warning_radius_meters
-        FROM member_locations ml JOIN locations l ON l.id = ml.location_id
-        WHERE ml.member_id = %s AND ml.location_id = %s AND l.is_active = true
+        FROM locations l
+        WHERE l.id = %s AND l.is_active = true AND (
+            EXISTS (SELECT 1 FROM member_locations ml
+                    WHERE ml.member_id = %s AND ml.location_id = l.id)
+            OR EXISTS (SELECT 1 FROM team_locations tl
+                       JOIN manager_memberships mm ON mm.team_id = tl.team_id
+                       WHERE tl.location_id = l.id AND mm.member_user_id = %s
+                         AND mm.status = 'ACTIVE')
+        )
         """,
-        (member_id, location_id),
+        (location_id, member_id, member_id),
     ).fetchone()
 
 
@@ -338,6 +346,28 @@ def _record_rejection(
     connection.commit()
 
 
+def _closed_session_today(connection: psycopg.Connection, member_id: uuid.UUID) -> tuple | None:
+    """
+    A session already finished today, if there is one.
+
+    Cut in local time: at +7 an evening check-out grouped by UTC would land on
+    the day before and let somebody start again the same evening.
+    """
+    return connection.execute(
+        """
+        SELECT min(server_time) FILTER (WHERE event_type = 'CHECK_IN'),
+               max(server_time) FILTER (WHERE event_type = 'CHECK_OUT')
+        FROM attendance_events
+        WHERE member_id = %s
+          AND deleted_at IS NULL
+          AND status IN ('SUCCESS', 'WARNING_CONFIRMED')
+          AND (server_time AT TIME ZONE %s)::date = (now() AT TIME ZONE %s)::date
+        HAVING max(server_time) FILTER (WHERE event_type = 'CHECK_OUT') IS NOT NULL
+        """,
+        (member_id, APP_TIMEZONE, APP_TIMEZONE),
+    ).fetchone()
+
+
 def _reject(status_code: int, detail: str) -> HTTPException:
     return HTTPException(status_code=status_code, detail=detail)
 
@@ -383,6 +413,10 @@ def check_in(
         close_stale_sessions(connection, user.id)
         if _open_state(connection, user.id) is not None:
             raise _reject(409, "CHECK_IN_ALREADY_EXISTS")
+        if _closed_session_today(connection, user.id) is not None:
+            # Already worked and signed off today. A second session would show
+            # up as a second working day for the same date.
+            raise _reject(409, "ALREADY_WORKED_TODAY")
         location = _location_for_member(connection, user.id, location_id)
         if location is None:
             raise _reject(404, "Location is not assigned to this member")
@@ -460,6 +494,10 @@ def check_in(
         "message": message,
         "minutes_late": late_minutes,
         "late_within_grace": within_grace,
+        # What the recognition libraries actually measured on this photo. The
+        # person handing over their face is entitled to see the number that
+        # decided it was them, and which engine produced it.
+        **_face_reading(face_result),
     }
 
 
@@ -559,6 +597,18 @@ def check_out(
         "distance_meters": float(row[2]),
         "message": message,
         "minutes_early_leave": early_minutes,
+        **_face_reading(face_result),
+    }
+
+
+def _face_reading(face_result: dict) -> dict:
+    """The comparison, in the terms the engine reported it."""
+    return {
+        "face_distance": face_result.get("face_distance"),
+        "face_threshold": face_result.get("threshold"),
+        "face_metric": face_result.get("metric"),
+        "face_engine": face_result.get("model_name"),
+        "face_detector": face_result.get("detector"),
     }
 
 

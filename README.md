@@ -1,344 +1,83 @@
 # Face Attendance
 
-Hệ thống chấm công bằng nhận diện khuôn mặt và geofence GPS, được xây dựng theo từng
-phase từ spec trong [`docs`](docs/README.md).
-Quy ước làm việc trên repo nằm ở [CLAUDE.md](CLAUDE.md).
+Chấm công bằng nhận diện khuôn mặt và vị trí, dùng chung cho doanh nghiệp, trường học và trung tâm đào tạo.
 
-## Chạy local
+Người dùng mở web trên điện thoại, chụp một tấm ảnh, hệ thống đối chiếu khuôn mặt và kiểm tra họ có đứng đúng nơi hay không. Không cần máy chấm công, không cần thẻ từ, không cài ứng dụng.
 
-```powershell
-Copy-Item .env.example .env
-docker compose up -d --build
-```
+---
 
-Mọi thứ đi qua reverse proxy Caddy trên một origin duy nhất:
+## Dành cho ai
 
-| Địa chỉ | Nội dung |
+| | Việc chính |
 |---|---|
-| `http://localhost` | Frontend (dev, không có camera) |
-| `https://localhost` | Frontend qua HTTPS — camera và GPS hoạt động |
-| `http://localhost/api/v1` | API |
-| `http://localhost:9001` | MinIO console |
-| `http://127.0.0.1:8080` | Adminer |
-
-Face AI **không** expose ra host: nó chỉ nằm trên network `backend` (internal) và
-chỉ được API gọi nội bộ. Kiểm tra bằng:
+| **Thành viên** | Chấm công vào/ra bằng khuôn mặt, xem lịch sử của mình, gửi yêu cầu chỉnh công khi có sai sót |
+| **Người quản lý** | Lập nhóm và địa điểm, duyệt người xin vào, theo dõi ai có mặt, xử lý ngoại lệ |
+| **Quản trị hệ thống** | Cấu hình phân quyền, quản lý toàn bộ tài khoản và dữ liệu, tra cứu sự cố |
 
-```powershell
-docker compose exec -T api python -c "import urllib.request; print(urllib.request.urlopen('http://face-ai:8001/ready').read().decode())"
-```
-
-Migration `002_seed_local_demo` tạo hai tài khoản demo `manager@example.com` và
-`member@example.com` với mật khẩu mặc định **chỉ dành cho máy local**. Bất kỳ
-deployment nào mở ra Internet đều **bắt buộc** đổi mật khẩu ngay sau khi migrate:
-
-```powershell
-docker compose exec -T postgres psql -U face_attendance -d face_attendance -c "UPDATE users SET password_hash = crypt('<mat-khau-moi>', gen_salt('bf')) WHERE email = 'member@example.com';"
-```
-
-Migration revision hiện tại: `008_attendance_failure_code`.
-
-```powershell
-docker compose exec -T postgres psql -U face_attendance -d face_attendance -c "select version_num from alembic_version;"
-```
-
-## Test trên iPhone
-
-Safari trên iOS **chỉ** cho phép `getUserMedia` và định vị chính xác trên
-secure context, nên bắt buộc phải dùng HTTPS. Có hai đường:
-
-### Cách 1 — Caddy trên mạng LAN (không lộ ra Internet)
-
-1. Lấy IP LAN của máy: `ipconfig` → ví dụ `192.168.1.37`.
-2. Đặt vào `.env`, dùng hostname `sslip.io` để Safari gửi được SNI:
-
-   ```
-   HTTPS_HOSTS=localhost, 192-168-1-37.sslip.io
-   ```
-
-   `192-168-1-37.sslip.io` là DNS công khai trỏ về `192.168.1.37`; truy cập vẫn
-   đi thẳng trong LAN, không qua Internet.
-3. `docker compose up -d proxy`
-4. Cài root CA của Caddy lên iPhone (bắt buộc — iOS không cấp quyền camera cho
-   site có chứng chỉ không tin cậy):
-
-   ```powershell
-   docker compose cp proxy:/data/caddy/pki/authorities/local/root.crt .\caddy-root.crt
-   ```
-
-   Gửi file sang iPhone (AirDrop/email) → mở → **Cài đặt → Đã tải profile** → cài →
-   rồi bật tin cậy tại **Cài đặt → Cài đặt chung → Giới thiệu → Cài đặt tin cậy chứng chỉ**.
-5. Mở `https://192-168-1-37.sslip.io` trên Safari.
-
-### Cách 2 — Dùng thẳng bản deploy tại `https://namnangno.click`
-
-Chứng chỉ thật của Cloudflare, không cần cài gì lên iPhone. Xem mục
-Deployment bên dưới.
-
-## Các phase đã hoàn thành
-
-### Phase 0 — Hạ tầng
-Docker Compose với frontend, API, Face AI, PostgreSQL (pgvector), Redis, MinIO,
-Adminer, Caddy. Healthcheck cho mọi service. `.env.example` không chứa secret thật.
-
-### Phase 1 — Database
-7 migration tạo 14 bảng, extension `citext`/`vector`/`pgcrypto`, index và seed demo.
+---
 
-### Phase 2 — Auth và RBAC
-
-```text
-POST /api/v1/auth/register
-POST /api/v1/auth/login
-POST /api/v1/auth/refresh
-POST /api/v1/auth/logout
-POST /api/v1/auth/forgot-password
-POST /api/v1/auth/reset-password
-GET  /api/v1/auth/me
-```
-
-Refresh token có rotation và revoke. Member không gọi được API của Manager.
-Dùng tên miền hợp lệ như `example.com` khi test register — `email-validator`
-từ chối `.local`.
-
-### Phase 3 — Profile và membership
-
-```text
-GET    /api/v1/members/me
-PUT    /api/v1/members/me
-GET    /api/v1/members/me/locations
-GET    /api/v1/manager/members
-POST   /api/v1/manager/members/add-by-email
-POST   /api/v1/manager/members/bulk-add
-GET    /api/v1/manager/members/{member_id}
-PUT    /api/v1/manager/members/{member_id}
-DELETE /api/v1/manager/members/{member_id}
-```
-
-Manager chỉ thêm được email đã đăng ký. Trùng membership trả `409`, không tồn tại
-trả `404`. `bulk-add` nhận tối đa 200 email một lần, bỏ dòng trống và email trùng,
-không dừng khi gặp lỗi mà trả kết quả từng dòng: `ADDED`, `REACTIVATED`,
-`ALREADY_MANAGED`, `NOT_REGISTERED`, `INVALID_EMAIL`. Manager không truy cập được member ngoài phạm vi của mình. Mọi thay đổi
-membership đều ghi audit log.
-
-### Phase 4 — Location và geofence
-
-```text
-GET    /api/v1/manager/locations
-POST   /api/v1/manager/locations
-GET    /api/v1/manager/locations/{location_id}
-PUT    /api/v1/manager/locations/{location_id}
-DELETE /api/v1/manager/locations/{location_id}
-POST   /api/v1/manager/members/{member_id}/locations
-POST   /api/v1/locations/{location_id}/evaluate
-```
-
-Kết quả geofence: `ALLOW` trong bán kính cho phép, `WARNING_REASON_REQUIRED` giữa
-bán kính cho phép và bán kính cảnh báo, `BLOCK` ngoài bán kính cảnh báo,
-`GPS_ACCURACY_LOW` khi sai số GPS vượt ngưỡng. Có unit test biên tại 99/100/100.1/150/200/200.1m.
-
-### Phase 5 — Face enrollment
-
-```text
-GET  /api/v1/faces/me
-POST /api/v1/faces/enrollment/start
-POST /api/v1/faces/enrollment/verify
-```
-
-Challenge enrollment là bản ghi server-side, ngắn hạn, dùng một lần. Face AI từ chối
-ảnh không hợp lệ với các mã `IMAGE_INVALID`, `IMAGE_TOO_SMALL`, `FACE_NOT_FOUND`,
-`MULTIPLE_FACES`, `FACE_QUALITY_LOW`.
-
-### Phase 6 — Check-in/check-out
-
-```text
-POST /api/v1/attendance/check-in
-POST /api/v1/attendance/check-out
-GET  /api/v1/attendance/me
-GET  /api/v1/attendance/me/state
-```
-
-Request dùng `multipart/form-data` với ảnh, toạ độ GPS và idempotency key. API khoá
-row của member, kiểm tra trạng thái ca đang mở, tính lại geofence và sai số GPS ở
-server, verify qua Face AI, rồi lưu ảnh bằng chứng vào MinIO private trước khi ghi
-sự kiện.
-
-### Phase 6.5 — Nối model ArcFace thật
-
-Face AI dùng SCRFD để detect + 5-point alignment, ArcFace sinh embedding 512 chiều
-đã chuẩn hoá L2. Enrollment lưu embedding vào `face_embeddings` (thu hồi bản cũ);
-check-in/check-out so khớp cosine 1:1 với embedding tham chiếu của chính member đó.
-
-### Phase 6.9 — Frontend thin slice
-
-Next.js 15 + TypeScript strict, App Router, không dùng UI library ngoài.
-
-| Đường dẫn | Màn hình |
-|---|---|
-| `/login` | Đăng nhập / đăng ký |
-| `/` | Bảng điều khiển: trạng thái ca, dữ liệu khuôn mặt, địa điểm, lịch sử |
-| `/enroll` | Chụp và đăng ký khuôn mặt |
-| `/attendance` | Lấy GPS → xem trước geofence → chụp ảnh → check-in/check-out |
-
-Luồng cảnh báo 100–200m yêu cầu nhập lý do ngay trên giao diện trước khi gửi.
-
-### Phase 7 — Quản lý chấm công cho Manager
-
-```text
-GET  /api/v1/manager/dashboard
-GET  /api/v1/manager/attendance
-GET  /api/v1/manager/attendance/{event_id}
-GET  /api/v1/manager/attendance/{event_id}/image
-POST /api/v1/manager/attendance/{event_id}/manual-adjust
-GET  /api/v1/manager/members/{member_id}/attendance
-GET  /api/v1/manager/members/{member_id}/locations
-DELETE /api/v1/manager/members/{member_id}/locations/{location_id}
-GET  /api/v1/manager/audit-logs
-```
-
-Giao diện quản lý tại `/manager`:
-
-| Đường dẫn | Màn hình |
-|---|---|
-| `/manager` | Tổng quan: số thành viên, đang trong ca, sự kiện hôm nay |
-| `/manager/attendance` | Bảng chấm công, lọc theo thành viên/địa điểm/trạng thái/loại/khoảng ngày, xem ảnh bằng chứng, điều chỉnh thủ công |
-| `/manager/members` | Thêm member bằng email, đổi trạng thái, gán và gỡ địa điểm |
-| `/manager/locations` | CRUD địa điểm, có nút **Dùng vị trí hiện tại của tôi** để lấy thẳng toạ độ GPS |
-| `/manager/audit-logs` | Nhật ký thao tác, lọc theo loại đối tượng |
-
-Ảnh bằng chứng **không** dùng signed URL của MinIO mà đi qua API proxy
-(`GET /manager/attendance/{id}/image`) vì MinIO chỉ bind `127.0.0.1`. API kiểm tra
-phạm vi quản lý trước khi trả nội dung, kèm `Cache-Control: private, no-store`.
-
-Điều chỉnh thủ công bắt buộc nhập lý do tối thiểu 3 ký tự và luôn ghi
-`ATTENDANCE_MANUALLY_ADJUSTED` vào `audit_logs` kèm `before_json`/`after_json`.
-
-Bảng dữ liệu tự chuyển thành thẻ khi màn hình hẹp hơn 720px.
-
-### Phase 7.1 — Sửa lỗi UI và hoàn thiện
-
-- **Auth dùng `X-API-Key`.** Access token gửi qua header `X-API-Key`;
-  `Authorization: Bearer` vẫn được chấp nhận cho client cũ.
-- **Sửa lỗi bàn phím mobile tự đóng.** `Dialog` chạy lại effect focus mỗi lần
-  render nên cướp focus khỏi ô đang gõ; effect nay chỉ chạy một lần khi mount.
-- **Chọn vị trí không cần có mặt tại chỗ.** `POST /manager/locations/resolve-place`
-  nhận địa chỉ, link Google Maps (kể cả link rút gọn, được mở server-side), hoặc
-  cặp toạ độ. Kết hợp bản đồ Leaflet kéo pin và nút lấy GPS thiết bị.
-  Geocoder dùng Photon, dự phòng Nominatim.
-- **Hiệu ứng xác minh khuôn mặt.** Đếm ngược 3 giây, khung dẫn hướng đổi màu theo
-  trạng thái, hiệu ứng quét khi đang xác minh, hiển thị số đo chất lượng trả về
-  từ Face AI.
-- **Sửa tràn layout.** `min-width: 0` toàn cục, ô nhập không còn vượt khỏi thẻ cha
-  trên màn hình hẹp.
-- Nút bấm, badge, alert và bảng được làm lại; text rút gọn theo hướng kỹ thuật.
-
-### Phase 7.2 — Hoàn thiện UX
-
-- **Đăng ký thu đủ hồ sơ**: họ tên (bắt buộc), số điện thoại, mã nhân viên, bộ phận,
-  chức danh; ghi thẳng vào `member_profiles` ngay sau khi tạo tài khoản.
-- **Sửa lỗi bấm "Tìm" bị thoát khỏi form.** Ô tìm vị trí trước đây là một `<form>`
-  lồng trong form địa điểm; HTML không cho phép form lồng nhau nên trình duyệt gộp
-  lại và nút Tìm submit form ngoài. Nay là nút `type="button"`.
-- **Gộp ô nhập địa điểm**: một ô duy nhất vừa là địa chỉ vừa là ô tìm kiếm; toạ độ
-  hiện dạng chỉ đọc, mở ra khi cần nhập tay.
-- **Bản đồ vẽ luôn hai vòng geofence** theo bán kính đang nhập; pin đổi thành hình
-  giọt nước màu đỏ viền trắng.
-- **Thông báo lỗi bằng tiếng Việt**, không còn lộ mã trạng thái hay chuỗi tiếng Anh.
-- **Nhật ký đọc được**: hành động dịch sang tiếng Việt, thay đổi hiện dạng
-  `Trạng thái: Hợp lệ → Cảnh báo` thay vì JSON thô, bố cục timeline.
-- **Dashboard**: ô số liệu có màu theo ngữ nghĩa, biểu đồ cột 7 ngày tách check-in
-  và check-out, danh sách thành viên kèm ai đang trong ca và ai chưa có khuôn mặt.
-- **Bảng chấm công**: nhãn Vào/Ra, khoảng cách và điểm khớp tô màu theo ngưỡng,
-  trạng thái hiển thị tiếng Việt.
-- **Camera**: bốn góc ngắm đổi màu theo trạng thái, vòng dẫn hướng thở nhẹ, dấu
-  tích hoặc dấu X khi có kết quả.
-
-### Phase 7.3 — Chấm công một chạm và lưu vết lần thử bị từ chối
-
-Màn hình chấm công rút còn một thẻ và một nút. Bấm chụp là hệ thống tự lấy GPS,
-tự gửi, máy chủ quyết định. Không hiển thị toạ độ cho người dùng.
-
-Migration `008_attendance_failure_code` thêm cột `failure_code` và index riêng cho
-các bản ghi bị từ chối. Trước đây hai giá trị `BLOCKED` và `FAILED` trong enum
-`attendance_status` chưa bao giờ được ghi: mọi lần thất bại đều bị `raise` và biến
-mất. Nay:
-
-| Tình huống | Trạng thái | `failure_code` | Lưu ảnh |
-|---|---|---|---|
-| Ngoài bán kính cảnh báo | `BLOCKED` | `OUTSIDE_ALLOWED_ZONE` | không |
-| Sai số GPS quá ngưỡng | `BLOCKED` | `GPS_ACCURACY_LOW` | không |
-| Khuôn mặt không khớp | `FAILED` | `FACE_NOT_MATCHED` | có |
-| Ảnh không đạt | `FAILED` | mã từ Face AI | có |
-
-Lần bị geofence chặn không lưu ảnh vì máy chủ dừng trước bước nhận diện. Lần sai
-khuôn mặt thì lưu, đó chính là bằng chứng cần cho quản lý.
-
-Bản ghi bị từ chối không mở ca: `_open_state` chỉ tính `SUCCESS` và
-`WARNING_CONFIRMED`.
-
-## Face AI và model
-
-Model để ngoài Git, mount read-only vào container:
-
-```text
-D:\face-attendance-models\detector\face_detector.onnx
-D:\face-attendance-models\embedding\arcface.onnx
-```
-
-`.env.example` mặc định `FACE_AI_ENABLE_EMBEDDINGS=false`; không có model thì Face AI
-báo `not_configured` và không bao giờ sinh embedding giả. Máy local bật bộ
-SCRFD/ArcFace (`insightface-buffalo_l-arcface` / `w600k_r50`) bằng
-`FACE_AI_ENABLE_EMBEDDINGS=true`.
-
-**`FACE_MATCH_THRESHOLD=0.35` vẫn là giá trị tạm (provisional).** Hai lần check-in
-thật đầu tiên cho điểm khớp `0.8552` và `0.8089`, tức khoảng cách tới ngưỡng rất
-rộng — an toàn về phía từ chối nhầm. Nhưng **chưa có dữ liệu người lạ** nên chưa
-kết luận được về chấp nhận nhầm. Phải đo FAR/FRR trên tập ảnh có đồng thuận
-trước khi đưa vào production.
-
-## Deployment
-
-Bản public chạy tại **https://namnangno.click**, phục vụ từ chính máy dev qua
-Cloudflare Tunnel — không mở port nào trên router.
-
-```text
-Internet -> Cloudflare edge (TLS that) -> tunnel container -> proxy (Caddy) -> frontend / api
-```
-
-- Service `tunnel` trong `docker-compose.yml` chạy named tunnel
-  `namnangno-tunnel`, ingress khai báo ở [proxy/cloudflared.yml](proxy/cloudflared.yml).
-- Credentials của tunnel nằm ngoài repo, đường dẫn khai báo qua
-  `CLOUDFLARED_CREDENTIALS_FILE` trong `.env`.
-- Cloudflare kết nối tới Caddy qua network Docker nội bộ; không service nào của
-  stack cần publish ra host để site chạy.
-- API, MinIO và Adminer chỉ bind `127.0.0.1`. Face AI không bind gì cả.
-
-Khởi động lại bản deploy:
-
-```powershell
-docker compose up -d
-docker compose logs tunnel --tail 20
-```
-
-Cấu hình tunnel trước đây (site tĩnh trong `D:\Projects\namnangno`) được lưu tại
-`config.yml.before-face-attendance` trong thư mục `.cloudflared` nếu cần khôi phục.
-
-### Bắt buộc trước khi cho người thật dùng
-
-- [ ] Bật **Cloudflare Access** cho `namnangno.click` để chỉ email được duyệt mới vào được.
-- [ ] Đổi toàn bộ secret trong `.env` (đã làm khi deploy lần đầu, phải lặp lại nếu clone sang máy khác).
-- [ ] Đổi mật khẩu tài khoản demo do migration `002` tạo ra.
-- [ ] Thêm rate limit cho `/auth/login` (Phase 9).
-- [ ] Thêm liveness/anti-spoofing (chưa có provider).
-
-## Known issues
-
-Những mục dưới đây **chưa** được làm — đừng giả định là đã có:
-
-- **Không có liveness / anti-spoofing.** Chụp lại ảnh trên màn hình vẫn qua được
-  xác thực. Đang chờ chọn provider thương mại. `liveness_score` luôn `NULL`.
-- **Chưa rate-limit.** Redis đã chạy nhưng chưa dùng cho login/enrollment/verify.
-  Vì lần thử sai khuôn mặt nay có lưu ảnh, thiếu rate limit đồng nghĩa dung lượng
-  MinIO có thể bị bơm không giới hạn.
-- **Chỉ điều chỉnh thủ công mới ghi audit log cho attendance**; sự kiện check-in/check-out do member tạo thì không.
-- **Test tự động mới chỉ phủ geofence** (`api/tests/test_geofence.py`).
-- `S3_SERVER_SIDE_ENCRYPTION=false` cho MinIO local; production phải bật lại.
+## Tính năng
+
+**Chấm công**
+- Nhận diện khuôn mặt trên ảnh chụp tại chỗ, không dùng ảnh có sẵn trong máy
+- Kiểm tra vị trí theo bán kính quanh địa điểm; ngoài vùng cho phép thì không ghi nhận
+- Giờ làm việc theo từng địa điểm, có mức cho phép đến muộn
+- Một ngày một phiên: đã đủ cặp vào–ra thì không mở phiên mới trong ngày
+- Tự đóng phiên sau 24 giờ nếu quên chấm ra
+- Người chấm công nhìn thấy đúng số đo mà bộ nhận diện đã dùng để quyết định
+
+**Quản lý**
+- Một màn hình cho cả việc: nhóm, người trong nhóm, địa điểm và mọi việc chờ duyệt
+- Nhóm có mã riêng; người mới nhập mã khi đăng ký, người quản lý duyệt hoặc từ chối
+- Mỗi người thuộc về một người quản lý — không có chuyện hai nơi cùng nhận một người
+- Gắn địa điểm cho cả nhóm: ai vào nhóm là chấm công được ở đó, kể cả người vào sau
+- Lịch tháng; bấm vào một ngày là ra bảng ngày công gộp sẵn giờ vào – giờ ra
+- Duyệt yêu cầu đổi ảnh khuôn mặt, có ảnh cũ và ảnh mới đặt cạnh nhau
+- Duyệt yêu cầu chỉnh công, nhật ký mọi thao tác
+
+**Quản trị**
+- Phân quyền theo màn hình và theo hành động: xem, thêm, sửa, xoá
+- Quản lý tài khoản, khôi phục hoặc xoá vĩnh viễn bản ghi
+- Tra cứu sự cố bằng mã lỗi người dùng đọc lại
+
+---
+
+## Bảo mật và quyền riêng tư
+
+- Ảnh khuôn mặt và ảnh chấm công nằm trong kho lưu trữ riêng tư, không có đường dẫn công khai
+- Mọi quyết định về vị trí và khuôn mặt do máy chủ tính, không tin dữ liệu do thiết bị gửi lên
+- Mỗi tài khoản chỉ một phiên đăng nhập; đăng nhập máy mới là máy cũ bị đẩy ra
+- Đổi ảnh khuôn mặt phải được người khác duyệt, không ai tự thay được
+- Quyền đọc bản ghi tính theo địa điểm: người quản lý khác không xem được dữ liệu tại nơi của bạn
+- Mọi thao tác sửa, xoá, phân quyền đều vào nhật ký kèm người thực hiện và lý do
+
+---
+
+## Cài đặt
+
+Xem [`docs/INSTALL.md`](docs/INSTALL.md) — hướng dẫn từng bước từ máy trống, chạy được trên Windows, macOS và Linux.
+
+Yêu cầu tối thiểu: Docker Desktop, 8 GB RAM, 10 GB đĩa trống.
+
+## Hướng dẫn sử dụng
+
+Xem [`docs/USER_GUIDE.md`](docs/USER_GUIDE.md) — dành cho người quản lý và thành viên, không cần biết kỹ thuật.
+
+## Tài liệu kỹ thuật
+
+Xem [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) — kiến trúc, mô hình dữ liệu, phân quyền và các quyết định thiết kế, dành cho người tiếp nhận hoặc nâng cấp hệ thống.
+
+---
+
+## Giới hạn đã biết
+
+- **Chưa có chống giả mạo (liveness).** Ảnh chụp lại màn hình vẫn có thể qua được. Đang chờ chọn nhà cung cấp.
+- **Chưa có hàng đợi ngoại tuyến.** Mọi lượt chấm công đều cần mạng, vì máy chủ mới là nơi xác thực.
+- **Ca qua đêm** (ví dụ 22:00 – 06:00) chưa cấu hình được.
+- **Ngưỡng nhận diện** đang dùng giá trị mặc định của thư viện, chưa đánh giá trên tập dữ liệu thực tế của từng tổ chức.
+
+---
+
+## Giấy phép
+
+Bản quyền thuộc về chủ sở hữu dự án. Liên hệ chủ sở hữu trước khi sử dụng cho mục đích thương mại.

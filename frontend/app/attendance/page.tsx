@@ -61,7 +61,16 @@ export default function AttendancePage() {
   const [fix, setFix] = useState<FixedPosition | null>(null);
   const [distance, setDistance] = useState<number | null>(null);
   const [gpsPhase, setGpsPhase] = useState<"idle" | "locating" | "ready" | "failed">("idle");
-  const [successInfo, setSuccessInfo] = useState<{ distance: number; locationName: string; time: string } | null>(null);
+  const [successInfo, setSuccessInfo] = useState<{
+    distance: number;
+    locationName: string;
+    time: string;
+    // The face comparison behind this record, kept so the person can see the
+    // number rather than being told to trust it.
+    faceDistance?: number | null;
+    faceThreshold?: number | null;
+    faceEngine?: string | null;
+  } | null>(null);
 
   const pendingRef = useRef<{ image: Blob; position: FixedPosition } | null>(null);
   const checkedIn = state?.state === "CHECKED_IN";
@@ -130,6 +139,9 @@ export default function AttendancePage() {
           distance: response.distance_meters,
           locationName: activeLocation?.name ?? "địa điểm",
           time: new Intl.DateTimeFormat("vi-VN", { hour: "2-digit", minute: "2-digit", second: "2-digit" }).format(new Date()),
+          faceDistance: response.face_distance,
+          faceThreshold: response.face_threshold,
+          faceEngine: response.face_engine,
         });
         setNeedsReason(false);
         setReason("");
@@ -351,6 +363,16 @@ export default function AttendancePage() {
                 <br />
                 Cách {successInfo.locationName}: <strong style={{ color: "var(--color-cyan)" }}>{formatDistance(successInfo.distance)}</strong>
               </p>
+              {successInfo.faceDistance !== null && successInfo.faceDistance !== undefined ? (
+                <p className="reading__inline mono">
+                  {successInfo.faceEngine ?? "face_recognition"} · khoảng cách{" "}
+                  <strong style={{ color: "var(--color-success)" }}>
+                    {successInfo.faceDistance.toFixed(3)}
+                  </strong>
+                  {successInfo.faceThreshold ? ` / ngưỡng ${successInfo.faceThreshold}` : ""}
+                </p>
+              ) : null}
+
               <Button onClick={() => router.push("/")} block>
                 Về trang chính
               </Button>

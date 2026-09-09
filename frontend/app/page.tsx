@@ -218,8 +218,14 @@ export default function DashboardPage() {
                 ),
               },
               {
+                // A count answers nothing: you check in at one place, so name
+                // the one you will actually use.
                 key: "Nơi chấm công",
-                value: `${data.locations.length} địa điểm`,
+                value:
+                  data.locations.length === 0
+                    ? "Chưa có nơi nào"
+                    : (data.locations.find((item) => item.is_default) ?? data.locations[0]).name +
+                      (data.locations.length > 1 ? " (chọn nơi khác khi chấm công)" : ""),
               },
               {
                 key: "Thời điểm check-in",

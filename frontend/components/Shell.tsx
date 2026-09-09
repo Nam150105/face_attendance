@@ -17,6 +17,9 @@ interface Access {
   has_face_photo?: boolean;
 }
 
+/** The only page that renders without a session. */
+const PUBLIC_PATH = "/login";
+
 const ROLE_LABEL: Record<string, string> = {
   MEMBER: "Thành viên",
   MANAGER: "Người quản lý",
@@ -57,6 +60,15 @@ export function Shell({ children, narrow }: { children: ReactNode; narrow?: bool
   useEffect(() => {
     setSignedIn(readTokens() !== null);
   }, [pathname]);
+
+  // No session, and this is not the sign-in page: go there. Every other route
+  // is somebody's data. Rendering an empty version of it and waiting for the
+  // first request to come back 401 shows a broken page for no reason.
+  useEffect(() => {
+    if (signedIn === false && pathname !== PUBLIC_PATH) {
+      router.replace(PUBLIC_PATH);
+    }
+  }, [pathname, router, signedIn]);
 
   useEffect(() => {
     if (signedIn !== true) {
@@ -135,7 +147,7 @@ export function Shell({ children, narrow }: { children: ReactNode; narrow?: bool
   // Wrapping them in the sidebar meant asking the server who this person is,
   // getting a 401, and redirecting to the page they were already on — the form
   // never rendered and nobody could log in.
-  if (signedIn === false) {
+  if (signedIn === false && pathname === PUBLIC_PATH) {
     return (
       <div className="public-frame">
         <div className="public-frame__brand">
@@ -147,7 +159,9 @@ export function Shell({ children, narrow }: { children: ReactNode; narrow?: bool
     );
   }
 
-  if (signedIn === undefined) {
+  // Either the browser has not been asked yet, or the redirect above is on its
+  // way. Both are a moment of waiting, not a page.
+  if (signedIn !== true) {
     return (
       <div className="public-frame">
         <main className="content content--narrow">

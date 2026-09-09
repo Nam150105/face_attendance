@@ -8,6 +8,9 @@ Spec nằm trong [`docs/`](docs/) và **luôn thắng** khi mâu thuẫn với c
 
 | File | Dùng khi |
 |---|---|
+| `ARCHITECTURE.md` | **Đọc trước tiên.** Kiến trúc hiện tại, mô hình quyền, quyết định thiết kế |
+| `INSTALL.md` | Dựng lại hệ thống trên máy khác |
+| `USER_GUIDE.md` | Người quản lý và thành viên dùng thế nào |
 | `00_MASTER_SPEC.md` | Definition of Done tổng thể, nguyên tắc bảo mật |
 | `03_DATABASE_SCHEMA.md` | Trước khi viết migration |
 | `04_API_CONTRACT.md` | Trước khi thêm/sửa endpoint hoặc error code |
@@ -29,6 +32,8 @@ Không sửa file spec trừ khi người dùng yêu cầu rõ ràng.
 ## 3. Nguyên tắc không thể phá vỡ
 
 - **Không giả lập AI.** Nếu model chưa sẵn sàng, trả `FACE_MODEL_NOT_CONFIGURED`. Tuyệt đối không sinh embedding giả, score giả, hay liveness giả.
+- **Không so vector giữa hai engine.** 128 số của dlib và 512 số của ArcFace ở hai không gian khác nhau; so vẫn ra điểm số nhưng là nhiễu. Lệch engine thì trả `FACE_ENGINE_MISMATCH`.
+- **Phân quyền và phạm vi dữ liệu là hai câu hỏi tách rời.** `require_screen`/`require_action` quyết định mở được màn hình nào; `_scope()`/`owner_filter()` quyết định thấy dữ liệu của ai. Cấp quyền không bao giờ mở rộng phạm vi.
 - **Server quyết định.** Không tin dữ liệu từ client: `member_id`, khoảng cách GPS, face score, role, URL ảnh. Geofence và face verify luôn tính lại ở backend.
 - **Migration-only.** Không sửa schema bằng SQL tay; luôn thêm file trong `api/migrations/versions/` với số thứ tự kế tiếp.
 - **Không commit secret.** `.env` bị gitignore. Model `.onnx` nằm ngoài Git (`D:\face-attendance-models`), mount read-only.
@@ -112,14 +117,17 @@ Tài khoản demo do migration `002_seed_local_demo` tạo ra chỉ dùng cho m�
 
 ## 10. Trạng thái hiện tại
 
-- **Xong:** Phase 0–10 — toàn bộ roadmap trong `docs/10_IMPLEMENTATION_PHASES.md`.
-- **Tiếp theo:** không còn phase nào. Việc mở rộng lấy từ `docs/12_RECOMMENDED_ADDITIONS.md` (retention ảnh, email verification, multi-tenant…).
+- **Xong:** Phase 0–10, cộng các đợt mở rộng sau roadmap: nhận diện bằng OpenCV + face_recognition, phân quyền theo màn hình và hành động, nhóm có mã cho người mới xin vào, duyệt đổi khuôn mặt, mã lỗi tra cứu được, cách ly dữ liệu theo địa điểm, một người một quản lý, một phiên mỗi ngày, và màn hình **Quản lý nhóm** gộp cả duyệt người / địa điểm / chỉnh công / đổi khuôn mặt.
+- **Migration hiện tại:** `019_one_manager`.
+- **Tiếp theo:** xem mục 9 và 10 trong `docs/ARCHITECTURE.md`.
 - **Đã deploy:** https://namnangno.click, chạy từ máy dev qua Cloudflare Tunnel (service `tunnel` trong compose).
 - **Nợ kỹ thuật đã biết:** xem mục "Known issues" trong [README.md](README.md).
 
 ## 11. Những thứ CHƯA có — đừng giả định là đã có
 
 - Liveness / anti-spoofing: **không có**. Ảnh chụp lại màn hình vẫn qua được. Đang chờ chọn provider thương mại.
+- Ca qua đêm (22:00–06:00): **không lưu được**, do ràng buộc `expected_check_in < expected_check_out`.
+- `face-ai` nạp **cả hai** engine dù chỉ dùng `face_recognition` — tốn khoảng 250 MB thường trực.
 - Lịch sao lưu tự động: **chưa có**. Script đã có nhưng phải chạy tay, chưa gắn cron.
 - Tài khoản demo `manager@example.com` / `member@example.com` từ migration 002 **vẫn tồn tại và đang ACTIVE** trên bản deploy công khai (manager@example.com đang quản lý 3 thành viên). Cân nhắc đổi mật khẩu hoặc chuyển sang SUSPENDED.
 - Retention dữ liệu sinh trắc học: **chưa có**. `07_SECURITY_PRIVACY.md` §6 yêu cầu thời hạn lưu cấu hình được và không giữ vô hạn — hiện ảnh bằng chứng và embedding được giữ mãi, chưa có job dọn.

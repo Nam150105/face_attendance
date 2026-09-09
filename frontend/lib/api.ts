@@ -299,6 +299,25 @@ export const api = {
       method: "DELETE",
     });
   },
+  teamLocations(teamId: string) {
+    return request<
+      { id: string; name: string; address: string | null; is_active: boolean; is_default: boolean }[]
+    >(`/manager/teams/${teamId}/locations`);
+  },
+  attachTeamLocation(teamId: string, locationId: string, isDefault: boolean) {
+    return request<{ team_id: string }>(`/manager/teams/${teamId}/locations`, {
+      method: "POST",
+      json: { location_id: locationId, is_default: isDefault },
+    });
+  },
+  detachTeamLocation(teamId: string, locationId: string) {
+    return request<{ removed: boolean }>(`/manager/teams/${teamId}/locations/${locationId}`, {
+      method: "DELETE",
+    });
+  },
+  teamMembers(teamId: string) {
+    return request<ManagedMember[]>(`/manager/teams/${teamId}/members`);
+  },
   managerTeams() {
     return request<
       { id: string; code: string; name: string; is_open: boolean; pending: number; members: number }[]
@@ -578,8 +597,11 @@ export const api = {
   bulkAddMembers(emails: string[]) {
     return request<BulkAddResult>("/manager/members/bulk-add", { method: "POST", json: { emails } });
   },
-  addMemberByEmail(email: string) {
-    return request<ManagedMember>("/manager/members/add-by-email", { method: "POST", json: { email } });
+  addMemberByEmail(email: string, teamId?: string) {
+    return request<ManagedMember>("/manager/members/add-by-email", {
+      method: "POST",
+      json: teamId ? { email, team_id: teamId } : { email },
+    });
   },
   updateMembership(memberId: string, status: string) {
     return request<ManagedMember>(`/manager/members/${memberId}`, { method: "PUT", json: { status } });

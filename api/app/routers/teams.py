@@ -12,14 +12,18 @@ from app.services.face_requests import (
 )
 from app.services.permissions import require_action, require_screen
 from app.services.teams import (
+    attach_location,
     create_team,
+    detach_location,
     decide_join_request,
     delete_team,
     list_join_requests,
+    list_team_locations,
     list_teams,
     my_join_requests,
     preview_team,
     request_join,
+    team_members,
     update_team,
 )
 
@@ -148,3 +152,34 @@ def decide_face_request(
     user: CurrentUser = Depends(require_action("face-requests", "edit")),
 ) -> dict:
     return decide_face_change(user, request_id, request.approve, request.note)
+
+
+class TeamLocationRequest(BaseModel):
+    location_id: UUID
+    is_default: bool = False
+
+
+@router.get("/{team_id}/locations")
+def team_places(team_id: UUID, user: CurrentUser = Depends(require_screen("members"))) -> list[dict]:
+    return list_team_locations(user, team_id)
+
+
+@router.post("/{team_id}/locations")
+def add_team_place(
+    team_id: UUID, request: TeamLocationRequest,
+    user: CurrentUser = Depends(require_action("members", "edit")),
+) -> dict:
+    return attach_location(user, team_id, request.location_id, request.is_default)
+
+
+@router.delete("/{team_id}/locations/{location_id}")
+def remove_team_place(
+    team_id: UUID, location_id: UUID,
+    user: CurrentUser = Depends(require_action("members", "edit")),
+) -> dict:
+    return detach_location(user, team_id, location_id)
+
+
+@router.get("/{team_id}/members")
+def team_roster(team_id: UUID, user: CurrentUser = Depends(require_screen("members"))) -> list[dict]:
+    return team_members(user, team_id)

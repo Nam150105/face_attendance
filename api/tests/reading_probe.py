@@ -1,0 +1,124 @@
+"""
+The numbers OpenCV and face_recognition produced come back to the person they
+were produced about. Runs against a LIVE stack, with real portraits.
+
+    docker compose run --rm -v "<repo>/api:/src:ro" -v "<faces>:/faces:ro" -w /src \
+      -e PROBE_BASE_URL=http://api:8000/api/v1 api python -m tests.reading_probe
+
+/faces needs einstein_a.jpg and einstein_b.jpg (the same person, two photos):
+enrolment takes the first, the check-in is judged against it with the second.
+"""
+
+from __future__ import annotations
+
+import os
+import sys
+import uuid
+
+from tests.security_probe import PASSWORD, call, cleanup, multipart, register
+
+FACES = os.environ.get("FACE_SAMPLES", "/faces")
+
+results: list[tuple[bool, str, str]] = []
+
+
+def check(name: str, passed: bool, detail: str = "") -> None:
+    results.append((passed, name, detail))
+    print(("PASS  " if passed else "FAIL  ") + name + ("  " + detail if detail else ""))
+
+
+def sample(name: str) -> bytes:
+    with open(os.path.join(FACES, name), "rb") as handle:
+        return handle.read()
+
+
+def enroll(token: str, image: bytes) -> tuple[int, dict]:
+    status, challenge = call("POST", "/faces/enrollment/start", token)
+    if status != 201:
+        return status, challenge
+    body, content_type = multipart(
+        {"challenge_id": str(challenge["challenge_id"]), "challenge": challenge["challenge"]},
+        "image", "face.jpg", image, "image/jpeg",
+    )
+    return call("POST", "/faces/enrollment/verify", token, raw=body, content_type=content_type)
+
+
+def check_in(token: str, location_id: str, image: bytes) -> tuple[int, dict]:
+    body, content_type = multipart(
+        {
+            "location_id": location_id, "latitude": "21.0", "longitude": "105.8",
+            "gps_accuracy_meters": "5", "idempotency_key": "read-" + uuid.uuid4().hex,
+        },
+        "image", "face.jpg", image, "image/jpeg",
+    )
+    return call("POST", "/attendance/check-in", token, raw=body, content_type=content_type)
+
+
+def main() -> int:
+    created: list[str] = []
+    try:
+        manager_email, manager = register("MANAGER", created)
+        member_email, member = register("MEMBER", created)
+        call("POST", "/manager/members/add-by-email", manager, {"email": member_email})
+        member_id = call("GET", "/manager/members", manager)[1][0]["user_id"]
+
+        # --- 1. Enrolment reports what it measured ----------------------------
+        status, enrolled = enroll(member, sample("einstein_a.jpg"))
+        check("Đăng ký khuôn mặt thành công",
+              status == 200 and enrolled.get("status") == "ENROLLED",
+              f"HTTP {status} {enrolled.get('status')}")
+        check("Trả về số đo của OpenCV để người dùng nhìn thấy",
+              isinstance(enrolled.get("blur_score"), (int, float))
+              and isinstance(enrolled.get("brightness_score"), (int, float)),
+              f"nét {enrolled.get('blur_score')} sáng {enrolled.get('brightness_score')}")
+        check("Nói rõ thư viện nào đọc khuôn mặt",
+              bool(enrolled.get("detector")) and bool(enrolled.get("encoder")),
+              f"{enrolled.get('detector')} · {enrolled.get('encoder')}")
+        check("Nói rõ vector đặc trưng dài bao nhiêu chiều",
+              enrolled.get("dimension") == 128, str(enrolled.get("dimension")))
+
+        # --- 2. A real check-in reports the comparison ------------------------
+        status, location = call("POST", "/manager/locations", manager, {
+            "name": "Reading probe", "address": None, "latitude": 21.0, "longitude": 105.8,
+            "allow_radius_meters": 500, "warning_radius_meters": 900, "is_active": True,
+        })
+        location_id = location["id"]
+        call("POST", f"/manager/members/{member_id}/locations", manager,
+             {"location_id": location_id, "is_default": True})
+
+        status, event = check_in(member, location_id, sample("einstein_b.jpg"))
+        check("Chấm công bằng ảnh thứ hai của cùng một người",
+              status == 200, f"HTTP {status} {event.get('detail')}")
+        distance = event.get("face_distance")
+        threshold = event.get("face_threshold")
+        check("Kết quả trả về khoảng cách khuôn mặt đã đo",
+              isinstance(distance, (int, float)), str(distance))
+        check("Và ngưỡng dùng để quyết định",
+              isinstance(threshold, (int, float)), str(threshold))
+        check("Khoảng cách nằm dưới ngưỡng thì mới được ghi nhận",
+              isinstance(distance, (int, float)) and isinstance(threshold, (int, float))
+              and distance < threshold,
+              f"{distance} < {threshold}")
+        check("Ghi tên bộ nhận diện đã đo, không phải chuỗi chung chung",
+              "dlib" in str(event.get("face_engine", "")).lower()
+              or "face_recognition" in str(event.get("face_engine", "")).lower(),
+              str(event.get("face_engine")))
+
+        # The same numbers must reach the manager's record view.
+        status, detail = call("GET", f"/manager/attendance/{event['event_id']}", manager)
+        check("Người quản lý đọc lại đúng con số đó",
+              status == 200 and detail.get("face_distance") is not None
+              and abs(float(detail["face_distance"]) - float(distance)) < 1e-6,
+              f"HTTP {status} {detail.get('face_distance')}")
+
+        call("DELETE", f"/manager/locations/{location_id}/permanent", manager)
+    finally:
+        cleanup(created)
+
+    passed = sum(1 for ok, _, _ in results if ok)
+    print(f"\n{passed}/{len(results)} passed")
+    return 0 if passed == len(results) else 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())

@@ -258,16 +258,34 @@ def evaluate_member_location(user_id: uuid.UUID, location_id: uuid.UUID, payload
     }
 
 
+MEMBER_LOCATION_SOURCES = """
+    SELECT ml.location_id, ml.is_default
+    FROM member_locations ml
+    WHERE ml.member_id = %s
+    UNION
+    SELECT tl.location_id, tl.is_default
+    FROM team_locations tl
+    JOIN manager_memberships mm ON mm.team_id = tl.team_id
+    WHERE mm.member_user_id = %s AND mm.status = 'ACTIVE'
+"""
+
+
 def list_member_locations(member_id: uuid.UUID) -> list[dict]:
+    """
+    Everywhere this person may check in: places granted to them individually,
+    plus every place attached to a unit they belong to.
+    """
     with psycopg.connect(DATABASE_URL) as connection:
         rows = connection.execute(
             f"""
-            SELECT {LOCATION_JOIN_COLUMNS}, ml.is_default
-            FROM member_locations ml JOIN locations l ON l.id = ml.location_id
-            WHERE ml.member_id = %s AND l.is_active = true
-            ORDER BY ml.is_default DESC, l.name
+            SELECT {LOCATION_JOIN_COLUMNS}, bool_or(source.is_default) AS is_default
+            FROM ({MEMBER_LOCATION_SOURCES}) AS source
+            JOIN locations l ON l.id = source.location_id
+            WHERE l.is_active = true
+            GROUP BY l.id
+            ORDER BY is_default DESC, l.name
             """,
-            (member_id,),
+            (member_id, member_id),
         ).fetchall()
     return [{**_location(row), "is_default": row[11]} for row in rows]
 

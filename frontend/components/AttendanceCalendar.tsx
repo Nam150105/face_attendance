@@ -75,10 +75,19 @@ export function AttendanceCalendar({
   search,
   refreshToken = 0,
   includeInvalid = false,
+  onPickDay,
+  selectedDate,
 }: {
   search: string;
   refreshToken?: number;
   includeInvalid?: boolean;
+  /**
+   * Where the day opens. Given a handler, the calendar hands the date over and
+   * the page shows the day below it; without one it opens its own dialog, which
+   * is what the member's own history still wants.
+   */
+  onPickDay?: (date: string) => void;
+  selectedDate?: string | null;
 }) {
   const [month, setMonth] = useState(() => monthKey(new Date()));
   const [data, setData] = useState<CalendarData | null>(null);
@@ -205,9 +214,18 @@ export function AttendanceCalendar({
               <button
                 type="button"
                 key={date}
-                className={`calendar__cell${date === todayKey ? " is-today" : ""}${people.length ? "" : " is-quiet"}`}
-                onClick={() => people.length > 0 && setOpenDay({ date, people })}
-                disabled={people.length === 0}
+                className={`calendar__cell${date === todayKey ? " is-today" : ""}${
+                  people.length ? "" : " is-quiet"
+                }${date === selectedDate ? " is-picked" : ""}`}
+                onClick={() => {
+                  if (onPickDay) {
+                    onPickDay(date);
+                  } else if (people.length > 0) {
+                    setOpenDay({ date, people });
+                  }
+                }}
+                disabled={people.length === 0 && !onPickDay}
+                aria-pressed={onPickDay ? date === selectedDate : undefined}
                 aria-label={`Ngày ${dayNumber}: ${people.length} lượt`}
               >
                 <span className="calendar__date">{dayNumber}</span>

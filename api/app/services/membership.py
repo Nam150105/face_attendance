@@ -147,7 +147,7 @@ def get_managed_member(user: CurrentUser, member_id: uuid.UUID) -> dict:
     return profile
 
 
-def add_member_by_email(user: CurrentUser, email: str) -> dict:
+def add_member_by_email(user: CurrentUser, email: str, team_id: uuid.UUID | None = None) -> dict:
     # Whoever adds someone becomes their manager, super admin included: a
     # membership with no manager on the other end is a row nobody can act on.
     manager_id = user.id
@@ -159,14 +159,31 @@ def add_member_by_email(user: CurrentUser, email: str) -> dict:
             raise HTTPException(status_code=404, detail="MEMBER_EMAIL_NOT_FOUND")
         if member[0] == manager_id:
             raise HTTPException(status_code=409, detail="CANNOT_ADD_SELF")
+        taken = connection.execute(
+            "SELECT 1 FROM manager_memberships"
+            " WHERE member_user_id = %s AND status = 'ACTIVE' AND manager_user_id <> %s",
+            (member[0], manager_id),
+        ).fetchone()
+        if taken is not None:
+            raise HTTPException(status_code=409, detail="ALREADY_HAS_MANAGER")
         existing = connection.execute(
             "SELECT id, status::text FROM manager_memberships WHERE manager_user_id = %s AND member_user_id = %s",
             (manager_id, member[0]),
         ).fetchone()
+        # Added from inside a unit, they land in that unit: the unit is what
+        # carries the places they may check in at.
+        if team_id is not None:
+            where, parameters = owner_filter(managed_by(user), "manager_user_id")
+            owns = connection.execute(
+                f"SELECT 1 FROM teams WHERE {where} AND id = %s", [*parameters, team_id]
+            ).fetchone()
+            if owns is None:
+                raise HTTPException(status_code=404, detail="TEAM_NOT_FOUND")
         if existing is None:
             connection.execute(
-                "INSERT INTO manager_memberships (manager_user_id, member_user_id, status) VALUES (%s, %s, 'ACTIVE')",
-                (manager_id, member[0]),
+                "INSERT INTO manager_memberships (manager_user_id, member_user_id, status, team_id)"
+                " VALUES (%s, %s, 'ACTIVE', %s)",
+                (manager_id, member[0], team_id),
             )
             action = "MEMBER_ADDED"
             before_status = None
@@ -174,8 +191,9 @@ def add_member_by_email(user: CurrentUser, email: str) -> dict:
             raise HTTPException(status_code=409, detail="Member is already managed")
         else:
             connection.execute(
-                "UPDATE manager_memberships SET status = 'ACTIVE', updated_at = now() WHERE id = %s",
-                (existing[0],),
+                "UPDATE manager_memberships SET status = 'ACTIVE', updated_at = now(),"
+                " team_id = COALESCE(%s, team_id) WHERE id = %s",
+                (team_id, existing[0]),
             )
             action = "MEMBERSHIP_REACTIVATED"
             before_status = existing[1]
@@ -235,6 +253,8 @@ MAX_BULK_EMAILS = 200
 BULK_ADDED = "ADDED"
 BULK_REACTIVATED = "REACTIVATED"
 BULK_ALREADY = "ALREADY_MANAGED"
+# One person can only have one manager; this row is somebody else's.
+BULK_HAS_MANAGER = "HAS_OTHER_MANAGER"
 BULK_NOT_REGISTERED = "NOT_REGISTERED"
 BULK_INVALID = "INVALID_EMAIL"
 
@@ -286,6 +306,15 @@ def bulk_add_members(user: CurrentUser, raw_emails: list[str]) -> dict:
             if existing is not None and existing[1] == "ACTIVE":
                 results.append({"email": email, "status": BULK_ALREADY})
                 continue
+            taken = connection.execute(
+                "SELECT 1 FROM manager_memberships"
+                " WHERE member_user_id = %s AND status = 'ACTIVE' AND manager_user_id <> %s",
+                (member[0], manager_id),
+            ).fetchone()
+            if taken is not None:
+                # One bad row must not sink the other ninety-nine.
+                results.append({"email": email, "status": BULK_HAS_MANAGER})
+                continue
             if existing is None:
                 connection.execute(
                     "INSERT INTO manager_memberships (manager_user_id, member_user_id, status) VALUES (%s, %s, 'ACTIVE')",
@@ -319,6 +348,7 @@ def bulk_add_members(user: CurrentUser, raw_emails: list[str]) -> dict:
         "requested": len(results),
         "succeeded": succeeded,
         "already_managed": sum(1 for item in results if item["status"] == BULK_ALREADY),
+        "has_other_manager": sum(1 for item in results if item["status"] == BULK_HAS_MANAGER),
         "failed": sum(1 for item in results if item["status"] in {BULK_NOT_REGISTERED, BULK_INVALID}),
         "results": results,
     }

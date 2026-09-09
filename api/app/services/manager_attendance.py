@@ -72,14 +72,23 @@ LIVE_ONLY = "e.deleted_at IS NULL"
 
 def _scope(connection: psycopg.Connection, user: CurrentUser) -> tuple[str, list]:
     """
-    SQL for "rows this viewer is allowed to see". A super admin gets everything,
-    a manager their group plus their own attendance, anyone else only their own.
-    Screens are opened by permission; this is what decides whose data appears.
+    SQL for "rows this viewer may see".
+
+    A super admin sees everything. A manager sees what happened at the places
+    they run, plus their own attendance wherever it happened — scoping by "who
+    do I manage" would let two managers of the same person read each other's
+    site data through them. Everybody else sees only their own.
     """
-    visible = visible_member_ids(connection, user)
-    if visible is None:
+    del connection
+    if user.role == "SUPER_ADMIN":
         return "TRUE", []
-    return "e.member_id = ANY(%s)", [visible]
+    if user.role == "MANAGER":
+        return (
+            "(e.location_id IN (SELECT id FROM locations WHERE manager_user_id = %s)"
+            " OR e.member_id = %s)",
+            [user.id, user.id],
+        )
+    return "e.member_id = %s", [user.id]
 
 
 def _scoped_event(connection: psycopg.Connection, user: CurrentUser, event_id: uuid.UUID) -> tuple:

@@ -2784,6 +2784,11 @@ body {
   color: var(--text-muted);
 }
 
+/* Two library versions in a row need a gap; the markup has none between them. */
+.engine__version + .engine__version {
+  margin-left: 6px;
+}
+
 .engine__role {
   margin-top: 2px;
   font-size: var(--text-sm);
@@ -3605,4 +3610,286 @@ body {
   font-size: var(--text-sm);
   color: var(--text-primary);
   overflow-wrap: anywhere;
+}
+
+.subhead {
+  font-size: var(--text-sm);
+  font-weight: 700;
+  color: var(--text-primary);
+  margin-bottom: 4px;
+}
+
+/* A quiet square button for an action the card already names */
+.icon-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: color 120ms ease, border-color 120ms ease;
+}
+
+.icon-button:hover {
+  color: var(--text-primary);
+  border-color: var(--border-medium);
+}
+
+/* Work waiting on a manager, and the units it belongs to -------------------
+   Three counts across the top instead of three menu entries. A tile with
+   nothing in it stays quiet; one with work on it is the only coloured thing
+   on the page, which is the point. */
+.queue-bar {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: var(--space-1);
+}
+
+.queue-tile {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  min-height: 56px;
+  padding: 10px 14px;
+  background: var(--surface-card);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  color: var(--text-secondary);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 120ms ease, color 120ms ease;
+}
+
+.queue-tile:hover {
+  border-color: var(--border-medium);
+  color: var(--text-primary);
+}
+
+.queue-tile.is-open {
+  border-color: var(--border-primary);
+  color: var(--text-primary);
+}
+
+.queue-tile__count {
+  font-family: var(--font-mono);
+  font-size: var(--text-xl);
+  font-weight: 700;
+  color: var(--text-muted);
+}
+
+.queue-tile.has-work .queue-tile__count {
+  color: var(--color-warning);
+}
+
+.queue-tile__label {
+  font-size: var(--text-sm);
+}
+
+/* A unit is a row until you open it; then it is the page. Collapsed by
+   default is what keeps this usable on a phone. */
+.unit {
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  background: var(--surface-raised);
+}
+
+.unit.is-open {
+  border-color: var(--border-medium);
+}
+
+.unit__head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  width: 100%;
+  min-height: 56px;
+  padding: 10px 14px;
+  background: transparent;
+  border: 0;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.unit__chevron {
+  flex: 0 0 auto;
+  width: 20px;
+  font-family: var(--font-mono);
+  font-size: var(--text-lg);
+  color: var(--text-muted);
+}
+
+.unit__title {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 200px;
+  min-width: 0;
+}
+
+.unit__body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: 0 14px 14px 14px;
+  border-top: 1px solid var(--border-subtle);
+  padding-top: var(--space-2);
+}
+
+.unit__section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+/* One person, one place, one row. Everything else waits behind "chi tiết". */
+.line {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  flex-wrap: wrap;
+  padding: 8px 12px;
+  background: var(--surface-card);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+}
+
+.line__body {
+  flex: 1 1 180px;
+  min-width: 0;
+}
+
+.line__body--action {
+  padding: 0;
+  background: transparent;
+  border: 0;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.line__body--action:hover .person__name {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.row--end {
+  justify-content: flex-end;
+}
+
+.row--form {
+  align-items: flex-end;
+}
+
+.row--form > *:first-child {
+  flex: 1 1 200px;
+}
+
+.filter-row {
+  display: flex;
+  align-items: flex-end;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+  margin-bottom: var(--space-1);
+}
+
+.filter-row > *:first-child {
+  flex: 1 1 240px;
+}
+
+.request--stacked {
+  flex-direction: column;
+  align-items: stretch;
+}
+
+/* The day you are reading sits under the table below it. */
+.calendar__cell.is-picked {
+  outline: 2px solid var(--color-primary);
+  outline-offset: -2px;
+}
+
+.link {
+  display: inline-flex;
+  align-items: center;
+  min-height: 28px;
+  color: var(--color-primary);
+  font-size: var(--text-sm);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+/* What the recognition libraries measured, in their own terms ---------------
+   This project is about OpenCV and face_recognition, so the numbers they
+   produce are shown to the person they were produced about, rather than being
+   kept in a log only an administrator reads. */
+.reading {
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+}
+
+.reading__row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 10px;
+  padding: 8px 12px;
+  background: var(--surface-card);
+}
+
+.reading__row + .reading__row {
+  border-top: 1px solid var(--border-subtle);
+}
+
+.reading__lib {
+  flex: 0 0 auto;
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  font-weight: 700;
+  color: var(--color-primary);
+}
+
+.reading__what {
+  flex: 1 1 140px;
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+}
+
+.reading__value {
+  flex: 0 0 auto;
+  font-size: var(--text-xs);
+  color: var(--text-primary);
+}
+
+.reading__inline {
+  margin-bottom: 16px;
+  font-size: var(--text-xs);
+  color: var(--text-secondary);
+}
+
+/* An explanation that is there when wanted and out of the way when not. */
+.disclosure > summary {
+  display: flex;
+  align-items: center;
+  min-height: 44px;
+  padding: 0 4px;
+  color: var(--text-secondary);
+  font-size: var(--text-sm);
+  cursor: pointer;
+}
+
+.disclosure > summary:hover {
+  color: var(--text-primary);
+}
+
+.disclosure[open] > summary {
+  margin-bottom: var(--space-1);
 }

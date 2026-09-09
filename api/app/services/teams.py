@@ -200,6 +200,16 @@ def request_join(member_id: uuid.UUID, code: str) -> dict:
         if existing and existing[1] == "PENDING":
             raise HTTPException(status_code=409, detail="JOIN_ALREADY_PENDING")
 
+        # One manager at a time. Somebody moving between units is released by
+        # the manager they are leaving, so nobody loses a person behind their back.
+        elsewhere = connection.execute(
+            "SELECT 1 FROM manager_memberships"
+            " WHERE member_user_id = %s AND status = 'ACTIVE' AND manager_user_id <> %s",
+            (member_id, team[1]),
+        ).fetchone()
+        if elsewhere is not None:
+            raise HTTPException(status_code=409, detail="ALREADY_HAS_MANAGER")
+
         if existing:
             connection.execute(
                 "UPDATE manager_memberships SET status = 'PENDING', team_id = %s, decided_at = NULL,"
@@ -308,6 +318,15 @@ def decide_join_request(user: CurrentUser, member_id: uuid.UUID, approve: bool, 
             raise HTTPException(status_code=404, detail="JOIN_REQUEST_NOT_FOUND")
 
         if approve:
+            taken = connection.execute(
+                "SELECT 1 FROM manager_memberships"
+                " WHERE member_user_id = %s AND status = 'ACTIVE' AND manager_user_id <> %s",
+                (member_id, row[1]),
+            ).fetchone()
+            if taken is not None:
+                raise HTTPException(status_code=409, detail="ALREADY_HAS_MANAGER")
+
+        if approve:
             # The unit is what the manager approved, not what the person typed
             # about themselves. Writing it here keeps every roster, filter and
             # export showing the same answer.
@@ -343,3 +362,127 @@ def decide_join_request(user: CurrentUser, member_id: uuid.UUID, approve: bool, 
         )
         connection.commit()
     return {"member_id": member_id, "status": status}
+
+
+# ------------------------------------------------------------ unit locations
+
+def _assert_owns_team(connection: psycopg.Connection, user: CurrentUser, team_id: uuid.UUID) -> None:
+    """An empty list would be ambiguous: it reads the same as "this unit has
+    nothing in it", which is not what happened."""
+    where, parameters = owner_filter(managed_by(user), "manager_user_id")
+    found = connection.execute(
+        f"SELECT 1 FROM teams WHERE {where} AND id = %s", [*parameters, team_id]
+    ).fetchone()
+    if found is None:
+        raise HTTPException(status_code=404, detail="TEAM_NOT_FOUND")
+
+
+def list_team_locations(user: CurrentUser, team_id: uuid.UUID) -> list[dict]:
+    where, parameters = owner_filter(managed_by(user), "t.manager_user_id")
+    with psycopg.connect(DATABASE_URL) as connection:
+        _assert_owns_team(connection, user, team_id)
+        rows = connection.execute(
+            f"""
+            SELECT l.id, l.name, l.address, l.is_active, tl.is_default
+            FROM team_locations tl
+            JOIN teams t ON t.id = tl.team_id
+            JOIN locations l ON l.id = tl.location_id
+            WHERE {where} AND tl.team_id = %s
+            ORDER BY tl.is_default DESC, l.name
+            """,
+            [*parameters, team_id],
+        ).fetchall()
+    return [
+        {"id": row[0], "name": row[1], "address": row[2], "is_active": row[3], "is_default": row[4]}
+        for row in rows
+    ]
+
+
+def attach_location(user: CurrentUser, team_id: uuid.UUID, location_id: uuid.UUID,
+                    is_default: bool) -> dict:
+    """
+    Attach a place to a unit. Everyone in the unit can check in there from this
+    moment, including people approved later — that is the point of attaching it
+    to the unit rather than to each person.
+    """
+    owner = managed_by(user)
+    team_where, team_params = owner_filter(owner, "manager_user_id")
+    location_where, location_params = owner_filter(owner, "manager_user_id")
+    with psycopg.connect(DATABASE_URL) as connection:
+        team = connection.execute(
+            f"SELECT id, name FROM teams WHERE {team_where} AND id = %s", [*team_params, team_id]
+        ).fetchone()
+        if team is None:
+            raise HTTPException(status_code=404, detail="TEAM_NOT_FOUND")
+        location = connection.execute(
+            f"SELECT id, name FROM locations WHERE {location_where} AND id = %s AND is_active",
+            [*location_params, location_id],
+        ).fetchone()
+        if location is None:
+            raise HTTPException(status_code=404, detail="LOCATION_NOT_FOUND")
+
+        if is_default:
+            connection.execute(
+                "UPDATE team_locations SET is_default = false WHERE team_id = %s", (team_id,)
+            )
+        connection.execute(
+            "INSERT INTO team_locations (team_id, location_id, is_default) VALUES (%s, %s, %s)"
+            " ON CONFLICT (team_id, location_id) DO UPDATE SET is_default = EXCLUDED.is_default",
+            (team_id, location_id, is_default),
+        )
+        connection.execute(
+            "INSERT INTO audit_logs (actor_user_id, action, entity_type, entity_id, after_json)"
+            " VALUES (%s, 'TEAM_LOCATION_ADDED', 'team', %s, %s::jsonb)",
+            (user.id, team_id, json.dumps({"location": location[1], "team": team[1]})),
+        )
+        connection.commit()
+    return {"team_id": team_id, "location_id": location_id, "is_default": is_default}
+
+
+def detach_location(user: CurrentUser, team_id: uuid.UUID, location_id: uuid.UUID) -> dict:
+    where, parameters = owner_filter(managed_by(user), "t.manager_user_id")
+    with psycopg.connect(DATABASE_URL) as connection:
+        removed = connection.execute(
+            f"""
+            DELETE FROM team_locations tl USING teams t
+            WHERE t.id = tl.team_id AND {where} AND tl.team_id = %s AND tl.location_id = %s
+            RETURNING tl.location_id
+            """,
+            [*parameters, team_id, location_id],
+        ).fetchone()
+        if removed is None:
+            raise HTTPException(status_code=404, detail="TEAM_LOCATION_NOT_FOUND")
+        connection.execute(
+            "INSERT INTO audit_logs (actor_user_id, action, entity_type, entity_id, before_json)"
+            " VALUES (%s, 'TEAM_LOCATION_REMOVED', 'team', %s, %s::jsonb)",
+            (user.id, team_id, json.dumps({"location_id": str(location_id)})),
+        )
+        connection.commit()
+    return {"team_id": team_id, "location_id": location_id, "removed": True}
+
+
+def team_members(user: CurrentUser, team_id: uuid.UUID) -> list[dict]:
+    where, parameters = owner_filter(managed_by(user), "t.manager_user_id")
+    with psycopg.connect(DATABASE_URL) as connection:
+        _assert_owns_team(connection, user, team_id)
+        rows = connection.execute(
+            f"""
+            SELECT u.id, u.email, u.role::text, mp.full_name, mp.phone, mp.position,
+                   mp.employee_code, mm.status::text
+            FROM manager_memberships mm
+            JOIN teams t ON t.id = mm.team_id
+            JOIN users u ON u.id = mm.member_user_id
+            LEFT JOIN member_profiles mp ON mp.user_id = u.id
+            WHERE {where} AND mm.team_id = %s AND mm.status = 'ACTIVE'
+            ORDER BY mp.full_name NULLS LAST, u.email
+            """,
+            [*parameters, team_id],
+        ).fetchall()
+    return [
+        {
+            "user_id": row[0], "email": row[1], "role": row[2], "full_name": row[3],
+            "phone": row[4], "position": row[5], "employee_code": row[6],
+            "membership_status": row[7],
+        }
+        for row in rows
+    ]

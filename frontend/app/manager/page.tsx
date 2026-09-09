@@ -88,7 +88,7 @@ export default function ManagerHomePage() {
               Xem bản ghi
             </Button>
           </Link>
-          <Link href="/manager/members">
+          <Link href="/manager/teams">
             <Button size="sm">
               Thêm thành viên
             </Button>
@@ -101,7 +101,7 @@ export default function ManagerHomePage() {
         <Alert tone="warning">
           <strong>{pending} người</strong> đang chờ bạn duyệt vào nhóm. Chưa duyệt thì họ chưa chấm
           công được.{" "}
-          <Link href="/manager/join-requests" className="alert__action">
+          <Link href="/manager/teams" className="alert__action">
             Xem ngay
           </Link>
         </Alert>
@@ -222,7 +222,7 @@ export default function ManagerHomePage() {
         title="Thành viên & trạng thái"
         subtitle="Ai đang trong phiên và ai chưa check-in hôm nay."
         action={
-          <Link href="/manager/members">
+          <Link href="/manager/teams">
             <Button variant="ghost" size="sm">
               Xem tất cả →
             </Button>

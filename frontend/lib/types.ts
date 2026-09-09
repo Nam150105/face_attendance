@@ -80,6 +80,9 @@ export interface EnrollmentResult {
   brightness_score?: number;
   model_name?: string;
   model_version?: string;
+  detector?: string;
+  encoder?: string;
+  dimension?: number;
 }
 
 export type AttendanceEventType = "CHECK_IN" | "CHECK_OUT";
@@ -123,6 +126,12 @@ export interface AttendanceResult {
   event_id: string;
   distance_meters: number;
   message: string;
+  /** What the recognition engine measured for this photo, when it ran. */
+  face_distance?: number | null;
+  face_threshold?: number | null;
+  face_metric?: string | null;
+  face_engine?: string | null;
+  face_detector?: string | null;
 }
 
 export interface DashboardMember {
