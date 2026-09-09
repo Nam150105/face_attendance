@@ -598,6 +598,81 @@ def attendance_calendar(user: CurrentUser, month: str, include_invalid: bool = F
     }
 
 
+def delete_attendance_day(
+    user: CurrentUser, member_id: uuid.UUID, work_date: date, reason: str
+) -> dict:
+    """
+    Remove a whole working day for one person.
+
+    What a manager sees in the day list is a *session* — the arrival and the
+    departure folded into one line — so deleting "that record" has to mean both
+    halves. Deleting only the check-in left the check-out behind, and the next
+    render showed the leaving photo in the arriving slot: a record nobody made,
+    assembled out of the remains of one that was deleted.
+
+    Everything refused that day goes too. A rejected attempt belongs to the day
+    it was attempted on, and leaving it behind means the day is still there.
+    """
+    reason = (reason or "").strip()
+    if len(reason) < 3:
+        raise HTTPException(status_code=422, detail="DELETE_REASON_REQUIRED")
+
+    with psycopg.connect(DATABASE_URL) as connection:
+        scope, scope_params = _scope(connection, user)
+        rows = connection.execute(
+            f"""
+            SELECT e.id, e.event_type::text, e.status::text, e.server_time, u.email
+            FROM attendance_events e
+            JOIN users u ON u.id = e.member_id
+            WHERE e.member_id = %s
+              AND (e.server_time AT TIME ZONE %s)::date = %s
+              AND e.deleted_at IS NULL
+              AND {scope}
+            ORDER BY e.server_time
+            """,
+            [member_id, APP_TIMEZONE, work_date, *scope_params],
+        ).fetchall()
+        if not rows:
+            raise HTTPException(status_code=404, detail="ATTENDANCE_DAY_NOT_FOUND")
+
+        connection.execute(
+            "UPDATE attendance_events SET deleted_at = now(), deleted_by = %s, delete_reason = %s"
+            " WHERE id = ANY(%s)",
+            (user.id, reason, [row[0] for row in rows]),
+        )
+        # One audit row per event, the same shape a single delete writes, so a
+        # super admin restores them the same way — one at a time if they want
+        # only half the day back.
+        for row in rows:
+            connection.execute(
+                """
+                INSERT INTO audit_logs (actor_user_id, action, entity_type, entity_id, before_json, reason)
+                VALUES (%s, 'ATTENDANCE_DELETED', 'attendance_event', %s, %s::jsonb, %s)
+                """,
+                (
+                    user.id,
+                    row[0],
+                    json.dumps(
+                        {
+                            "member_email": row[4],
+                            "event_type": row[1],
+                            "status": row[2],
+                            "server_time": row[3].isoformat(),
+                            "work_date": work_date.isoformat(),
+                        }
+                    ),
+                    reason,
+                ),
+            )
+        connection.commit()
+
+    return {
+        "member_id": str(member_id),
+        "work_date": work_date.isoformat(),
+        "deleted": len(rows),
+    }
+
+
 def delete_attendance(user: CurrentUser, event_id: uuid.UUID, reason: str) -> dict:
     manager_id = user.id
     """

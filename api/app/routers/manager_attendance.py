@@ -12,6 +12,7 @@ from app.services.manager_attendance import (
     attendance_image,
     attendance_sessions,
     delete_attendance,
+    delete_attendance_day,
     enrollment_photo,
     get_attendance,
     list_attendance,
@@ -119,6 +120,22 @@ def adjust(
     event_id: UUID, request: ManualAdjustRequest, user: CurrentUser = Depends(require_action("records", "edit"))
 ) -> dict:
     return manual_adjust(user, event_id, request.model_dump())
+
+
+@router.delete("/attendance/day")
+def remove_attendance_day(
+    member_id: UUID,
+    work_date: date,
+    reason: str = Query(min_length=3, max_length=500),
+    user: CurrentUser = Depends(require_action("records", "delete")),
+) -> dict:
+    """
+    Delete a working day, both halves of it.
+
+    Declared before /attendance/{event_id} so "day" is read as a path and not
+    as a malformed uuid.
+    """
+    return delete_attendance_day(user, member_id, work_date, reason)
 
 
 @router.delete("/attendance/{event_id}")

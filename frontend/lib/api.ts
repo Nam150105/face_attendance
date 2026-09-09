@@ -546,6 +546,13 @@ export const api = {
   deleteAttendanceRecord(eventId: string, reason: string) {
     return request<{ id: string }>(`/manager/attendance/${eventId}${queryString({ reason })}`, { method: "DELETE" });
   },
+  /** The whole working day: the arrival, the departure and anything refused. */
+  deleteAttendanceDay(memberId: string, workDate: string, reason: string) {
+    return request<{ member_id: string; work_date: string; deleted: number }>(
+      `/manager/attendance/day${queryString({ member_id: memberId, work_date: workDate, reason })}`,
+      { method: "DELETE" },
+    );
+  },
 
   evaluateGeofence(locationId: string, position: { latitude: number; longitude: number; gps_accuracy_meters: number }) {
     return request<GeofenceDecision>(`/locations/${locationId}/evaluate`, { method: "POST", json: position });

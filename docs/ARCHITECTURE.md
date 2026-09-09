@@ -199,6 +199,8 @@ Màn hình không được cấp thì không có trong menu, và gõ thẳng URL
 
 Người quản lý chỉ xoá mềm (`deleted_at`, `deleted_by`, `delete_reason`) — bản ghi biến khỏi danh sách nhưng ảnh bằng chứng còn nguyên và quản trị viên khôi phục được. Xoá vĩnh viễn là quyền của quản trị hệ thống.
 
+**Đơn vị để xoá là ngày công, không phải sự kiện.** Cái người quản lý nhìn thấy trên màn hình là một *phiên* — lượt vào và lượt ra gộp thành một dòng — nên `DELETE /manager/attendance/day` xoá cả ngày của người đó: vào, ra, và mọi lần bị từ chối trong ngày. Xoá lẻ một sự kiện để lại nửa kia, và lần vẽ lại kế tiếp đem ảnh lúc ra đặt vào ô ảnh lúc vào: một bản ghi không ai tạo ra, ráp từ phần còn sót của bản ghi vừa bị xoá. Nhật ký vẫn ghi từng sự kiện một để khôi phục lẻ được.
+
 ---
 
 ## 6. Bảo mật đã có — đừng gỡ khi refactor
@@ -259,6 +261,7 @@ Không có mock. Mọi probe chạy trên hệ thống thật đang chạy.
 | `isolation_probe` (17) | Phạm vi đọc theo địa điểm; địa điểm theo nhóm |
 | `rules_probe` (11) | Một người một quản lý; một phiên mỗi ngày |
 | `devices_probe` (12) | Bật tắt một/nhiều thiết bị theo vai trò |
+| `delete_day_probe` (12) | Xoá ngày công xoá trọn ngày, đúng phạm vi, xoá mềm |
 | `reading_probe` (16) | Một ngày thật: đăng ký → chấm vào → chấm ra; số đo OpenCV/face_recognition và chấm ra ở nơi khác |
 | `teams_probe` (35) | Mã đơn vị, duyệt/từ chối vào nhóm |
 | `face_change_probe` (27) | Duyệt đổi khuôn mặt, dùng ảnh chân dung thật |

@@ -66,7 +66,9 @@ Bấm vào một dòng. Bạn thấy:
 
 Toạ độ, sai số định vị, mã bản ghi và thư viện nhận diện nằm trong mục **Thông tin kỹ thuật** — mở ra khi cần đối chất, còn lại thì gấp gọn.
 
-Nếu có sai sót, bạn **Điều chỉnh trạng thái** kèm lý do, hoặc **Xoá bản ghi** kèm lý do. Cả hai đều vào nhật ký, và bản ghi đã xoá thì quản trị hệ thống vẫn khôi phục được.
+Nếu có sai sót, bạn **Điều chỉnh trạng thái** kèm lý do, hoặc **Xoá cả ngày công** kèm lý do.
+
+> Xoá là xoá **trọn ngày** của người đó: lượt vào, lượt ra và cả những lần bị từ chối trong ngày. Không có chuyện xoá nửa ngày rồi còn lại một lượt lẻ. Cả hai thao tác đều vào nhật ký, và bản ghi đã xoá thì quản trị hệ thống vẫn khôi phục được — khôi phục được từng lượt một nếu chỉ cần lấy lại một nửa.
 
 ### Xem thông tin một người
 

@@ -248,8 +248,18 @@ export default function ManagerAttendancePage() {
     setDeleting(true);
     setAdjustError(null);
     try {
-      await api.deleteAttendanceRecord(selected.id, deleteReason.trim());
+      // The row this dialog was opened from is a working day, so that is what
+      // gets deleted: arrival, departure, and anything refused in between.
+      // Deleting one event used to leave the other half behind, and the day
+      // came back looking like a record nobody made.
+      if (pairFor) {
+        await api.deleteAttendanceDay(pairFor.member_id, pairFor.work_date, deleteReason.trim());
+      } else {
+        await api.deleteAttendanceRecord(selected.id, deleteReason.trim());
+      }
       setSelected(null);
+      setPairFor(null);
+      setExitUrl(null);
       setDeleteReason("");
       await load();
     } catch (cause) {
@@ -410,7 +420,9 @@ export default function ManagerAttendancePage() {
                 </div>
               </div>
               <div className="face-compare__cell">
-                <span className="face-compare__label">Ảnh lúc vào</span>
+                <span className="face-compare__label">
+                  {selected.event_type === "CHECK_IN" ? "Ảnh lúc vào" : "Ảnh lúc ra"}
+                </span>
                 <div className="face-compare__frame">
                   {imageUrl ? (
                     <img src={imageUrl} alt="Ảnh chụp lúc ghi nhận" />
@@ -424,7 +436,9 @@ export default function ManagerAttendancePage() {
                 </div>
               </div>
 
-              {pairFor?.check_out_id ? (
+              {/* Only when the day really has two halves; a day with just one
+                  would otherwise show the same photo twice. */}
+              {pairFor?.check_in_id && pairFor?.check_out_id ? (
                 <div className="face-compare__cell">
                   <span className="face-compare__label">Ảnh lúc ra</span>
                   <div className="face-compare__frame">
@@ -578,10 +592,15 @@ export default function ManagerAttendancePage() {
 
             {may.delete ? (
             <div className="danger-zone">
-              <h3 className="danger-zone__title">Xoá bản ghi này</h3>
+              <h3 className="danger-zone__title">
+                {pairFor ? "Xoá cả ngày công này" : "Xoá bản ghi này"}
+              </h3>
               <p className="danger-zone__text">
-                Bản ghi sẽ biến khỏi bảng công của bạn và của thành viên. Việc xoá được ghi vào nhật ký kèm
-                tên bạn và lý do, quản trị hệ thống vẫn khôi phục lại được.
+                {pairFor
+                  ? "Xoá hết lượt vào, lượt ra và cả những lần bị từ chối trong ngày này. "
+                  : "Bản ghi sẽ biến khỏi bảng công. "}
+                Việc xoá được ghi vào nhật ký kèm tên bạn và lý do, quản trị hệ thống vẫn
+                khôi phục lại được.
               </p>
               <TextAreaField
                 label="Lý do xoá (bắt buộc)"
@@ -596,7 +615,7 @@ export default function ManagerAttendancePage() {
                 disabled={deleteReason.trim().length < 3}
                 block
               >
-                Xoá bản ghi
+                {pairFor ? "Xoá cả ngày công" : "Xoá bản ghi"}
               </Button>
             </div>
             ) : null}
