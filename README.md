@@ -29,6 +29,7 @@ Người dùng mở web trên điện thoại, chụp một tấm ảnh, hệ th
 
 **Quản lý**
 - Một màn hình cho cả việc: nhóm, người trong nhóm, địa điểm và mọi việc chờ duyệt
+- Thêm nhiều người một lượt: dán danh sách email, mỗi email một dòng
 - Nhóm có mã riêng; người mới nhập mã khi đăng ký, người quản lý duyệt hoặc từ chối
 - Mỗi người thuộc về một người quản lý — không có chuyện hai nơi cùng nhận một người
 - Gắn địa điểm cho cả nhóm: ai vào nhóm là chấm công được ở đó, kể cả người vào sau
@@ -38,6 +39,7 @@ Người dùng mở web trên điện thoại, chụp một tấm ảnh, hệ th
 
 **Quản trị**
 - Phân quyền theo màn hình và theo hành động: xem, thêm, sửa, xoá
+- Chọn từng vai trò được đăng nhập một thiết bị hay nhiều thiết bị cùng lúc
 - Quản lý tài khoản, khôi phục hoặc xoá vĩnh viễn bản ghi
 - Tra cứu sự cố bằng mã lỗi người dùng đọc lại
 
@@ -47,7 +49,7 @@ Người dùng mở web trên điện thoại, chụp một tấm ảnh, hệ th
 
 - Ảnh khuôn mặt và ảnh chấm công nằm trong kho lưu trữ riêng tư, không có đường dẫn công khai
 - Mọi quyết định về vị trí và khuôn mặt do máy chủ tính, không tin dữ liệu do thiết bị gửi lên
-- Mỗi tài khoản chỉ một phiên đăng nhập; đăng nhập máy mới là máy cũ bị đẩy ra
+- Giới hạn một thiết bị cho mỗi tài khoản (bật tắt được theo vai trò) để không ai chấm công hộ nhau
 - Đổi ảnh khuôn mặt phải được người khác duyệt, không ai tự thay được
 - Quyền đọc bản ghi tính theo địa điểm: người quản lý khác không xem được dữ liệu tại nơi của bạn
 - Mọi thao tác sửa, xoá, phân quyền đều vào nhật ký kèm người thực hiện và lý do

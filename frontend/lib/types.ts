@@ -312,12 +312,19 @@ export interface Paged<T> {
   items: T[];
 }
 
-export type BulkAddStatus = "ADDED" | "REACTIVATED" | "ALREADY_MANAGED" | "NOT_REGISTERED" | "INVALID_EMAIL";
+export type BulkAddStatus =
+  | "ADDED"
+  | "REACTIVATED"
+  | "ALREADY_MANAGED"
+  | "HAS_OTHER_MANAGER"
+  | "NOT_REGISTERED"
+  | "INVALID_EMAIL";
 
 export interface BulkAddResult {
   requested: number;
   succeeded: number;
   already_managed: number;
+  has_other_manager: number;
   failed: number;
   results: Array<{ email: string; status: BulkAddStatus }>;
 }

@@ -24,22 +24,58 @@ const ACTIONS = [
 type Actions = Record<string, boolean>;
 type Grid = { roles: Record<string, Record<string, Actions>>; locked: Record<string, string[]> };
 
+interface DevicePolicy {
+  role: string;
+  allow_multiple_devices: boolean;
+  active_sessions: number;
+}
+
 export default function AdminRolesPage() {
   const [grid, setGrid] = useState<Grid | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [resetting, setResetting] = useState(false);
+  const [devices, setDevices] = useState<DevicePolicy[] | null>(null);
 
   const load = useCallback(async () => {
     try {
-      const result = await api.adminPermissions();
+      const [result, policies] = await Promise.all([api.adminPermissions(), api.sessionPolicy()]);
       setGrid({ roles: result.roles, locked: result.locked });
+      setDevices(policies);
       setError(null);
     } catch (cause) {
       setError(describeError(cause));
     }
   }, []);
+
+  async function setDevicePolicy(role: string, allowMultiple: boolean) {
+    setBusy(`device-${role}`);
+    // Optimistic: the switch answers under the finger, and a refusal puts it
+    // back where it was.
+    setDevices((current) =>
+      (current ?? []).map((row) =>
+        row.role === role ? { ...row, allow_multiple_devices: allowMultiple } : row,
+      ),
+    );
+    try {
+      const result = await api.setSessionPolicy(role, allowMultiple);
+      setError(null);
+      setNotice(
+        allowMultiple
+          ? "Đã cho phép đăng nhập nhiều thiết bị cùng lúc."
+          : result.sessions_closed > 0
+            ? `Đã giới hạn một thiết bị. ${result.sessions_closed} phiên cũ đã bị đóng.`
+            : "Đã giới hạn mỗi tài khoản một thiết bị.",
+      );
+      await load();
+    } catch (cause) {
+      setError(describeError(cause));
+      await load();
+    } finally {
+      setBusy(null);
+    }
+  }
 
   useEffect(() => {
     void load();
@@ -122,6 +158,55 @@ export default function AdminRolesPage() {
 
       {error ? <Alert tone="danger">{error}</Alert> : null}
       {notice ? <Alert tone="success">{notice}</Alert> : null}
+
+      <Card
+        title="Đăng nhập trên bao nhiêu thiết bị"
+        subtitle="Giới hạn một thiết bị là cách ngăn một người đưa tài khoản cho người khác chấm công hộ."
+      >
+        {devices === null ? (
+          <LoadingRows count={3} />
+        ) : (
+          <div className="stack stack--tight">
+            {ROLES.map((role) => {
+              const policy = devices.find((row) => row.role === role.key);
+              const multiple = policy?.allow_multiple_devices ?? true;
+              return (
+                <div className="line" key={role.key}>
+                  <div className="line__body">
+                    <p className="person__name">{role.label}</p>
+                    <p className="event__meta">
+                      {multiple
+                        ? "Đăng nhập được ở nhiều máy cùng lúc"
+                        : "Mở máy mới là máy cũ bị đẩy ra"}
+                      {policy ? ` · ${policy.active_sessions} phiên đang mở` : ""}
+                    </p>
+                  </div>
+                  <div className="segmented segmented--sm" role="group" aria-label={`Thiết bị cho ${role.label}`}>
+                    <button
+                      type="button"
+                      className={multiple ? undefined : "is-active"}
+                      aria-pressed={!multiple}
+                      disabled={busy === `device-${role.key}`}
+                      onClick={() => void setDevicePolicy(role.key, false)}
+                    >
+                      Một thiết bị
+                    </button>
+                    <button
+                      type="button"
+                      className={multiple ? "is-active" : undefined}
+                      aria-pressed={multiple}
+                      disabled={busy === `device-${role.key}`}
+                      onClick={() => void setDevicePolicy(role.key, true)}
+                    >
+                      Nhiều thiết bị
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </Card>
 
       {grid === null ? (
         <LoadingRows count={8} />

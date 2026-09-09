@@ -30,6 +30,7 @@ class AddMemberRequest(BaseModel):
 
 class BulkAddRequest(BaseModel):
     emails: list[str] = Field(min_length=1, max_length=200)
+    team_id: UUID | None = None
 
 
 class MembershipUpdateRequest(BaseModel):
@@ -48,7 +49,7 @@ def add_member(request: AddMemberRequest, user: CurrentUser = Depends(require_ac
 
 @router.post("/members/bulk-add", status_code=201)
 def add_members(request: BulkAddRequest, user: CurrentUser = Depends(require_action("members", "create"))) -> dict:
-    return bulk_add_members(user, request.emails)
+    return bulk_add_members(user, request.emails, request.team_id)
 
 
 @router.get("/members/{member_id}")

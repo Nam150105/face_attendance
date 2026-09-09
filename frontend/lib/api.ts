@@ -414,6 +414,17 @@ export const api = {
       json: { role, screen, action, allowed },
     });
   },
+  sessionPolicy() {
+    return request<
+      { role: string; allow_multiple_devices: boolean; active_sessions: number }[]
+    >("/admin/session-policy");
+  },
+  setSessionPolicy(role: string, allowMultipleDevices: boolean) {
+    return request<{ role: string; allow_multiple_devices: boolean; sessions_closed: number }>(
+      "/admin/session-policy",
+      { method: "PUT", json: { role, allow_multiple_devices: allowMultipleDevices } },
+    );
+  },
   resetPermissions() {
     return request<{ restored: number }>("/admin/permissions/reset", { method: "POST" });
   },
@@ -603,8 +614,11 @@ export const api = {
   managerMembers() {
     return request<ManagedMember[]>("/manager/members");
   },
-  bulkAddMembers(emails: string[]) {
-    return request<BulkAddResult>("/manager/members/bulk-add", { method: "POST", json: { emails } });
+  bulkAddMembers(emails: string[], teamId?: string) {
+    return request<BulkAddResult>("/manager/members/bulk-add", {
+      method: "POST",
+      json: teamId ? { emails, team_id: teamId } : { emails },
+    });
   },
   addMemberByEmail(email: string, teamId?: string) {
     return request<ManagedMember>("/manager/members/add-by-email", {

@@ -21,9 +21,9 @@ ACCESS_TTL_MINUTES = int(os.environ.get("JWT_ACCESS_TTL_MINUTES", "15"))
 REFRESH_TTL_DAYS = int(os.environ.get("JWT_REFRESH_TTL_DAYS", "30"))
 AUTH_DEBUG_RETURN_RESET_TOKEN = os.environ.get("AUTH_DEBUG_RETURN_RESET_TOKEN", "false").lower() == "true"
 ALGORITHM = "HS256"
-# Roles held to one device at a time. Managers are deliberately excluded: the
-# requirement is about members, and logging a manager out of their desktop
-# because they opened a phone would be a surprise.
+# Which roles are held to one device is now a setting the system administrator
+# changes on screen (session_policies). The environment variable is kept only
+# as the answer for a database that has not been migrated yet.
 SINGLE_SESSION_ROLES = {
     role.strip().upper()
     for role in os.environ.get("SINGLE_SESSION_ROLES", "MEMBER").split(",")
@@ -157,6 +157,27 @@ def revoke_user_sessions(
     ).rowcount
 
 
+def _holds_one_device(connection: psycopg.Connection, role: str) -> bool:
+    """
+    Is this role limited to one device right now?
+
+    Read per login rather than cached: the administrator flipping the switch
+    expects the next login to obey it, and one indexed lookup on a three-row
+    table is cheaper than any cache that can go stale.
+    """
+    try:
+        row = connection.execute(
+            "SELECT allow_multiple_devices FROM session_policies WHERE role = %s",
+            (role.upper(),),
+        ).fetchone()
+    except psycopg.errors.UndefinedTable:
+        connection.rollback()
+        return role.upper() in SINGLE_SESSION_ROLES
+    if row is None:
+        return role.upper() in SINGLE_SESSION_ROLES
+    return not row[0]
+
+
 def issue_tokens(
     connection: psycopg.Connection,
     user_id: uuid.UUID,
@@ -171,7 +192,7 @@ def issue_tokens(
     lock on the user (see lock_user), so two logins racing each other are
     serialised; the partial unique index is the backstop if they are not.
     """
-    enforce = role.upper() in SINGLE_SESSION_ROLES
+    enforce = _holds_one_device(connection, role)
     if enforce:
         revoke_user_sessions(connection, user_id, "NEW_DEVICE_LOGIN")
 

@@ -29,6 +29,8 @@ Hệ thống sinh một **mã sáu ký tự**, ví dụ `9X7436`. Đây là mã 
 
 Bấm vào tên nhóm để mở nhóm ra tại chỗ. Mọi thứ của nhóm nằm trong đó: địa điểm, người đang chờ, người đã ở trong nhóm. Chọn một địa điểm ở **Thêm địa điểm cho nhóm** rồi bấm **Gắn**.
 
+Muốn thêm người đã có tài khoản, dùng ô **Thêm người vào nhóm**: dán danh sách email, **mỗi email một dòng**. Xong việc hệ thống báo thêm được bao nhiêu người, và nêu tên từng email chưa thêm được kèm lý do (chưa có tài khoản, đang thuộc người quản lý khác…).
+
 > Gắn địa điểm cho nhóm là một *quy tắc*, không phải thao tác một lần. Ai được duyệt vào nhóm là chấm công được ở đó ngay, kể cả người vào tuần sau. Gỡ ai khỏi nhóm là họ mất quyền ở đó.
 
 ### Bước 3 — Phát mã và duyệt người
@@ -166,7 +168,7 @@ Chấm công cần chứng minh bạn có mặt đúng nơi. Không có vị tr�
 Không. Ảnh nằm trong kho lưu trữ riêng của tổ chức bạn, không có đường dẫn công khai, chỉ bạn và người quản lý trực tiếp xem được.
 
 **Tôi đăng nhập ở máy khác thì máy cũ ra sao?**
-Bị đăng xuất ngay. Mỗi tài khoản chỉ giữ một phiên.
+Tuỳ cài đặt của tổ chức bạn. Quản trị hệ thống chọn từng vai trò được dùng một thiết bị hay nhiều thiết bị; nếu đang giới hạn một thiết bị thì mở máy mới là máy cũ bị đẩy ra ngay.
 
 **Tôi thấy một mã sáu ký tự khi bị lỗi?**
 Đó là mã sự cố. Đọc lại cho quản trị viên, họ tra được chuyện gì đã xảy ra.

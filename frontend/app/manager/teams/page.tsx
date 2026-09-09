@@ -11,6 +11,7 @@ import {
   Button,
   Card,
   Empty,
+  Field,
   LoadingRows,
   SelectField,
   TextAreaField,
@@ -65,6 +66,36 @@ interface FaceRequest {
 }
 
 type Queue = "join" | "face" | "correction";
+
+/** Outcomes that mean the person is now in the unit. */
+const ADDED = new Set(["ADDED", "REACTIVATED"]);
+
+const BULK_REASON: Record<string, string> = {
+  NOT_REGISTERED: "chưa có tài khoản trên hệ thống",
+  INVALID_EMAIL: "email không hợp lệ",
+  ALREADY_MANAGED: "đã ở trong nhóm của bạn",
+  HAS_OTHER_MANAGER: "đang thuộc người quản lý khác",
+};
+
+function describeBulk(status: string): string {
+  return BULK_REASON[status] ?? status;
+}
+
+/** One email per line; blank lines and stray commas are forgiven. */
+function splitEmails(raw: string): string[] {
+  return [
+    ...new Set(
+      raw
+        .split(/[\n,;]+/)
+        .map((line) => line.trim().toLowerCase())
+        .filter(Boolean),
+    ),
+  ];
+}
+
+function emailCount(raw: string): number {
+  return splitEmails(raw).length;
+}
 
 /**
  * One screen for running a unit.
@@ -256,15 +287,23 @@ export default function TeamsPage() {
   }
 
   async function invite(teamId: string) {
-    const email = inviteEmail.trim().toLowerCase();
-    if (!email) {
+    const emails = splitEmails(inviteEmail);
+    if (emails.length === 0) {
       return;
     }
     await run(async () => {
-      await api.addMemberByEmail(email, teamId);
+      const summary = await api.bulkAddMembers(emails, teamId);
       setInviteEmail("");
       await refreshTeam(teamId);
-      return `Đã thêm ${email} vào nhóm.`;
+      // A batch where three of twenty failed has to say which three, or the
+      // manager checks twenty people by hand.
+      const failed = summary.results.filter((row) => !ADDED.has(row.status));
+      const head = `Đã thêm ${summary.succeeded}/${summary.requested} người.`;
+      return failed.length === 0
+        ? head
+        : `${head} Chưa thêm được: ${failed
+            .map((row) => `${row.email} (${describeBulk(row.status)})`)
+            .join(", ")}`;
     });
   }
 
@@ -525,26 +564,21 @@ export default function TeamsPage() {
         </Card>
       ) : null}
 
-      <Card
-        title="Nhóm của bạn"
-        subtitle="Bấm vào một nhóm để xem người và địa điểm của nhóm đó."
-        action={
-          may.create ? (
-            <form className="row" onSubmit={createTeam}>
-              <input
-                className="input"
-                placeholder="Tên nhóm mới"
-                value={newTeam}
-                onChange={(event) => setNewTeam(event.target.value)}
-                aria-label="Tên nhóm mới"
-              />
-              <Button type="submit" size="sm" loading={busy} disabled={!newTeam.trim()}>
-                Tạo nhóm
-              </Button>
-            </form>
-          ) : null
-        }
-      >
+      <Card title="Nhóm của bạn" subtitle="Bấm vào một nhóm để xem người và địa điểm của nhóm đó.">
+        {may.create ? (
+          <form className="inline-form" onSubmit={createTeam}>
+            <Field
+              label="Tạo nhóm mới"
+              placeholder="Ví dụ: Chi nhánh Hà Nội"
+              value={newTeam}
+              onChange={(event) => setNewTeam(event.target.value)}
+            />
+            <Button type="submit" loading={busy} disabled={!newTeam.trim()}>
+              Tạo nhóm
+            </Button>
+          </form>
+        ) : null}
+
         {teams === null ? (
           <LoadingRows count={3} />
         ) : teams.length === 0 ? (
@@ -556,43 +590,36 @@ export default function TeamsPage() {
               const waiting = joins.filter((row) => row.team_code === team.code);
               return (
                 <div className={`unit${isOpen ? " is-open" : ""}`} key={team.id}>
-                  <button
-                    type="button"
-                    className="unit__head"
-                    aria-expanded={isOpen}
-                    onClick={() => void toggleTeam(team)}
-                  >
-                    <span className="unit__chevron" aria-hidden="true">
-                      {isOpen ? "−" : "+"}
-                    </span>
-                    <span className="unit__title">
-                      <span className="person__name">{team.name}</span>
-                      <span className="event__meta">
-                        {team.members} người
-                        {team.pending > 0 ? ` · ${team.pending} chờ duyệt` : ""}
-                        {team.is_open ? "" : " · đang đóng nhận"}
+                  <div className="unit__head">
+                    <button
+                      type="button"
+                      className="unit__toggle"
+                      aria-expanded={isOpen}
+                      onClick={() => void toggleTeam(team)}
+                    >
+                      <span className="unit__chevron" aria-hidden="true">
+                        {isOpen ? "▾" : "▸"}
                       </span>
-                    </span>
-                    <span
-                      className="team__code"
-                      role="button"
-                      tabIndex={0}
-                      title="Bấm để sao chép mã"
-                      onClick={(event) => {
-                        event.stopPropagation();
-                        void copyCode(team.code);
-                      }}
-                      onKeyDown={(event) => {
-                        if (event.key === "Enter" || event.key === " ") {
-                          event.stopPropagation();
-                          event.preventDefault();
-                          void copyCode(team.code);
-                        }
-                      }}
+                      <span className="unit__title">
+                        <span className="person__name">{team.name}</span>
+                        <span className="event__meta">
+                          {team.members} người
+                          {team.pending > 0 ? ` · ${team.pending} chờ duyệt` : ""}
+                          {team.is_open ? "" : " · đang đóng nhận"}
+                        </span>
+                      </span>
+                    </button>
+                    {/* The code is a thing you copy, so it is its own button.
+                        Nested inside the row's button it was neither. */}
+                    <button
+                      type="button"
+                      className="code-chip"
+                      title="Bấm để sao chép mã nhóm"
+                      onClick={() => void copyCode(team.code)}
                     >
                       {copied === team.code ? "Đã chép" : team.code}
-                    </span>
-                  </button>
+                    </button>
+                  </div>
 
                   {isOpen ? (
                     <div className="unit__body">
@@ -786,22 +813,21 @@ export default function TeamsPage() {
                         )}
 
                         {may.create ? (
-                          <div className="row row--form">
-                            <input
-                              className="input"
-                              type="email"
-                              placeholder="Thêm bằng email đã có tài khoản"
+                          <div className="inline-form inline-form--stacked">
+                            <TextAreaField
+                              label="Thêm người vào nhóm"
+                              hint="Mỗi email một dòng. Họ phải có tài khoản trên hệ thống rồi."
+                              rows={3}
+                              placeholder={"an@congty.vn\nbinh@congty.vn"}
                               value={inviteEmail}
                               onChange={(event) => setInviteEmail(event.target.value)}
-                              aria-label="Email người cần thêm"
                             />
                             <Button
-                              size="sm"
                               loading={busy}
                               disabled={!inviteEmail.trim()}
                               onClick={() => void invite(team.id)}
                             >
-                              Thêm
+                              Thêm{emailCount(inviteEmail) > 1 ? ` ${emailCount(inviteEmail)} người` : ""}
                             </Button>
                           </div>
                         ) : null}

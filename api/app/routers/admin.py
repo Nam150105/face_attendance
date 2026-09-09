@@ -30,6 +30,7 @@ class ReasonRequest(BaseModel):
     reason: str = Field(min_length=3, max_length=500)
 
 
+from app.services.session_policy import list_policies, set_policy
 from app.services.admin_data import (
     browse_table,
     clear_errors,
@@ -135,6 +136,25 @@ def change_permission(request: PermissionRequest, user: CurrentUser = Depends(ad
 @router.post("/permissions/reset")
 def restore_permissions(user: CurrentUser = Depends(admin_only)) -> dict:
     return reset_permissions(user.id)
+
+
+# ---------------------------------------------------------- device policy
+
+class SessionPolicyRequest(BaseModel):
+    role: str = Field(pattern="^(MEMBER|MANAGER|SUPER_ADMIN)$")
+    allow_multiple_devices: bool
+
+
+@router.get("/session-policy")
+def session_policy(user: CurrentUser = Depends(admin_only)) -> list[dict]:
+    return list_policies()
+
+
+@router.put("/session-policy")
+def change_session_policy(
+    request: SessionPolicyRequest, user: CurrentUser = Depends(admin_only)
+) -> dict:
+    return set_policy(user.id, request.role, request.allow_multiple_devices)
 
 
 # ------------------------------------------------------------- data browser

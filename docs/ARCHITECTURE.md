@@ -4,7 +4,7 @@ Tài liệu cho người tiếp nhận, bảo trì hoặc nâng cấp. Mô tả 
 
 > Khác với `02_ARCHITECTURE.md` — tệp đó là đặc tả thiết kế ban đầu. Tệp này mô tả cái đang chạy thật; khi hai bên lệch nhau, tệp này đúng về hiện trạng.
 
-Cập nhật: 2026-09-09 · migration `019_one_manager`
+Cập nhật: 2026-09-09 · migration `020_session_policy`
 
 ---
 
@@ -155,6 +155,12 @@ Khuôn mặt đã đăng ký là thứ mọi lượt chấm công đối chiếu
 
 Nên: lần đầu áp dụng ngay (không có gì để so, và cửa vào đã chặn ở bước duyệt nhóm), lần sau vào bảng `face_change_requests` chờ người khác duyệt. Chỉ mục unit một phần đảm bảo mỗi người chỉ một yêu cầu treo. Không ai tự duyệt cho mình.
 
+### Một thiết bị hay nhiều thiết bị, do quản trị hệ thống chọn
+
+Bảng `session_policies (role, allow_multiple_devices)` quyết định từng vai trò có bị giữ ở một thiết bị hay không; màn hình **Phân quyền** là nơi bật tắt. Trước đây quy tắc nằm trong biến môi trường `SINGLE_SESSION_ROLES`, tức là muốn đổi phải sửa tệp và khởi động lại — đó là quyết định vận hành, không phải quyết định triển khai.
+
+Cột `refresh_sessions.enforce_single_session` vẫn là thứ chỉ số duy nhất từng phần dựa vào, nên tắt bật không đụng gì tới ràng buộc cũ. Bật giới hạn có hiệu lực **ngay**: mỗi người giữ phiên mới nhất, các phiên còn lại đóng với lý do `DEVICE_POLICY_CHANGED`. Tắt thì không ai bị đăng xuất.
+
 ### Một phiên đăng nhập mỗi tài khoản
 
 `refresh_sessions` có chỉ mục unit một phần trên phiên đang hoạt động. Mọi request đều kiểm tra trạng thái phiên trong CSDL, không chỉ chữ ký JWT — nếu chỉ tin chữ ký thì thu hồi phiên không có tác dụng cho tới khi token hết hạn.
@@ -252,6 +258,7 @@ Không có mock. Mọi probe chạy trên hệ thống thật đang chạy.
 | `rbac_probe` (50) | Phân quyền màn hình và hành động, trình duyệt dữ liệu |
 | `isolation_probe` (17) | Phạm vi đọc theo địa điểm; địa điểm theo nhóm |
 | `rules_probe` (11) | Một người một quản lý; một phiên mỗi ngày |
+| `devices_probe` (12) | Bật tắt một/nhiều thiết bị theo vai trò |
 | `reading_probe` (16) | Một ngày thật: đăng ký → chấm vào → chấm ra; số đo OpenCV/face_recognition và chấm ra ở nơi khác |
 | `teams_probe` (35) | Mã đơn vị, duyệt/từ chối vào nhóm |
 | `face_change_probe` (27) | Duyệt đổi khuôn mặt, dùng ảnh chân dung thật |

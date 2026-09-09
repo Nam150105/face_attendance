@@ -279,7 +279,9 @@ def _looks_like_email(email: str) -> bool:
     return bool(local) and "." in domain and not domain.startswith(".") and not domain.endswith(".")
 
 
-def bulk_add_members(user: CurrentUser, raw_emails: list[str]) -> dict:
+def bulk_add_members(
+    user: CurrentUser, raw_emails: list[str], team_id: uuid.UUID | None = None
+) -> dict:
     manager_id = user.id
     emails = _normalise_emails(raw_emails)
     if not emails:
@@ -289,6 +291,13 @@ def bulk_add_members(user: CurrentUser, raw_emails: list[str]) -> dict:
 
     results: list[dict] = []
     with psycopg.connect(DATABASE_URL) as connection:
+        if team_id is not None:
+            where, parameters = owner_filter(managed_by(user), "manager_user_id")
+            owns = connection.execute(
+                f"SELECT 1 FROM teams WHERE {where} AND id = %s", [*parameters, team_id]
+            ).fetchone()
+            if owns is None:
+                raise HTTPException(status_code=404, detail="TEAM_NOT_FOUND")
         for email in emails:
             if not _looks_like_email(email):
                 results.append({"email": email, "status": BULK_INVALID})
@@ -317,14 +326,16 @@ def bulk_add_members(user: CurrentUser, raw_emails: list[str]) -> dict:
                 continue
             if existing is None:
                 connection.execute(
-                    "INSERT INTO manager_memberships (manager_user_id, member_user_id, status) VALUES (%s, %s, 'ACTIVE')",
-                    (manager_id, member[0]),
+                    "INSERT INTO manager_memberships (manager_user_id, member_user_id, status, team_id)"
+                    " VALUES (%s, %s, 'ACTIVE', %s)",
+                    (manager_id, member[0], team_id),
                 )
                 action, outcome, before_status = "MEMBER_ADDED", BULK_ADDED, None
             else:
                 connection.execute(
-                    "UPDATE manager_memberships SET status = 'ACTIVE', updated_at = now() WHERE id = %s",
-                    (existing[0],),
+                    "UPDATE manager_memberships SET status = 'ACTIVE', updated_at = now(),"
+                    " team_id = COALESCE(%s, team_id) WHERE id = %s",
+                    (team_id, existing[0]),
                 )
                 action, outcome, before_status = "MEMBERSHIP_REACTIVATED", BULK_REACTIVATED, existing[1]
             connection.execute(
