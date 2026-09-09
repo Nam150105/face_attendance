@@ -127,7 +127,7 @@ def main() -> int:
         status, _ = call("GET", f"/manager/attendance/{other_event}", member)
         check("Mở thẳng bản ghi người khác bằng id vẫn bị chặn", status == 404, f"HTTP {status}")
 
-        status, calendar = call("GET", "/manager/attendance/calendar?month=" + _this_month(), member)
+        status, calendar = call("GET", "/manager/attendance/calendar?month=" + _this_month() + "&include_invalid=true", member)
         people = [p for day in calendar.get("days", []) for p in day.get("people", [])]
         check("Lịch của thành viên cũng chỉ có mình họ",
               status == 200 and all(str(p["member_id"]) == member_id for p in people),

@@ -170,7 +170,7 @@ export default function JoinRequestsPage() {
                   onChange={(event) => setNewTeam(event.target.value)}
                 />
                 <Button type="submit" loading={creating} disabled={!newTeam.trim()}>
-                  Tạo mã
+                  Tạo nhóm
                 </Button>
               </form>
             ) : null}

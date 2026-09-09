@@ -2889,6 +2889,10 @@ body {
   padding: var(--space-2);
   background: var(--surface-panel);
   border-right: 1px solid var(--border-subtle);
+  /* Pinned: a long table should not scroll the navigation off the screen. */
+  position: sticky;
+  top: 0;
+  height: 100vh;
   overflow-y: auto;
 }
 
@@ -3334,4 +3338,24 @@ body {
   font-weight: 700;
   text-decoration: underline;
   text-underline-offset: 3px;
+}
+
+/* The account chip is a link to your own profile, and wears your own face. */
+.user-badge--link {
+  text-decoration: none;
+  cursor: pointer;
+  transition: border-color 120ms ease;
+}
+
+.user-badge--link:hover {
+  border-color: var(--border-strong);
+}
+
+.user-badge__face {
+  flex: 0 0 auto;
+  width: 28px;
+  height: 28px;
+  border-radius: var(--radius-full);
+  object-fit: cover;
+  border: 1px solid var(--border-medium);
 }

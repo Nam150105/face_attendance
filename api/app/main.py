@@ -112,6 +112,7 @@ app.include_router(member_portal.manager_router, prefix="/api/v1")
 app.include_router(teams.router, prefix="/api/v1")
 app.include_router(teams.requests_router, prefix="/api/v1")
 app.include_router(teams.member_router, prefix="/api/v1")
+app.include_router(teams.face_router, prefix="/api/v1")
 app.include_router(admin.router, prefix="/api/v1")
 
 

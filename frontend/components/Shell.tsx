@@ -47,6 +47,7 @@ export function Shell({ children, narrow }: { children: ReactNode; narrow?: bool
   // server render, and treating that as "signed out" would flash the login
   // frame at people who are signed in.
   const [signedIn, setSignedIn] = useState<boolean | undefined>(undefined);
+  const [face, setFace] = useState<string | null>(null);
 
   useEffect(() => {
     setSignedIn(readTokens() !== null);
@@ -77,6 +78,27 @@ export function Shell({ children, narrow }: { children: ReactNode; narrow?: bool
     const timer = setInterval(update, 1000);
     return () => clearInterval(timer);
   }, []);
+
+  // The registered face as the avatar: people should see which photo the
+  // system matches them against, not two letters from their email.
+  useEffect(() => {
+    if (signedIn !== true) {
+      return;
+    }
+    let url: string | null = null;
+    api
+      .myFacePhoto()
+      .then((value) => {
+        url = value;
+        setFace(value);
+      })
+      .catch(() => setFace(null));
+    return () => {
+      if (url) {
+        URL.revokeObjectURL(url);
+      }
+    };
+  }, [signedIn]);
 
   // A route change should not leave the mobile drawer covering the new page.
   useEffect(() => {
@@ -203,10 +225,14 @@ export function Shell({ children, narrow }: { children: ReactNode; narrow?: bool
           <div className="topbar__meta">
             {clock ? <span className="user-badge mono topbar__clock">{clock}</span> : null}
             {access ? (
-              <div className="user-badge" title={access.email}>
-                <span className="user-badge__avatar">{initials(access.email)}</span>
+              <Link href="/profile" className="user-badge user-badge--link" title="Mở hồ sơ cá nhân">
+                {face ? (
+                  <img src={face} alt="" className="user-badge__face" />
+                ) : (
+                  <span className="user-badge__avatar">{initials(access.email)}</span>
+                )}
                 <span className="user-badge__email">{access.email}</span>
-              </div>
+              </Link>
             ) : null}
             <Button variant="ghost" size="sm" onClick={() => void signOut()}>
               Đăng xuất

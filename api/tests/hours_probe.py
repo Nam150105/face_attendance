@@ -138,7 +138,8 @@ def main() -> int:
               code == 409 and detail == "FACE_NOT_ENROLLED", f"HTTP {code} {detail}")
 
         # The refusal is written down so a manager can see who was turned away.
-        status, events = call("GET", "/manager/attendance", manager)
+        # Refused attempts are hidden by default now, so ask for them.
+        status, events = call("GET", "/manager/attendance?include_invalid=true", manager)
         items = events.get("items", []) if isinstance(events, dict) else []
         blocked = [e for e in items if e.get("failure_code") == "CHECK_IN_TOO_LATE"]
         check("Lần bị từ chối được ghi lại cho người quản lý xem", len(blocked) == 1,

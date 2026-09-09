@@ -38,6 +38,7 @@ def attendance(
     date_to: date | None = None,
     status: str | None = Query(default=None, pattern="^(SUCCESS|WARNING_CONFIRMED|BLOCKED|FAILED)$"),
     event_type: str | None = Query(default=None, pattern="^(CHECK_IN|CHECK_OUT)$"),
+    include_invalid: bool = Query(default=False),
     limit: int = Query(default=50, ge=1, le=200),
     offset: int = Query(default=0, ge=0),
     user: CurrentUser = Depends(require_screen("records")),
@@ -45,6 +46,7 @@ def attendance(
     return list_attendance(
         user,
         {
+            "include_invalid": include_invalid,
             "member_id": member_id,
             "location_id": location_id,
             "date_from": date_from,
@@ -60,9 +62,10 @@ def attendance(
 @router.get("/attendance/calendar")
 def attendance_month(
     month: str = Query(pattern=r"^\d{4}-\d{2}$"),
+    include_invalid: bool = Query(default=False),
     user: CurrentUser = Depends(require_screen("records")),
 ) -> dict:
-    return attendance_calendar(user, month)
+    return attendance_calendar(user, month, include_invalid)
 
 
 @router.get("/attendance/{event_id}")

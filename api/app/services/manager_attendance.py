@@ -105,6 +105,10 @@ def list_attendance(user: CurrentUser, filters: dict) -> dict:
         scope, scope_params = _scope(scope_connection, user)
     conditions = [scope, LIVE_ONLY]
     parameters: list = [*scope_params]
+    if not filters.get("include_invalid"):
+        # A refused attempt is not attendance. Mixing the two into one list
+        # makes every count on the screen quietly wrong.
+        conditions.append("e.status IN ('SUCCESS', 'WARNING_CONFIRMED')")
     if filters.get("member_id"):
         conditions.append("e.member_id = %s")
         parameters.append(filters["member_id"])
@@ -386,7 +390,7 @@ def manager_dashboard(manager_id: uuid.UUID) -> dict:
 
 
 
-def attendance_calendar(user: CurrentUser, month: str) -> dict:
+def attendance_calendar(user: CurrentUser, month: str, include_invalid: bool = False) -> dict:
     """
     One month of attendance shaped for a wall calendar: a row per member per
     local day, so a manager sees who turned up and how the day went without
@@ -403,6 +407,7 @@ def attendance_calendar(user: CurrentUser, month: str) -> dict:
 
     with psycopg.connect(DATABASE_URL) as connection:
         scope, scope_params = _scope(connection, user)
+        include_invalid_sql = "TRUE" if include_invalid else "FALSE"
         rows = connection.execute(
             f"""
             SELECT
@@ -428,6 +433,7 @@ def attendance_calendar(user: CurrentUser, month: str) -> dict:
             LEFT JOIN locations l ON l.id = e.location_id
             WHERE {scope}
               AND e.deleted_at IS NULL
+              AND ({include_invalid_sql} OR e.status IN ('SUCCESS', 'WARNING_CONFIRMED'))
               AND (e.server_time AT TIME ZONE %s)::date >= %s
               AND (e.server_time AT TIME ZONE %s)::date < %s
             GROUP BY work_date, e.member_id, u.email, mp.full_name

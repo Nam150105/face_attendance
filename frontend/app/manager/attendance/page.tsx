@@ -149,6 +149,8 @@ export default function ManagerAttendancePage() {
   const may = usePermissions("records");
   const [view, setView] = useState<"calendar" | "table">("calendar");
   const [search, setSearch] = useState("");
+  // Refused attempts are not attendance; they are shown only when asked for.
+  const [includeInvalid, setIncludeInvalid] = useState(false);
   const [refreshToken, setRefreshToken] = useState(0);
   const [filters, setFilters] = useState<AttendanceFilters>({});
   const [page, setPage] = useState(0);
@@ -178,7 +180,12 @@ export default function ManagerAttendancePage() {
     }
     setEvents(null);
     try {
-      const result = await api.managerAttendance({ ...filters, limit: PAGE_SIZE, offset: page * PAGE_SIZE });
+      const result = await api.managerAttendance({
+        ...filters,
+        include_invalid: includeInvalid,
+        limit: PAGE_SIZE,
+        offset: page * PAGE_SIZE,
+      });
       setEvents(result.items);
       setTotal(result.total);
       setError(null);
@@ -186,7 +193,7 @@ export default function ManagerAttendancePage() {
       setError(describeError(cause));
       setEvents([]);
     }
-  }, [filters, page, view]);
+  }, [filters, page, view, includeInvalid]);
 
   useEffect(() => {
     void load();
@@ -365,7 +372,15 @@ export default function ManagerAttendancePage() {
             value={search}
             onChange={(e) => setSearch(e.target.value)}
           />
-          <AttendanceCalendar search={search} refreshToken={refreshToken} />
+          <label className="checkbox">
+            <input
+              type="checkbox"
+              checked={includeInvalid}
+              onChange={(event) => setIncludeInvalid(event.target.checked)}
+            />
+            <span>Hiện cả lượt không hợp lệ</span>
+          </label>
+          <AttendanceCalendar search={search} refreshToken={refreshToken} includeInvalid={includeInvalid} />
         </Card>
       ) : null}
 
@@ -426,6 +441,18 @@ export default function ManagerAttendancePage() {
             onChange={(e) => updateFilter({ date_to: e.target.value || undefined })}
           />
         </div>
+
+        <label className="checkbox">
+          <input
+            type="checkbox"
+            checked={includeInvalid}
+            onChange={(event) => {
+              setIncludeInvalid(event.target.checked);
+              setPage(0);
+            }}
+          />
+          <span>Hiện cả lượt không hợp lệ (ngoài phạm vi, khuôn mặt chưa khớp…)</span>
+        </label>
 
         {Object.keys(filters).some((k) => (filters as Record<string, unknown>)[k] !== undefined) ? (
           <Button variant="ghost" size="sm" onClick={() => setFilters({})}>

@@ -347,6 +347,31 @@ export const api = {
         decided_at: string | null; manager_name: string }[]
     >("/teams/my-requests");
   },
+  faceChangeRequests() {
+    return request<
+      { id: string; member_id: string; email: string; full_name: string | null;
+        department: string | null; reason: string; created_at: string;
+        has_new_photo: boolean; has_current_photo: boolean }[]
+    >("/manager/face-requests");
+  },
+  async faceRequestPhoto(requestId: string): Promise<string> {
+    return URL.createObjectURL(await requestBlob(`/manager/face-requests/${requestId}/photo`));
+  },
+  decideFaceRequest(requestId: string, approve: boolean, note?: string) {
+    return request<{ status: string }>(`/manager/face-requests/${requestId}`, {
+      method: "POST",
+      json: { approve, note: note || null },
+    });
+  },
+  async myFacePhoto(): Promise<string> {
+    return URL.createObjectURL(await requestBlob("/faces/me/photo"));
+  },
+  myFaceChangeStatus() {
+    return request<{
+      pending: { id: string; reason: string; created_at: string } | null;
+      last: { status: string; note: string | null; decided_at: string } | null;
+    }>("/faces/me/change-request");
+  },
   myScreens() {
     return request<{
       role: string;
@@ -399,8 +424,11 @@ export const api = {
   startEnrollment() {
     return request<EnrollmentChallenge>("/faces/enrollment/start", { method: "POST" });
   },
-  verifyEnrollment(challenge: EnrollmentChallenge, image: Blob) {
+  verifyEnrollment(challenge: EnrollmentChallenge, image: Blob, reason?: string) {
     const form = new FormData();
+    if (reason) {
+      form.append("reason", reason);
+    }
     form.append("challenge_id", challenge.challenge_id);
     form.append("challenge", challenge.challenge);
     form.append("image", image, "enrollment.jpg");
@@ -598,8 +626,10 @@ export const api = {
   memberLoginHistory(memberId: string, limit = 50) {
     return request<LoginHistory>(`/manager/members/${memberId}/login-history?limit=${limit}`);
   },
-  managerAttendanceCalendar(month: string) {
-    return request<AttendanceCalendar>(`/manager/attendance/calendar?month=${month}`);
+  managerAttendanceCalendar(month: string, includeInvalid = false) {
+    return request<AttendanceCalendar>(
+      `/manager/attendance/calendar?month=${month}&include_invalid=${includeInvalid}`,
+    );
   },
   managerAttendanceDetail(eventId: string) {
     return request<ManagerAttendanceEvent>(`/manager/attendance/${eventId}`);

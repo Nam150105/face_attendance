@@ -44,6 +44,7 @@ export const SCREENS: ScreenDefinition[] = [
   { key: "team-overview", href: "/manager", label: "Tổng quan nhóm", group: "Quản lý" },
   { key: "records", href: "/manager/attendance", label: "Bản ghi", group: "Quản lý" },
   { key: "join-requests", href: "/manager/join-requests", label: "Yêu cầu vào nhóm", group: "Quản lý" },
+  { key: "face-requests", href: "/manager/face-requests", label: "Đổi khuôn mặt", group: "Quản lý" },
   { key: "members", href: "/manager/members", label: "Thành viên", group: "Quản lý" },
   { key: "locations", href: "/manager/locations", label: "Địa điểm", group: "Quản lý" },
   { key: "corrections", href: "/manager/corrections", label: "Duyệt chỉnh công", group: "Quản lý" },

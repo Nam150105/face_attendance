@@ -8,11 +8,12 @@ import uuid
 
 import httpx
 import psycopg
-from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Response, UploadFile, status
 
 from app.auth import CurrentUser, DATABASE_URL, get_current_user
 from app.services.permissions import require_screen
-from app.security import MAX_IMAGE_BYTES, enforce_rate_limit, validate_image_upload
+from app.services.face_requests import has_registered_face, my_status, submit as submit_face_change
+from app.security import MAX_IMAGE_BYTES, enforce_rate_limit, safe_image_content_type, validate_image_upload
 from app.services.storage import PrivateObjectStorage
 
 
@@ -66,6 +67,7 @@ async def verify_enrollment(
     challenge_id: uuid.UUID = Form(...),
     challenge: str = Form(...),
     image: UploadFile = File(...),
+    reason: str = Form(default=""),
     user: CurrentUser = Depends(require_screen("attendance")),
 ) -> dict:
     enforce_rate_limit("enroll", str(user.id), limit=10, window_seconds=300)
@@ -97,7 +99,21 @@ async def verify_enrollment(
             # The embedding is what makes attendance work; the reference photo
             # only helps a human compare. Losing storage must not block enrolment.
             object_key = None
-        connection.execute("UPDATE face_embeddings SET revoked_at = now() WHERE member_id = %s AND revoked_at IS NULL", (user.id,))
+        replacing = has_registered_face(connection, user.id)
+        if replacing:
+            # Somebody already has a face on file. Swapping it is exactly the
+            # move an impostor would make, so it goes to a reviewer instead.
+            if len(reason.strip()) < 5:
+                raise HTTPException(status_code=422, detail="FACE_CHANGE_REASON_REQUIRED")
+            pending = submit_face_change(
+                connection, user.id, embedding,
+                response.get("model_name", "unknown"), response.get("model_version", "unknown"),
+                response.get("blur_score"), object_key, reason.strip(),
+            )
+            connection.execute("UPDATE face_enrollment_challenges SET consumed_at = now() WHERE id = %s", (challenge_id,))
+            connection.commit()
+            return {**response, **pending, "embedding": None}
+
         connection.execute(
             "INSERT INTO face_embeddings (id, member_id, embedding, model_name, model_version, quality_score, image_object_key) VALUES (%s, %s, %s::vector, %s, %s, %s, %s)",
             (embedding_id, user.id, json.dumps(embedding), response.get("model_name", "unknown"), response.get("model_version", "unknown"), response.get("blur_score"), object_key),
@@ -179,3 +195,33 @@ async def engine_info(user: CurrentUser = Depends(get_current_user)) -> dict:
     """Which libraries decide identity, and on what settings. Read by the
     enrolment screen so the person registering can see what is judging them."""
     return await _engine_info()
+
+
+@router.get("/me/photo")
+def my_face_photo(user: CurrentUser = Depends(get_current_user)) -> Response:
+    """The registered face, served to its owner. Used as the avatar so people
+    can see at a glance which photo the system is matching them against."""
+    with psycopg.connect(DATABASE_URL) as connection:
+        row = connection.execute(
+            "SELECT image_object_key FROM face_embeddings"
+            " WHERE member_id = %s AND revoked_at IS NULL ORDER BY created_at DESC LIMIT 1",
+            (user.id,),
+        ).fetchone()
+    if row is None or not row[0]:
+        raise HTTPException(status_code=404, detail="ENROLLMENT_PHOTO_MISSING")
+    content, content_type = PrivateObjectStorage().get_private(row[0])
+    return Response(
+        content=content,
+        media_type=safe_image_content_type(content_type),
+        headers={
+            "Cache-Control": "private, max-age=300",
+            "Content-Disposition": "inline",
+            "X-Content-Type-Options": "nosniff",
+        },
+    )
+
+
+@router.get("/me/change-request")
+def my_face_change_status(user: CurrentUser = Depends(get_current_user)) -> dict:
+    """Whether a replacement is waiting, and how the last one went."""
+    return my_status(user.id)

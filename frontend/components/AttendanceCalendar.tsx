@@ -71,7 +71,15 @@ function timing(person: CalendarPerson): string {
   return notes.join(", ");
 }
 
-export function AttendanceCalendar({ search, refreshToken = 0 }: { search: string; refreshToken?: number }) {
+export function AttendanceCalendar({
+  search,
+  refreshToken = 0,
+  includeInvalid = false,
+}: {
+  search: string;
+  refreshToken?: number;
+  includeInvalid?: boolean;
+}) {
   const [month, setMonth] = useState(() => monthKey(new Date()));
   const [data, setData] = useState<CalendarData | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -81,7 +89,7 @@ export function AttendanceCalendar({ search, refreshToken = 0 }: { search: strin
     let live = true;
     setData(null);
     api
-      .managerAttendanceCalendar(month)
+      .managerAttendanceCalendar(month, includeInvalid)
       .then((result) => {
         if (live) {
           setData(result);
@@ -96,7 +104,7 @@ export function AttendanceCalendar({ search, refreshToken = 0 }: { search: strin
     return () => {
       live = false;
     };
-  }, [month, refreshToken]);
+  }, [month, refreshToken, includeInvalid]);
 
   const needle = search.trim().toLowerCase();
   const byDate = useMemo(() => {

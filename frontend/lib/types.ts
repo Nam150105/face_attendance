@@ -71,7 +71,9 @@ export interface EnrollmentChallenge {
 }
 
 export interface EnrollmentResult {
-  status: "ENROLLED" | "REJECTED";
+  // PENDING_APPROVAL: the face is already on file, so the replacement waits
+  // for a manager rather than applying itself.
+  status: "ENROLLED" | "REJECTED" | "PENDING_APPROVAL";
   code?: string;
   face_count?: number;
   blur_score?: number;
@@ -272,6 +274,7 @@ export interface ManagerAttendanceEvent {
 }
 
 export interface AttendanceFilters {
+  include_invalid?: boolean;
   member_id?: string;
   location_id?: string;
   date_from?: string;

@@ -6,7 +6,7 @@ import { useCallback, useEffect, useState } from "react";
 import { AppShell } from "../../components/AppShell";
 import { BiometricConsent } from "../../components/BiometricConsent";
 import { CameraCapture, type CapturePhase, type CapturedImage, type PhaseLabels } from "../../components/CameraCapture";
-import { Alert, Button, Card, playChime } from "../../components/ui";
+import { Alert, Button, Card, Field, playChime } from "../../components/ui";
 import { ApiError, api } from "../../lib/api";
 import { describeCode, describeError } from "../../lib/messages";
 import type { CurrentUser, EnrollmentResult, FaceEnrollmentStatus } from "../../lib/types";
@@ -26,6 +26,11 @@ export default function EnrollPage() {
   const [captured, setCaptured] = useState<CapturedImage | null>(null);
   const [phase, setPhase] = useState<CapturePhase>("idle");
   const [message, setMessage] = useState<string | null>(null);
+  const [reason, setReason] = useState("");
+  const [pending, setPending] = useState(false);
+  // Replacing a face that is already on file is a different act from
+  // registering one, and the screen says so.
+  const changing = Boolean(face?.enrolled);
   const [tone, setTone] = useState<"danger" | "warning" | "success">("danger");
   const [done, setDone] = useState(false);
 
@@ -53,6 +58,13 @@ export default function EnrollPage() {
     setMessage(null);
   }, []);
 
+  useEffect(() => {
+    api
+      .myFaceChangeStatus()
+      .then((status) => setPending(status.pending !== null))
+      .catch(() => setPending(false));
+  }, [done]);
+
   async function submit() {
     if (!captured) {
       return;
@@ -61,7 +73,16 @@ export default function EnrollPage() {
     setMessage(null);
     try {
       const challenge = await api.startEnrollment();
-      const result = await api.verifyEnrollment(challenge, captured.blob);
+      const result = await api.verifyEnrollment(challenge, captured.blob, reason.trim() || undefined);
+      if (result.status === "PENDING_APPROVAL") {
+        setPhase("done");
+        setTone("success");
+        setMessage(
+          "Đã gửi ảnh mới cho người quản lý duyệt. Trong lúc chờ, bạn vẫn chấm công bằng ảnh cũ.",
+        );
+        setDone(true);
+        return;
+      }
       if (result.status !== "ENROLLED") {
         setPhase("failed");
         setTone("warning");
@@ -87,7 +108,9 @@ export default function EnrollPage() {
         <div>
           <h1 className="page-title">Đăng ký khuôn mặt</h1>
           <p className="page-lead">
-            Chụp một ảnh để hệ thống nhận ra bạn mỗi lần chấm công. Chỉ mất khoảng một phút.
+            {changing
+              ? "Ảnh mới cần người quản lý duyệt trước khi thay ảnh cũ."
+              : "Chụp một ảnh để hệ thống nhận ra bạn khi chấm công."}
           </p>
         </div>
       </div>
@@ -99,14 +122,22 @@ export default function EnrollPage() {
         </Alert>
       ) : null}
 
-      {face?.enrolled && !face.needs_reenrollment ? (
-        <Alert tone="success">
-          Bạn đã đăng ký khuôn mặt. Chụp lại ở đây nếu diện mạo thay đổi — ảnh mới sẽ thay ảnh cũ.
+      {pending ? (
+        <Alert tone="info">
+          Ảnh mới của bạn đang chờ người quản lý duyệt. Trong lúc đó hệ thống vẫn dùng ảnh cũ.
         </Alert>
       ) : null}
 
-      <Card title="Chụp ảnh khuôn mặt">
+      <Card title={changing ? "Chụp ảnh mới" : "Chụp ảnh khuôn mặt"}>
         <div className="stack">
+          {changing ? (
+            <Field
+              label="Vì sao bạn cần đổi ảnh?"
+              placeholder="Ví dụ: tôi vừa cắt tóc, ảnh cũ nhận không ra."
+              value={reason}
+              onChange={(event) => setReason(event.target.value)}
+            />
+          ) : null}
           <CameraCapture
             captureLabel="Chụp ảnh"
             labels={ENROLL_LABELS}
@@ -134,20 +165,21 @@ export default function EnrollPage() {
               disabled={!captured}
               block
             >
-              {captured ? "Hoàn tất đăng ký" : "Chụp ảnh để tiếp tục"}
+              {changing
+                ? captured
+                  ? "Gửi cho người quản lý duyệt"
+                  : "Chụp ảnh để gửi duyệt"
+                : captured
+                  ? "Hoàn tất đăng ký"
+                  : "Chụp ảnh để tiếp tục"}
             </Button>
           )}
         </div>
       </Card>
 
-      {/* Guidance Tips Card */}
-      <Card title="Ba điều giúp chụp đạt ngay lần đầu">
-        <ul className="stack stack--tight" style={{ fontSize: "var(--text-sm)", color: "var(--text-secondary)", paddingLeft: "18px" }}>
-          <li>Chỉ để <strong>một mình bạn</strong> trong khung hình.</li>
-          <li>Đứng nơi sáng đều, đừng để đèn hay cửa sổ ngay sau lưng.</li>
-          <li>Bỏ khẩu trang, kính râm và mũ che trán.</li>
-        </ul>
-      </Card>
+      <p className="field__hint" style={{ textAlign: "center" }}>
+        Một mình bạn trong khung hình · nơi sáng đều · bỏ khẩu trang, kính râm và mũ.
+      </p>
 
       <BiometricConsent />
     </AppShell>

@@ -87,8 +87,17 @@ def main() -> int:
         blocked_day = blocked_utc.astimezone(LOCAL_ZONE).date()
         seed(member_id, location_id, blocked_utc, "CHECK_IN", status="BLOCKED")
 
-        status, payload = call("GET", "/manager/attendance/calendar?month=2026-03", manager)
-        check("Lấy được lịch cả tháng trong một lần gọi", status == 200, f"HTTP {status}")
+        # Default view: only what counts as attendance.
+        status, clean = call("GET", "/manager/attendance/calendar?month=2026-03", manager)
+        clean_days = [day["date"] for day in clean.get("days", [])]
+        check("Mặc định lịch không hiện lượt bị từ chối",
+              status == 200 and blocked_day.isoformat() not in clean_days,
+              f"{len(clean_days)} ngày")
+        check("Mặc định số tổng không cộng lượt bị từ chối",
+              clean.get("summary", {}).get("rejected") == 0, str(clean.get("summary")))
+
+        status, payload = call("GET", "/manager/attendance/calendar?month=2026-03&include_invalid=true", manager)
+        check("Bật hiện lượt không hợp lệ thì lấy được cả tháng", status == 200, f"HTTP {status}")
 
         edge = day_of(payload, local_day.isoformat())
         check("Ngày được cắt theo giờ Việt Nam, không theo UTC",
@@ -119,12 +128,12 @@ def main() -> int:
               str(summary))
 
         # Another manager must not see any of it.
-        status, foreign = call("GET", "/manager/attendance/calendar?month=2026-03", other)
+        status, foreign = call("GET", "/manager/attendance/calendar?month=2026-03&include_invalid=true", other)
         check("Manager khác không thấy dữ liệu của người không thuộc phạm vi",
               status == 200 and foreign.get("days") == [], f"HTTP {status} {len(foreign.get('days', []))} ngày")
 
         # A member has no business calling it at all.
-        status, _ = call("GET", "/manager/attendance/calendar?month=2026-03", member)
+        status, _ = call("GET", "/manager/attendance/calendar?month=2026-03&include_invalid=true", member)
         check("Thành viên không gọi được lịch của cả nhóm", status == 403, f"HTTP {status}")
 
         status, _ = call("GET", "/manager/attendance/calendar?month=thang-ba", manager)
@@ -138,7 +147,7 @@ def main() -> int:
                 (member_id, late_utc.replace(tzinfo=None)),
             )
             connection.commit()
-        status, after = call("GET", "/manager/attendance/calendar?month=2026-03", manager)
+        status, after = call("GET", "/manager/attendance/calendar?month=2026-03&include_invalid=true", manager)
         check("Bản ghi đã xoá biến khỏi lịch",
               day_of(after, late_day.isoformat()) is None,
               "vẫn còn" if day_of(after, late_day.isoformat()) else "")
