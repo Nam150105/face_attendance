@@ -179,7 +179,8 @@ def attendance_day_events(member_id: uuid.UUID, work_date: date) -> list[dict]:
             "event_type": row[1],
             "status": row[2],
             "server_time": row[3],
-            "distance_meters": float(row[4]),
+            # Null on a record a person entered: nothing was measured.
+            "distance_meters": float(row[4]) if row[4] is not None else None,
             "gps_accuracy_meters": float(row[5]),
             "failure_code": row[6],
             "reason": row[7],
@@ -398,6 +399,114 @@ def list_corrections_for_manager(manager_id: uuid.UUID, status: str | None, limi
     return {"total": total, "items": [_correction_dict(row) for row in rows]}
 
 
+def _apply_correction(
+    connection: psycopg.Connection,
+    request_id: uuid.UUID,
+    member_id: uuid.UUID,
+    work_date,
+    manager_id: uuid.UUID,
+) -> dict:
+    """
+    Write the approved correction into the timesheet.
+
+    Until this existed, approving was paperwork: the request went green, the
+    member was told yes, and the day they were fixing stayed broken forever.
+
+    A record made this way carries no coordinates, no distance and no face
+    score, because none were measured — a person decided it. `source` says so,
+    and every screen reads it rather than guessing from a suspiciously round
+    zero.
+    """
+    request = connection.execute(
+        """
+        SELECT request_type::text, requested_check_in, requested_check_out, reason
+        FROM attendance_correction_requests WHERE id = %s
+        """,
+        (request_id,),
+    ).fetchone()
+    request_type, wanted_in, wanted_out, member_reason = request
+
+    existing = connection.execute(
+        """
+        SELECT id, event_type::text FROM attendance_events
+        WHERE member_id = %s AND deleted_at IS NULL
+          AND status IN ('SUCCESS', 'WARNING_CONFIRMED')
+          AND (server_time AT TIME ZONE %s)::date = %s
+        ORDER BY server_time
+        """,
+        (member_id, APP_TIMEZONE, work_date),
+    ).fetchall()
+    by_type = {kind: row_id for row_id, kind in existing}
+
+    # Where to hang a record that has no place of its own: the day's other half
+    # if there is one, else whatever this person is allowed to use.
+    location = connection.execute(
+        """
+        SELECT COALESCE(
+            (SELECT location_id FROM attendance_events
+             WHERE member_id = %s AND deleted_at IS NULL
+               AND (server_time AT TIME ZONE %s)::date = %s
+             ORDER BY server_time LIMIT 1),
+            (SELECT location_id FROM member_locations WHERE member_id = %s ORDER BY is_default DESC LIMIT 1),
+            (SELECT tl.location_id FROM team_locations tl
+             JOIN manager_memberships mm ON mm.team_id = tl.team_id
+             WHERE mm.member_user_id = %s AND mm.status = 'ACTIVE'
+             ORDER BY tl.is_default DESC LIMIT 1),
+            -- Last resort: the manager's own site. Somebody not yet assigned
+            -- anywhere still has days that need fixing, and a record has to
+            -- hang somewhere; `source` already says a person made it.
+            (SELECT id FROM locations WHERE manager_user_id = %s AND is_active
+             ORDER BY created_at LIMIT 1)
+        )
+        """,
+        (member_id, APP_TIMEZONE, work_date, member_id, member_id, manager_id),
+    ).fetchone()[0]
+    if location is None:
+        raise HTTPException(status_code=409, detail="CORRECTION_NO_LOCATION")
+
+    note = f"Chỉnh công đã duyệt: {member_reason}"[:500]
+    changed = {"created": [], "moved": []}
+
+    def write(event_type: str, moment) -> None:
+        if moment is None:
+            return
+        current = by_type.get(event_type)
+        if current is None:
+            new_id = connection.execute(
+                """
+                INSERT INTO attendance_events
+                    (member_id, location_id, event_type, status, server_time, reason,
+                     source, correction_request_id, edited_by, edited_at, edit_reason)
+                VALUES (%s, %s, %s::attendance_event_type, 'WARNING_CONFIRMED', %s, %s,
+                        'CORRECTION', %s, %s, now(), %s)
+                RETURNING id
+                """,
+                (member_id, location, event_type, moment, note, request_id, manager_id, note),
+            ).fetchone()[0]
+            changed["created"].append(str(new_id))
+        else:
+            connection.execute(
+                """
+                UPDATE attendance_events
+                SET server_time = %s,
+                    original_server_time = COALESCE(original_server_time, server_time),
+                    reason = %s,
+                    correction_request_id = %s,
+                    edited_by = %s, edited_at = now(), edit_reason = %s
+                WHERE id = %s
+                """,
+                (moment, note, request_id, manager_id, note, current),
+            )
+            changed["moved"].append(str(current))
+
+    if request_type in {"MISSING_CHECK_IN", "WRONG_TIME", "OTHER"}:
+        write("CHECK_IN", wanted_in)
+    if request_type in {"MISSING_CHECK_OUT", "WRONG_TIME", "OTHER"}:
+        write("CHECK_OUT", wanted_out)
+
+    return changed
+
+
 def review_correction(manager_id: uuid.UUID, request_id: uuid.UUID, decision: str, note: str | None) -> dict:
     if decision not in {"APPROVED", "REJECTED"}:
         raise HTTPException(status_code=422, detail="INVALID_CORRECTION_DECISION")
@@ -418,6 +527,10 @@ def review_correction(manager_id: uuid.UUID, request_id: uuid.UUID, decision: st
         if target[3] != "PENDING":
             raise HTTPException(status_code=409, detail="CORRECTION_ALREADY_REVIEWED")
 
+        applied: dict = {}
+        if decision == "APPROVED":
+            applied = _apply_correction(connection, request_id, target[1], target[2], manager_id)
+
         connection.execute(
             """
             UPDATE attendance_correction_requests
@@ -431,7 +544,7 @@ def review_correction(manager_id: uuid.UUID, request_id: uuid.UUID, decision: st
             INSERT INTO audit_logs (actor_user_id, action, entity_type, entity_id, after_json, reason)
             VALUES (%s, 'CORRECTION_REVIEWED', 'attendance_correction', %s, %s::jsonb, %s)
             """,
-            (manager_id, request_id, json.dumps({"status": decision}), note),
+            (manager_id, request_id, json.dumps({"status": decision, **applied}), note),
         )
         notify(
             connection,
@@ -442,4 +555,4 @@ def review_correction(manager_id: uuid.UUID, request_id: uuid.UUID, decision: st
             {"request_id": str(request_id), "status": decision, "work_date": target[2].isoformat()},
         )
         connection.commit()
-    return {"id": request_id, "status": decision}
+    return {"id": request_id, "status": decision, **applied}

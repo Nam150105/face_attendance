@@ -51,6 +51,29 @@ function formatElapsed(fromIso: string): string {
   return `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
 }
 
+/**
+ * Why check-in is unavailable, in a sentence the person can act on.
+ *
+ * The server decides this (`can_check_in`), not the screen: the same rule then
+ * holds for anybody who reaches the page by typing the address.
+ */
+const BLOCKED_TEXT: Record<string, { title: string; body: string; action?: { label: string; href: string } }> = {
+  NO_MANAGER: {
+    title: "Bạn chưa được duyệt vào nhóm nào",
+    body: "Người quản lý duyệt xong bạn mới chấm công được. Nếu đã có mã nhóm, vào Hồ sơ nhập mã rồi chờ duyệt.",
+    action: { label: "Mở hồ sơ", href: "/profile" },
+  },
+  NO_LOCATION: {
+    title: "Bạn chưa được gán nơi chấm công",
+    body: "Nhóm của bạn chưa có địa điểm nào, hoặc bạn chưa được gán vào địa điểm nào. Hãy báo người quản lý.",
+  },
+  NO_FACE: {
+    title: "Bạn chưa đăng ký khuôn mặt",
+    body: "Chụp một ảnh để hệ thống nhận ra bạn, chỉ mất chưa tới một phút.",
+    action: { label: "Đăng ký khuôn mặt", href: "/enroll" },
+  },
+};
+
 export default function DashboardPage() {
   const router = useRouter();
   const [data, setData] = useState<DashboardData | null>(null);
@@ -148,6 +171,8 @@ export default function DashboardPage() {
   const face = data.face as FaceEnrollmentStatus;
   const checkedIn = state.state === "CHECKED_IN";
   const memberName = displayName(data.profile, data.user.email);
+  // One source of truth for "can this person check in", handed down by the API.
+  const blocked = state.can_check_in ? null : BLOCKED_TEXT[state.blocked_reason ?? ""] ?? null;
 
   return (
     <AppShell email={data.user.email}>
@@ -162,13 +187,17 @@ export default function DashboardPage() {
         </Badge>
       </div>
 
-      {noTeam ? (
+      {blocked ? (
         <Alert tone="warning">
-          Bạn chưa thuộc nhóm nào nên chưa chấm công được. Vào{" "}
-          <Link href="/profile" className="alert__action">
-            Hồ sơ
-          </Link>{" "}
-          nhập mã đơn vị người quản lý đưa cho bạn.
+          <strong>{blocked.title}.</strong> {blocked.body}
+          {blocked.action ? (
+            <>
+              {" "}
+              <Link href={blocked.action.href} className="alert__action">
+                {blocked.action.label}
+              </Link>
+            </>
+          ) : null}
         </Alert>
       ) : null}
 
@@ -234,22 +263,11 @@ export default function DashboardPage() {
             ]}
           />
 
-          {!face.enrolled ? (
-            <Alert tone="warning">
-              Bạn cần đăng ký khuôn mặt trước khi thực hiện check-in.
-            </Alert>
-          ) : null}
-
-          {data.locations.length === 0 ? (
-            <Alert tone="warning">
-              Bạn chưa được gắn với địa điểm nào nên chưa chấm công được. Hãy báo người quản lý.
-            </Alert>
-          ) : null}
-
           <div className="row" style={{ marginTop: "var(--space-1)" }}>
             <Button
               size="lg"
               variant={checkedIn ? "secondary" : "primary"}
+              disabled={blocked !== null && state.blocked_reason !== "NO_FACE"}
               onClick={() => router.push(face.enrolled ? "/attendance" : "/enroll")}
               icon={
                 <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">

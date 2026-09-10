@@ -43,6 +43,29 @@ const QUICK_REASONS = [
   "Đã báo trước với người quản lý",
 ];
 
+/**
+ * Why check-in is unavailable, in a sentence the person can act on.
+ *
+ * The server decides this (`can_check_in`), not the screen: the same rule then
+ * holds for anybody who reaches the page by typing the address.
+ */
+const BLOCKED_TEXT: Record<string, { title: string; body: string; action?: { label: string; href: string } }> = {
+  NO_MANAGER: {
+    title: "Bạn chưa được duyệt vào nhóm nào",
+    body: "Người quản lý duyệt xong bạn mới chấm công được. Nếu đã có mã nhóm, vào Hồ sơ nhập mã rồi chờ duyệt.",
+    action: { label: "Mở hồ sơ", href: "/profile" },
+  },
+  NO_LOCATION: {
+    title: "Bạn chưa được gán nơi chấm công",
+    body: "Nhóm của bạn chưa có địa điểm nào, hoặc bạn chưa được gán vào địa điểm nào. Hãy báo người quản lý.",
+  },
+  NO_FACE: {
+    title: "Bạn chưa đăng ký khuôn mặt",
+    body: "Chụp một ảnh để hệ thống nhận ra bạn, chỉ mất chưa tới một phút.",
+    action: { label: "Đăng ký khuôn mặt", href: "/enroll" },
+  },
+};
+
 export default function AttendancePage() {
   const router = useRouter();
   const [user, setUser] = useState<CurrentUser | null>(null);
@@ -243,6 +266,12 @@ export default function AttendancePage() {
   }, [reason, run]);
 
   const actionName = checkedIn ? "Check-out" : "Check-in";
+  // An open session is always closable: somebody who checked in must be able to
+  // check out even if their manager removed the place in the meantime.
+  const gate =
+    state && !state.can_check_in && !checkedIn
+      ? BLOCKED_TEXT[state.blocked_reason ?? ""] ?? null
+      : null;
 
   return (
     <AppShell email={user?.email}>
@@ -261,6 +290,24 @@ export default function AttendancePage() {
         </Badge>
       </div>
 
+      {gate ? (
+        // Reached by typing the address, or the situation changed while the page
+        // was open. Either way the camera stays shut: sending a photo that the
+        // server will refuse teaches nobody anything.
+        <Card title={gate.title}>
+          <div className="stack">
+            <p className="page-lead">{gate.body}</p>
+            <div className="row">
+              {gate.action ? (
+                <Button onClick={() => router.push(gate.action!.href)}>{gate.action.label}</Button>
+              ) : null}
+              <Button variant="secondary" onClick={() => router.push("/")}>
+                Về trang chính
+              </Button>
+            </div>
+          </div>
+        </Card>
+      ) : (
       <Card
         title={checkedIn ? "Chấm ra" : "Chấm vào"}
         subtitle={activeLocation ? activeLocation.name : "Giữ điện thoại ngang tầm mắt."}
@@ -425,6 +472,7 @@ export default function AttendancePage() {
           ) : null}
         </div>
       </Card>
+      )}
     </AppShell>
   );
 }

@@ -4,7 +4,7 @@ Tài liệu cho người tiếp nhận, bảo trì hoặc nâng cấp. Mô tả 
 
 > Khác với `02_ARCHITECTURE.md` — tệp đó là đặc tả thiết kế ban đầu. Tệp này mô tả cái đang chạy thật; khi hai bên lệch nhau, tệp này đúng về hiện trạng.
 
-Cập nhật: 2026-09-10 · migration `021_record_overrides`
+Cập nhật: 2026-09-11 · migration `023_drop_verdicts`
 
 ---
 
@@ -203,6 +203,26 @@ Vì vậy phán quyết của người nằm ở cột riêng: `face_verdict_ove
 
 Sửa theo **từng lượt**: một ngày công là hai bản ghi, màn hình cho chọn lượt vào hay lượt ra rồi nạp form theo lượt đó.
 
+Phán quyết là **một ô duy nhất** với bốn lựa chọn: *Hợp lệ · Hợp lệ có lý do · Khuôn mặt không khớp · Lệch vị trí (kèm số mét đo được)*. Mỗi lựa chọn ứng với một cặp `status` + `failure_code` — đúng hai cột hệ thống tự điền khi nó tự phán quyết, nên bản ghi người sửa và bản ghi máy ghi đọc giống hệt nhau.
+
+Trước đó từng có hai công tắc riêng cho vị trí và khuôn mặt đứng cạnh ô trạng thái. Ba nơi nói về một chuyện thì sớm muộn cũng mâu thuẫn: "khuôn mặt không khớp" nằm ngay cạnh "Hợp lệ" không cho người đọc biết cái nào tính. Hai cột ghi đè bị xoá ở migration 023.
+
+Một lượt bị từ chối vì lý do khác (`FACE_NOT_FOUND`, `GPS_ACCURACY_LOW`…) giữ nguyên mã đó khi người quản lý sửa thứ khác; mã chỉ bị ghi đè khi họ thực sự đổi phán quyết.
+
+Số dẫn xuất đi theo thứ chúng dẫn xuất từ: sửa giờ thì tính lại đi muộn/về sớm theo giờ quy định của địa điểm, đổi địa điểm thì tính lại khoảng cách từ toạ độ đã lưu. Còn số máy đo (`face_distance`, `face_match_score`) thì không bao giờ đổi.
+
+### Duyệt chỉnh công là sửa bảng công
+
+Duyệt một yêu cầu chỉnh công **ghi thẳng vào bảng công**: thiếu lượt nào thì tạo lượt đó, sai giờ thì dời giờ của lượt đã có. Trước đây duyệt chỉ đổi trạng thái yêu cầu và gửi thông báo — ngày bị hỏng vẫn hỏng, mãi mãi.
+
+Bản ghi sinh ra theo cách này **không có số đo nào**: không toạ độ, không khoảng cách, không điểm khuôn mặt, vì chẳng ai đo gì cả. Bốn cột đó thành nullable (migration 022) và `source` nói rõ bản ghi đến từ đâu (`DEVICE` / `CORRECTION` / `MANUAL`). Ghi toạ độ của địa điểm với khoảng cách 0 thì bản ghi do người nhập trông y hệt bản ghi thật — đúng kiểu nói dối mà dự án này từ chối nói về AI.
+
+### Bảng ngày công: dòng nào thì bản ghi ấy
+
+Mọi phép gộp trong `attendance_sessions` lọc theo cùng một điều kiện trạng thái. Trước đây giờ hiển thị lấy từ lượt *hợp lệ*, còn `check_in_id` lấy lượt *sớm nhất bất kể hợp lệ* — nên ngày có một lần chấm hỏng thì bấm vào dòng lại mở đúng cái lượt hỏng đó, và người quản lý sửa nhầm bản ghi. Cùng lỗi ấy làm tên địa điểm và số phút muộn lấy từ lượt đã bị từ chối.
+
+Mỗi dòng nay kèm `attempts` — toàn bộ sự kiện của ngày — để khi bật "hiện cả lượt không hợp lệ" thì từng lần thử hiện thành một dòng riêng thay vì bị gộp mất.
+
 ### Xoá mềm và xoá vĩnh viễn
 
 Người quản lý chỉ xoá mềm (`deleted_at`, `deleted_by`, `delete_reason`) — bản ghi biến khỏi danh sách nhưng ảnh bằng chứng còn nguyên và quản trị viên khôi phục được. Xoá vĩnh viễn là quyền của quản trị hệ thống.
@@ -270,7 +290,8 @@ Không có mock. Mọi probe chạy trên hệ thống thật đang chạy.
 | `rules_probe` (11) | Một người một quản lý; một phiên mỗi ngày |
 | `devices_probe` (12) | Bật tắt một/nhiều thiết bị theo vai trò |
 | `delete_day_probe` (12) | Xoá ngày công xoá trọn ngày, đúng phạm vi, xoá mềm |
-| `edit_record_probe` (16) | Sửa từng lượt; số máy đo không bị viết đè; phạm vi và nhật ký |
+| `edit_record_probe` (19) | Sửa từng lượt; tính lại số dẫn xuất; số máy đo không bị viết đè |
+| `correction_probe` (15) | Duyệt chỉnh công ghi vào bảng công; chặn chấm công khi chưa đủ điều kiện |
 | `reading_probe` (16) | Một ngày thật: đăng ký → chấm vào → chấm ra; số đo OpenCV/face_recognition và chấm ra ở nơi khác |
 | `teams_probe` (35) | Mã đơn vị, duyệt/từ chối vào nhóm |
 | `face_change_probe` (27) | Duyệt đổi khuôn mặt, dùng ảnh chân dung thật |

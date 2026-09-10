@@ -324,7 +324,7 @@ def list_all_attendance(filters: dict) -> dict:
                 "status": row[4],
                 "server_time": row[5],
                 "location_name": row[6],
-                "distance_meters": float(row[7]),
+                "distance_meters": float(row[7]) if row[7] is not None else None,
                 "failure_code": row[8],
                 "deleted_at": row[9],
                 "delete_reason": row[10],

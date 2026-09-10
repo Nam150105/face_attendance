@@ -10,6 +10,7 @@ import type {
   AttendanceFilters,
   AttendanceResult,
   AttendanceState,
+  AttendanceStatus,
   AuditLogEntry,
   BulkAddResult,
   CurrentUser,
@@ -704,6 +705,16 @@ export const api = {
         check_in_id: string | null;
         check_out_id: string | null;
         status: "ON_TIME" | "LATE" | "OPEN" | "REJECTED";
+        /** Every event of that day, refused attempts included. */
+        attempts: {
+          id: string;
+          event_type: "CHECK_IN" | "CHECK_OUT";
+          status: AttendanceStatus;
+          server_time: string;
+          location_name: string | null;
+          failure_code: string | null;
+          source: string;
+        }[];
       }[];
     }>(`/manager/attendance/sessions${queryString(params)}`);
   },
@@ -722,11 +733,10 @@ export const api = {
     eventId: string,
     payload: {
       status?: string;
+      /** Which half went wrong, when the verdict says one did. */
+      failure_code?: string;
       server_time?: string;
       location_id?: string;
-      // null puts the verdict back to whatever the recogniser measured.
-      face_ok?: boolean | null;
-      location_ok?: boolean | null;
       note?: string;
       reason: string;
     },

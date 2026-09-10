@@ -640,7 +640,7 @@ def _event_dict(row: tuple) -> dict:
         "server_time": row[3],
         "location_id": row[4],
         "location_name": row[5],
-        "distance_meters": float(row[6]),
+        "distance_meters": float(row[6]) if row[6] is not None else None,
         "gps_accuracy_meters": float(row[7]),
         "face_match_score": float(row[8]) if row[8] is not None else None,
         "reason": row[9],
@@ -666,9 +666,41 @@ def my_state(user: CurrentUser) -> dict:
             f"SELECT {MY_EVENT_COLUMNS} FROM attendance_events e JOIN locations l ON l.id = e.location_id WHERE e.member_id = %s AND e.deleted_at IS NULL ORDER BY e.server_time DESC LIMIT 1",
             (user.id,),
         ).fetchone()
+        has_manager = connection.execute(
+            "SELECT 1 FROM manager_memberships WHERE member_user_id = %s AND status = 'ACTIVE' LIMIT 1",
+            (user.id,),
+        ).fetchone() is not None
+        place_count = connection.execute(
+            """
+            SELECT count(*) FROM (
+                SELECT location_id FROM member_locations WHERE member_id = %s
+                UNION
+                SELECT tl.location_id FROM team_locations tl
+                JOIN manager_memberships mm ON mm.team_id = tl.team_id
+                WHERE mm.member_user_id = %s AND mm.status = 'ACTIVE'
+            ) AS allowed
+            JOIN locations l ON l.id = allowed.location_id AND l.is_active
+            """,
+            (user.id, user.id),
+        ).fetchone()[0]
+    # Why the button is off, decided on the server: the member portal used to
+    # let anybody open the camera and only learn at upload time that they have
+    # no manager and nowhere to stand.
+    blocked = None
+    if not has_manager:
+        blocked = "NO_MANAGER"
+    elif place_count == 0:
+        blocked = "NO_LOCATION"
+    elif enrolled is None:
+        blocked = "NO_FACE"
+
     return {
         "state": "CHECKED_IN" if open_event is not None else "NOT_CHECKED_IN",
         "face_enrolled": enrolled is not None,
+        "location_count": place_count,
+        "has_manager": has_manager,
+        "can_check_in": blocked is None,
+        "blocked_reason": blocked,
         "open_check_in_id": open_event[0] if open_event is not None else None,
         "open_check_in_location_id": open_event[1] if open_event is not None else None,
         "open_check_in_time": open_event[2] if open_event is not None else None,

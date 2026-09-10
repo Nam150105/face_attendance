@@ -20,6 +20,38 @@ const EMPTY_PROFILE = {
   position: "",
 };
 
+/**
+ * What a stranger sees first.
+ *
+ * The form is the point of the page, so it stays at the top and stays short.
+ * Below it: what the system does, and which libraries read the face. Naming the
+ * recognition stack is deliberate — people are being asked to hand over their
+ * face, and the least the page can do is say what will read it. Infrastructure
+ * is left out on purpose: it would tell an attacker what to try and tells a
+ * visitor nothing.
+ */
+const PIPELINE = [
+  {
+    library: "OpenCV",
+    role: "Đọc ảnh, đo độ nét và độ sáng, tự bù sáng khi chỗ chụp thiếu đèn. Ảnh không đạt bị loại ngay tại đây.",
+  },
+  {
+    library: "face_recognition · dlib",
+    role: "Tìm khuôn mặt trong ảnh, đặt điểm mốc, rồi quy khuôn mặt thành một vector 128 chiều.",
+  },
+  {
+    library: "So khớp",
+    role: "So hai vector bằng khoảng cách Euclid. Càng gần 0 càng giống; quá ngưỡng thì hệ thống coi là người khác.",
+  },
+];
+
+const WHAT_IT_DOES = [
+  "Chấm công bằng ảnh chụp tại chỗ, không nhận ảnh có sẵn trong máy.",
+  "Kiểm tra vị trí theo bán kính quanh địa điểm làm việc, tính lại ở máy chủ.",
+  "Giờ làm việc theo từng địa điểm, có mức cho phép đến muộn.",
+  "Người quản lý duyệt thành viên, duyệt chỉnh công và duyệt đổi ảnh khuôn mặt.",
+];
+
 export default function LoginPage() {
   const router = useRouter();
   const [mode, setMode] = useState<Mode>("login");
@@ -259,9 +291,35 @@ export default function LoginPage() {
         </form>
       </Card>
 
-      <div style={{ textAlign: "center", marginTop: "var(--space-2)", fontSize: "var(--text-xs)", color: "var(--text-muted)" }}>
-        🔒 Dữ liệu khuôn mặt được lưu dưới dạng đặc trưng đã mã hoá và chỉ dùng để đối chiếu khi bạn check-in.
-      </div>
+      <section className="intro">
+        <div className="intro__block">
+          <h2 className="intro__title">Hệ thống này làm gì</h2>
+          <ul className="intro__list">
+            {WHAT_IT_DOES.map((line) => (
+              <li key={line}>{line}</li>
+            ))}
+          </ul>
+        </div>
+
+        <div className="intro__block">
+          <h2 className="intro__title">Khuôn mặt của bạn được đọc bằng gì</h2>
+          <ol className="intro__steps">
+            {PIPELINE.map((step, index) => (
+              <li key={step.library}>
+                <span className="intro__step">{index + 1}</span>
+                <span>
+                  <strong>{step.library}</strong>
+                  <span className="intro__role">{step.role}</span>
+                </span>
+              </li>
+            ))}
+          </ol>
+          <p className="intro__note">
+            Ảnh khuôn mặt và ảnh chấm công nằm trong kho lưu trữ riêng, không có đường dẫn công khai.
+            Mọi quyết định về vị trí và khuôn mặt do máy chủ tính, không tin dữ liệu thiết bị gửi lên.
+          </p>
+        </div>
+      </section>
     </AppShell>
   );
 }

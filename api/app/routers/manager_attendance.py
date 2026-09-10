@@ -27,16 +27,18 @@ class ManualAdjustRequest(BaseModel):
     """
     Everything a person may correct on one record.
 
+    The verdict is the status, and `failure_code` says which half went wrong —
+    the same two fields the system fills in when it judges a record itself.
+
     Left out on purpose: face_match_score, face_distance and distance_meters.
-    Those are what the system measured; `face_ok` and `location_ok` are what a
-    person decided about them, and the two are kept apart.
+    Those are measurements, and a corrected record that carries an invented
+    score is worse than one that was never corrected.
     """
 
     status: str | None = Field(default=None, pattern="^(SUCCESS|WARNING_CONFIRMED|BLOCKED|FAILED)$")
+    failure_code: str | None = Field(default=None, pattern="^(FACE_NOT_MATCHED|OUTSIDE_ALLOWED_ZONE)$")
     server_time: datetime | None = None
     location_id: UUID | None = None
-    face_ok: bool | None = None
-    location_ok: bool | None = None
     note: str | None = Field(default=None, max_length=500)
     reason: str = Field(min_length=3, max_length=500)
 

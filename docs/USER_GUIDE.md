@@ -76,14 +76,14 @@ Sửa được mọi thứ trên lượt đó:
 |---|---|
 | **Thời điểm** | Giờ ghi nhận. Giờ máy báo lúc đầu vẫn được giữ lại trong *Thông tin kỹ thuật* |
 | **Địa điểm** | Chuyển lượt này sang một địa điểm khác **của bạn** |
-| **Vị trí** | *Theo máy đo* / *Hợp lệ* / *Không hợp lệ* — dùng khi GPS lệch trong nhà nhưng bạn biết người đó có mặt |
-| **Khuôn mặt** | *Theo máy đo* / *Khớp* / *Không khớp* — dùng khi ảnh thiếu sáng bị từ chối oan, hoặc ngược lại |
-| **Trạng thái bản ghi** | Hợp lệ / Hợp lệ có lý do / Không hợp lệ / Ngoài phạm vi |
+| **Trạng thái bản ghi** | Bốn lựa chọn: *Hợp lệ* · *Hợp lệ có lý do* · *Khuôn mặt không khớp* · *Lệch vị trí* (kèm số mét đo được). Chọn đúng một cái — không còn hai công tắc riêng để nói ngược nhau |
 | **Giải trình của thành viên** | Ghi lại lời của họ nếu họ nói miệng với bạn |
 
 Mỗi lần sửa bắt buộc nêu **lý do sửa**, và bản ghi sẽ mang dòng *"Đã được sửa"* kèm tên bạn để ai đọc sau cũng biết.
 
-> Khoảng cách khuôn mặt và khoảng cách tới địa điểm **không sửa được** — đó là số máy đo. Ý kiến của bạn được ghi cạnh số đó chứ không viết đè lên. Vài tháng sau vẫn trả lời được: máy thấy gì, và người quyết định thế nào.
+Sửa giờ thì số phút đi muộn, về sớm tự tính lại theo giờ quy định của địa điểm; đổi địa điểm thì khoảng cách tính lại từ toạ độ đã lưu.
+
+> Khoảng cách khuôn mặt **không sửa được** — đó là số máy đo. Ý kiến của bạn được ghi cạnh số đó chứ không viết đè lên. Vài tháng sau vẫn trả lời được: máy thấy gì, và người quyết định thế nào.
 
 Hoặc bạn **Xoá cả ngày công** kèm lý do.
 
@@ -107,6 +107,8 @@ Chỉ duyệt khi bạn chắc chắn vẫn là một người. Trong lúc chờ
 
 Thành viên quên chấm công có thể gửi yêu cầu chỉnh. Bấm ô **Chỉnh công** ở đầu màn hình **Quản lý nhóm** để chấp nhận hoặc từ chối kèm ghi chú.
 
+> **Duyệt là bảng công đổi ngay.** Thiếu lượt nào hệ thống tạo lượt đó, sai giờ thì dời giờ. Bản ghi sinh ra ghi rõ *"Chỉnh công đã duyệt"* và không có ảnh, không có toạ độ, không có điểm khuôn mặt — vì lần đó không ai chấm công thật. Từ chối thì bảng công giữ nguyên.
+
 ### Ba ô ở đầu màn hình Quản lý nhóm
 
 **Yêu cầu vào nhóm · Đổi khuôn mặt · Chỉnh công**. Con số là số việc đang chờ bạn; số 0 thì ô đó im lặng. Bấm vào ô để mở danh sách ngay tại chỗ, bấm lần nữa để đóng. Không phải đi tìm ở đâu khác, và không có việc nào nằm ngoài tầm mắt.
@@ -126,6 +128,8 @@ Nếu chưa có mã, cứ tạo tài khoản trước rồi vào **Hồ sơ** nh
 ### 2. Chờ duyệt
 
 Người quản lý duyệt xong bạn mới chấm công được. Trạng thái hiện trên **Hồ sơ**.
+
+Chưa được duyệt, hoặc đã duyệt nhưng chưa được gán nơi chấm công, thì nút chấm công **tắt** và màn hình nói rõ đang thiếu gì — thay vì để bạn chụp ảnh xong mới báo lỗi.
 
 ### 3. Đăng ký khuôn mặt
 

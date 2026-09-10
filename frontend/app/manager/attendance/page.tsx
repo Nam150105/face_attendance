@@ -84,6 +84,16 @@ interface Session {
   check_in_id: string | null;
   check_out_id: string | null;
   status: "ON_TIME" | "LATE" | "OPEN" | "REJECTED";
+  /** Every event of that day, refused attempts included. */
+  attempts: {
+    id: string;
+    event_type: "CHECK_IN" | "CHECK_OUT";
+    status: AttendanceStatus;
+    server_time: string;
+    location_name: string | null;
+    failure_code: string | null;
+    source: string;
+  }[];
 }
 
 const SESSION_LABEL: Record<Session["status"], string> = {
@@ -91,6 +101,12 @@ const SESSION_LABEL: Record<Session["status"], string> = {
   LATE: "Đi muộn",
   OPEN: "Chưa chấm ra",
   REJECTED: "Không chấm được",
+};
+
+const SOURCE_LABEL: Record<string, string> = {
+  DEVICE: "Thiết bị chấm công",
+  CORRECTION: "Chỉnh công đã duyệt",
+  MANUAL: "Người quản lý nhập",
 };
 
 const SESSION_TONE: Record<Session["status"], "success" | "warning" | "danger" | "neutral"> = {
@@ -124,15 +140,33 @@ function shortClock(value: string | null): string {
   return new Date(value).toLocaleTimeString("vi-VN", { hour: "2-digit", minute: "2-digit" });
 }
 
-/** A verdict is the machine's until somebody overrules it. */
-type Verdict = "machine" | "yes" | "no";
+/**
+ * The verdict of a record, as one choice.
+ *
+ * It used to be three controls — a status dropdown and two switches for the
+ * face and the place — which could contradict each other: "khuôn mặt không
+ * khớp" sitting next to "Hợp lệ" left the reader to guess which one counted.
+ * One list, four answers, and the record says the same thing everywhere.
+ */
+type Verdict = "VALID" | "EXCUSED" | "FACE" | "PLACE";
 
-function verdictOf(value: boolean | null | undefined): Verdict {
-  return value === null || value === undefined ? "machine" : value ? "yes" : "no";
+const VERDICTS: { key: Verdict; status: string; failure: string | null; label: string }[] = [
+  { key: "VALID", status: "SUCCESS", failure: null, label: "Hợp lệ" },
+  { key: "EXCUSED", status: "WARNING_CONFIRMED", failure: null, label: "Hợp lệ có lý do" },
+  { key: "FACE", status: "FAILED", failure: "FACE_NOT_MATCHED", label: "Khuôn mặt không khớp" },
+  { key: "PLACE", status: "BLOCKED", failure: "OUTSIDE_ALLOWED_ZONE", label: "Lệch vị trí" },
+];
+
+function verdictOf(event: ManagerAttendanceEvent): Verdict {
+  if (event.status === "SUCCESS") return "VALID";
+  if (event.status === "WARNING_CONFIRMED") return "EXCUSED";
+  return event.status === "BLOCKED" ? "PLACE" : "FACE";
 }
 
-function verdictValue(verdict: Verdict): boolean | null {
-  return verdict === "machine" ? null : verdict === "yes";
+/** "Lệch vị trí" is only useful with the number that makes it a fact. */
+function verdictLabel(verdict: Verdict, distance: number | null): string {
+  const base = VERDICTS.find((item) => item.key === verdict)!.label;
+  return verdict === "PLACE" && distance !== null ? `${base} (${distance.toFixed(1)} m)` : base;
 }
 
 /** A timestamp in the shape <input type="datetime-local"> wants, in local time. */
@@ -168,11 +202,9 @@ export default function ManagerAttendancePage() {
 
   // The edit form. Every field starts at what the record currently says, so
   // saving without touching anything changes nothing.
-  const [editStatus, setEditStatus] = useState("");
   const [editTime, setEditTime] = useState("");
   const [editLocation, setEditLocation] = useState("");
-  const [editFace, setEditFace] = useState<Verdict>("machine");
-  const [editPlace, setEditPlace] = useState<Verdict>("machine");
+  const [editVerdict, setEditVerdict] = useState<Verdict>("VALID");
   const [editNote, setEditNote] = useState("");
   const [adjustReason, setAdjustReason] = useState("");
   const [adjustError, setAdjustError] = useState<string | null>(null);
@@ -265,6 +297,31 @@ export default function ManagerAttendancePage() {
     }
   }
 
+  /** Open one refused attempt on its own. */
+  async function openAttempt(session: Session, eventId: string) {
+    setPairFor(session);
+    setHalf("in");
+    setEntryUrl(null);
+    setExitUrl(null);
+    setFaceUrl(null);
+    setDeleteReason("");
+    try {
+      const event = await api.managerAttendanceDetail(eventId);
+      loadForm(event);
+      if (event.has_image) {
+        setEntryUrl(await api.managerAttendanceImage(eventId).catch(() => null));
+      }
+      if (event.has_enrollment_photo) {
+        setFaceUrl(await api.memberFacePhoto(event.member_id).catch(() => null));
+      }
+      if (locations.length === 0) {
+        setLocations(await api.managerLocations().catch(() => []));
+      }
+    } catch (cause) {
+      setError(describeError(cause));
+    }
+  }
+
   /** Point the form at one half of the day. */
   async function switchHalf(next: "in" | "out") {
     const id = next === "in" ? pairFor?.check_in_id : pairFor?.check_out_id;
@@ -281,11 +338,9 @@ export default function ManagerAttendancePage() {
 
   function loadForm(event: ManagerAttendanceEvent) {
     setSelected(event);
-    setEditStatus(event.status);
+    setEditVerdict(verdictOf(event));
     setEditTime(toLocalInput(event.server_time));
     setEditLocation(event.location_id);
-    setEditFace(verdictOf(event.face_verdict_override));
-    setEditPlace(verdictOf(event.location_verdict_override));
     setEditNote(event.reason ?? "");
     setAdjustReason("");
     setAdjustError(null);
@@ -328,12 +383,17 @@ export default function ManagerAttendancePage() {
     setAdjustError(null);
     setAdjustNotice(null);
     try {
+      const chosen = VERDICTS.find((item) => item.key === editVerdict)!;
       const updated = await api.manualAdjust(selected.id, {
-        status: editStatus,
+        status: chosen.status,
+        // Only when the verdict itself changed: a record refused for
+        // FACE_NOT_FOUND keeps that reason instead of being rewritten to the
+        // nearest of the four choices.
+        ...(editVerdict === verdictOf(selected) || chosen.failure === null
+          ? {}
+          : { failure_code: chosen.failure }),
         server_time: new Date(editTime).toISOString(),
         location_id: editLocation,
-        face_ok: verdictValue(editFace),
-        location_ok: verdictValue(editPlace),
         note: editNote.trim(),
         reason: adjustReason.trim(),
       });
@@ -427,25 +487,58 @@ export default function ManagerAttendancePage() {
             <Empty>Không ai chấm công ngày này.</Empty>
           ) : (
             <div className="stack stack--tight">
-              {shownSessions.map((session) => (
-                <button
-                  type="button"
-                  className="day-line"
-                  key={`${session.member_id}-${session.work_date}`}
-                  onClick={() => void openPair(session)}
-                  disabled={!session.check_in_id && !session.check_out_id}
-                >
-                  <span className="day-line__who">
-                    <span className="person__name">{session.member_name ?? session.member_email}</span>
-                    <span className="event__meta">
-                      {shortClock(session.check_in)} → {session.check_out ? shortClock(session.check_out) : "chưa ra"}
-                      {session.check_out ? ` · ${presenceOf(session)}` : ""}
-                      {session.location_name ? ` · ${session.location_name}` : ""}
-                    </span>
-                  </span>
-                  <Badge tone={SESSION_TONE[session.status]}>{SESSION_LABEL[session.status]}</Badge>
-                </button>
-              ))}
+              {shownSessions.map((session) => {
+                // With refused attempts switched on, each one gets its own line.
+                // Folded into the day they were invisible: four failed tries and
+                // one success looked exactly like one success.
+                const extra = includeInvalid
+                  ? (session.attempts ?? []).filter(
+                      (attempt) =>
+                        attempt.id !== session.check_in_id && attempt.id !== session.check_out_id,
+                    )
+                  : [];
+                return (
+                  <div key={`${session.member_id}-${session.work_date}`}>
+                    <button
+                      type="button"
+                      className="day-line"
+                      onClick={() => void openPair(session)}
+                      disabled={!session.check_in_id && !session.check_out_id}
+                    >
+                      <span className="day-line__who">
+                        <span className="person__name">{session.member_name ?? session.member_email}</span>
+                        <span className="event__meta">
+                          {shortClock(session.check_in)} →{" "}
+                          {session.check_out ? shortClock(session.check_out) : "chưa ra"}
+                          {session.check_out ? ` · ${presenceOf(session)}` : ""}
+                          {session.location_name ? ` · ${session.location_name}` : ""}
+                        </span>
+                      </span>
+                      <Badge tone={SESSION_TONE[session.status]}>{SESSION_LABEL[session.status]}</Badge>
+                    </button>
+
+                    {extra.map((attempt) => (
+                      <button
+                        type="button"
+                        className="day-line day-line--attempt"
+                        key={attempt.id}
+                        onClick={() => void openAttempt(session, attempt.id)}
+                      >
+                        <span className="day-line__who">
+                          <span className="event__meta">
+                            {shortClock(attempt.server_time)} ·{" "}
+                            {attempt.event_type === "CHECK_IN" ? "thử vào" : "thử ra"}
+                            {attempt.failure_code ? ` · ${describeFailure(attempt.failure_code)}` : ""}
+                          </span>
+                        </span>
+                        <Badge tone={STATUS_TONE[attempt.status]}>
+                          {STATUS_LABELS[attempt.status] ?? attempt.status}
+                        </Badge>
+                      </button>
+                    ))}
+                  </div>
+                );
+              })}
             </div>
           )}
         </Card>
@@ -567,7 +660,13 @@ export default function ManagerAttendancePage() {
                     </Badge>
                   ),
                 },
-                { key: "Cách địa điểm", value: `${selected.distance_meters.toFixed(1)} m` },
+                {
+                  key: "Cách địa điểm",
+                  value:
+                    selected.distance_meters === null
+                      ? "Không đo (bản ghi do người nhập)"
+                      : `${selected.distance_meters.toFixed(1)} m`,
+                },
                 ...(selected.failure_code
                   ? [
                       {
@@ -617,15 +716,25 @@ export default function ManagerAttendancePage() {
                       ]
                     : []),
                   { key: "Lưu vào hệ thống lúc", value: formatDateTime(selected.created_at) },
-                  { key: "Sai số định vị", value: `${selected.gps_accuracy_meters.toFixed(0)} m` },
                   {
-                    key: "Toạ độ ghi nhận",
-                    value: (
-                      <span className="mono">
-                        {selected.latitude.toFixed(6)}, {selected.longitude.toFixed(6)}
-                      </span>
-                    ),
+                    key: "Nguồn bản ghi",
+                    value: SOURCE_LABEL[selected.source] ?? selected.source,
                   },
+                  ...(selected.gps_accuracy_meters !== null
+                    ? [{ key: "Sai số định vị", value: `${selected.gps_accuracy_meters.toFixed(0)} m` }]
+                    : []),
+                  ...(selected.latitude !== null && selected.longitude !== null
+                    ? [
+                        {
+                          key: "Toạ độ ghi nhận",
+                          value: (
+                            <span className="mono">
+                              {selected.latitude.toFixed(6)}, {selected.longitude.toFixed(6)}
+                            </span>
+                          ),
+                        },
+                      ]
+                    : []),
                   { key: "Thư viện nhận diện", value: selected.face_engine ?? "—" },
                   { key: "Mã bản ghi", value: <span className="mono">{selected.id}</span> },
                 ]}
@@ -665,53 +774,16 @@ export default function ManagerAttendancePage() {
                     </SelectField>
                   </div>
 
-                  {/* The machine measured; a person may disagree. Both answers
-                      are kept — the score is never rewritten. */}
-                  <div className="verdicts">
-                    <div className="verdict">
-                      <span className="field__label">Vị trí</span>
-                      <div className="segmented segmented--sm">
-                        {(["machine", "yes", "no"] as Verdict[]).map((value) => (
-                          <button
-                            type="button"
-                            key={value}
-                            className={editPlace === value ? "is-active" : undefined}
-                            aria-pressed={editPlace === value}
-                            onClick={() => setEditPlace(value)}
-                          >
-                            {value === "machine" ? "Theo máy đo" : value === "yes" ? "Hợp lệ" : "Không hợp lệ"}
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-
-                    <div className="verdict">
-                      <span className="field__label">Khuôn mặt</span>
-                      <div className="segmented segmented--sm">
-                        {(["machine", "yes", "no"] as Verdict[]).map((value) => (
-                          <button
-                            type="button"
-                            key={value}
-                            className={editFace === value ? "is-active" : undefined}
-                            aria-pressed={editFace === value}
-                            onClick={() => setEditFace(value)}
-                          >
-                            {value === "machine" ? "Theo máy đo" : value === "yes" ? "Khớp" : "Không khớp"}
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-                  </div>
-
                   <SelectField
                     label="Trạng thái bản ghi"
-                    value={editStatus}
-                    onChange={(event) => setEditStatus(event.target.value)}
+                    value={editVerdict}
+                    onChange={(event) => setEditVerdict(event.target.value as Verdict)}
                   >
-                    <option value="SUCCESS">Hợp lệ</option>
-                    <option value="WARNING_CONFIRMED">Hợp lệ có lý do</option>
-                    <option value="FAILED">Không hợp lệ</option>
-                    <option value="BLOCKED">Ngoài phạm vi</option>
+                    {VERDICTS.map((item) => (
+                      <option key={item.key} value={item.key}>
+                        {verdictLabel(item.key, selected.distance_meters)}
+                      </option>
+                    ))}
                   </SelectField>
 
                   <Field

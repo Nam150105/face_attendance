@@ -106,6 +106,11 @@ export interface AttendanceEvent {
 export interface AttendanceState {
   state: "NOT_CHECKED_IN" | "CHECKED_IN";
   face_enrolled: boolean;
+  location_count: number;
+  has_manager: boolean;
+  /** The server's answer to "may this person check in at all right now". */
+  can_check_in: boolean;
+  blocked_reason: "NO_MANAGER" | "NO_LOCATION" | "NO_FACE" | null;
   open_check_in_id: string | null;
   open_check_in_location_id: string | null;
   open_check_in_time: string | null;
@@ -264,10 +269,11 @@ export interface ManagerAttendanceEvent {
   server_time: string;
   location_id: string;
   location_name: string;
-  latitude: number;
-  longitude: number;
-  gps_accuracy_meters: number;
-  distance_meters: number;
+  // Null on records a person entered rather than a device measured.
+  latitude: number | null;
+  longitude: number | null;
+  gps_accuracy_meters: number | null;
+  distance_meters: number | null;
   face_match_score: number | null;
   liveness_score: number | null;
   has_image: boolean;
@@ -280,13 +286,11 @@ export interface ManagerAttendanceEvent {
   face_distance: number | null;
   face_engine: string | null;
   has_enrollment_photo: boolean;
-  /** A person's verdict beside the machine's; null means nobody overrode it. */
-  face_verdict_override: boolean | null;
-  location_verdict_override: boolean | null;
   original_server_time: string | null;
   edited_at: string | null;
   edit_reason: string | null;
   edited_by_email: string | null;
+  source: "DEVICE" | "CORRECTION" | "MANUAL";
 }
 
 export interface AttendanceFilters {

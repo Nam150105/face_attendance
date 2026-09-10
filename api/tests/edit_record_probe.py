@@ -89,30 +89,39 @@ def main() -> int:
         check("Sửa lượt vào không đụng tới lượt ra",
               other_half.get("edited_at") is None, str(other_half.get("edited_at")))
 
-        # --- 2. Verdicts sit beside the measurement, never on top of it --------
+        # --- 2. Một ô trạng thái nói trọn phán quyết --------------------------
         status, updated = call("POST", f"/manager/attendance/{check_in}/manual-adjust", manager, {
-            "face_ok": False,
-            "location_ok": True,
             "status": "FAILED",
-            "reason": "Ảnh không phải người này, nhưng vị trí thì đúng.",
+            "failure_code": "FACE_NOT_MATCHED",
+            "reason": "Xem lại ảnh thì không phải người này.",
         })
-        check("Đánh dấu khuôn mặt không khớp và vị trí hợp lệ", status == 200, f"HTTP {status}")
-        check("Hai phán quyết được lưu riêng",
-              updated.get("face_verdict_override") is False
-              and updated.get("location_verdict_override") is True,
-              f"{updated.get('face_verdict_override')} / {updated.get('location_verdict_override')}")
+        check("Đánh dấu khuôn mặt không khớp", status == 200, f"HTTP {status}")
+        check("Trạng thái và lý do đi cùng nhau",
+              updated.get("status") == "FAILED" and updated.get("failure_code") == "FACE_NOT_MATCHED",
+              f"{updated.get('status')} / {updated.get('failure_code')}")
         check("Số máy đo giữ nguyên, không bị viết đè",
               updated.get("face_distance") == 0.144 and updated.get("distance_meters") == 12.5,
               f"{updated.get('face_distance')} / {updated.get('distance_meters')}")
-        check("Trạng thái đổi theo", updated.get("status") == "FAILED", str(updated.get("status")))
+
+        status, place = call("POST", f"/manager/attendance/{check_in}/manual-adjust", manager, {
+            "status": "BLOCKED", "failure_code": "OUTSIDE_ALLOWED_ZONE",
+            "reason": "Thực ra là đứng ngoài phạm vi, không phải lỗi khuôn mặt.",
+        })
+        check("Đổi sang lệch vị trí thì lý do đổi theo",
+              place.get("failure_code") == "OUTSIDE_ALLOWED_ZONE", str(place.get("failure_code")))
 
         status, back = call("POST", f"/manager/attendance/{check_in}/manual-adjust", manager, {
-            "face_ok": None, "status": "SUCCESS",
-            "reason": "Xem lại camera thì đúng là người này.",
+            "status": "SUCCESS",
+            "reason": "Đối chiếu camera thì đúng người, đúng chỗ.",
         })
-        check("Trả phán quyết khuôn mặt về cho máy được",
-              status == 200 and back.get("face_verdict_override") is None,
-              str(back.get("face_verdict_override")))
+        check("Về hợp lệ thì bản ghi không còn lý do không hợp lệ",
+              status == 200 and back.get("failure_code") is None, str(back.get("failure_code")))
+
+        status, bad = call("POST", f"/manager/attendance/{check_in}/manual-adjust", manager, {
+            "status": "FAILED", "failure_code": "KHONG_CO_MA_NAY",
+            "reason": "Thử một mã lý do không tồn tại.",
+        })
+        check("Mã lý do lạ bị từ chối", status == 422, f"HTTP {status}")
 
         # --- 3. Moving a record to another place -------------------------------
         status, moved = call("POST", f"/manager/attendance/{check_out}/manual-adjust", manager, {
@@ -127,6 +136,40 @@ def main() -> int:
         check("Không đẩy được sang địa điểm của người quản lý khác",
               status == 404 and refused.get("detail") == "LOCATION_NOT_FOUND",
               f"HTTP {status} {refused.get('detail')}")
+
+        # --- 3b. Sửa giờ thì đi muộn phải tính lại -----------------------------
+        status, timed = call("POST", "/manager/locations", manager, {
+            "name": "Có giờ quy định", "address": None, "latitude": 21.0, "longitude": 105.8,
+            "allow_radius_meters": 500, "warning_radius_meters": 900, "is_active": True,
+            "expected_check_in": "08:00", "expected_check_out": "17:00",
+            "grace_minutes": 0, "enforce_hours": False,
+        })
+        timed_id = timed["id"]
+        call("POST", f"/manager/members/{member_id}/locations", manager,
+             {"location_id": timed_id, "is_default": False})
+        late_event = seed(
+            member_id, timed_id,
+            morning.replace(hour=8, minute=30).astimezone(timezone.utc), "CHECK_IN",
+        )
+        with psycopg.connect(DATABASE_URL) as connection:
+            connection.execute(
+                "UPDATE attendance_events SET minutes_late = 30 WHERE id = %s", (late_event,)
+            )
+            connection.commit()
+
+        status, ontime = call("POST", f"/manager/attendance/{late_event}/manual-adjust", manager, {
+            "server_time": morning.replace(hour=7, minute=55).astimezone(timezone.utc).isoformat(),
+            "reason": "Camera cho thấy vào lúc 07:55, không hề muộn.",
+        })
+        check("Sửa giờ về đúng giờ thì hết đi muộn",
+              status == 200 and not ontime.get("minutes_late"), str(ontime.get("minutes_late")))
+
+        status, again = call("POST", f"/manager/attendance/{late_event}/manual-adjust", manager, {
+            "server_time": morning.replace(hour=9, minute=0).astimezone(timezone.utc).isoformat(),
+            "reason": "Nhầm lần nữa, thực tế là 09:00.",
+        })
+        check("Sửa sang giờ muộn thì tính ra đúng số phút muộn",
+              again.get("minutes_late") == 60, str(again.get("minutes_late")))
 
         # --- 4. Guard rails -----------------------------------------------------
         status, _ = call("POST", f"/manager/attendance/{check_in}/manual-adjust", manager, {
@@ -153,6 +196,7 @@ def main() -> int:
               all(row.get("before_json") and row.get("after_json") for row in mine),
               str(len(mine)))
 
+        call("DELETE", f"/manager/locations/{timed_id}/permanent", manager)
         for location_id in (here, there):
             call("DELETE", f"/manager/locations/{location_id}/permanent", manager)
         call("DELETE", f"/manager/locations/{outside}/permanent", other)

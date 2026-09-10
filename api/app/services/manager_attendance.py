@@ -8,6 +8,8 @@ import psycopg
 from fastapi import HTTPException
 
 from app.auth import CurrentUser, DATABASE_URL
+from app.domain.geofence import haversine_distance_meters
+from app.services.attendance import _minutes_early_leave, _minutes_late
 from app.services.member_portal import APP_TIMEZONE
 from app.services.permissions import assert_can_see_member, visible_member_ids
 from app.services.storage import PrivateObjectStorage
@@ -24,9 +26,14 @@ EVENT_COLUMNS = """
     e.face_distance, e.face_engine,
     EXISTS (SELECT 1 FROM face_embeddings f
             WHERE f.member_id = e.member_id AND f.revoked_at IS NULL AND f.image_object_key IS NOT NULL),
-    e.face_verdict_override, e.location_verdict_override, e.original_server_time,
-    e.edited_at, e.edit_reason, editor.email
+    e.original_server_time,
+    e.edited_at, e.edit_reason, editor.email, e.source::text
 """
+
+# The only two reasons a person can put on a record by hand. The system writes
+# a wider set of its own (FACE_NOT_FOUND, GPS_ACCURACY_LOW…), and those survive
+# an edit untouched unless the manager actually changes the verdict.
+ADJUSTABLE_FAILURES = {"FACE_NOT_MATCHED", "OUTSIDE_ALLOWED_ZONE"}
 
 
 def _event(row: tuple) -> dict:
@@ -40,10 +47,12 @@ def _event(row: tuple) -> dict:
         "server_time": row[6],
         "location_id": row[7],
         "location_name": row[8],
-        "latitude": float(row[9]),
-        "longitude": float(row[10]),
-        "gps_accuracy_meters": float(row[11]),
-        "distance_meters": float(row[12]),
+        # Null on records a person entered: nobody stood anywhere, so there is
+        # no coordinate to report and none is invented.
+        "latitude": float(row[9]) if row[9] is not None else None,
+        "longitude": float(row[10]) if row[10] is not None else None,
+        "gps_accuracy_meters": float(row[11]) if row[11] is not None else None,
+        "distance_meters": float(row[12]) if row[12] is not None else None,
         "face_match_score": float(row[13]) if row[13] is not None else None,
         "liveness_score": float(row[14]) if row[14] is not None else None,
         "has_image": row[15],
@@ -56,14 +65,11 @@ def _event(row: tuple) -> dict:
         "face_distance": float(row[22]) if row[22] is not None else None,
         "face_engine": row[23],
         "has_enrollment_photo": row[24],
-        # NULL means nobody overrode the machine; the screen falls back to what
-        # was measured.
-        "face_verdict_override": row[25],
-        "location_verdict_override": row[26],
-        "original_server_time": row[27],
-        "edited_at": row[28],
-        "edit_reason": row[29],
-        "edited_by_email": row[30],
+        "original_server_time": row[25],
+        "edited_at": row[26],
+        "edit_reason": row[27],
+        "edited_by_email": row[28],
+        "source": row[29],
     }
 
 
@@ -214,14 +220,41 @@ def attendance_sessions(user: CurrentUser, filters: dict) -> dict:
                 max(e.server_time) FILTER (
                     WHERE e.event_type = 'CHECK_OUT' AND e.status IN ('SUCCESS', 'WARNING_CONFIRMED')
                 ) AS last_out,
-                max(e.minutes_late) FILTER (WHERE e.event_type = 'CHECK_IN') AS minutes_late,
-                max(e.minutes_early_leave) FILTER (WHERE e.event_type = 'CHECK_OUT') AS minutes_early,
+                -- Every aggregate below is filtered the same way as the two
+                -- times above. They were not, so a day with a refused attempt
+                -- showed the valid arrival time next to the refused attempt's
+                -- id, and opening the row edited a record the row was not
+                -- describing.
+                max(e.minutes_late) FILTER (
+                    WHERE e.event_type = 'CHECK_IN' AND e.status IN ('SUCCESS', 'WARNING_CONFIRMED')
+                ) AS minutes_late,
+                max(e.minutes_early_leave) FILTER (
+                    WHERE e.event_type = 'CHECK_OUT' AND e.status IN ('SUCCESS', 'WARNING_CONFIRMED')
+                ) AS minutes_early,
                 count(*) FILTER (WHERE e.status IN ('BLOCKED', 'FAILED')) AS rejected,
-                (array_agg(l.name ORDER BY e.server_time))[1] AS location_name,
-                (array_agg(e.id ORDER BY e.server_time)
-                 FILTER (WHERE e.event_type = 'CHECK_IN'))[1] AS check_in_id,
-                (array_agg(e.id ORDER BY e.server_time DESC)
-                 FILTER (WHERE e.event_type = 'CHECK_OUT'))[1] AS check_out_id
+                COALESCE(
+                    (array_agg(l.name ORDER BY e.server_time)
+                     FILTER (WHERE e.status IN ('SUCCESS', 'WARNING_CONFIRMED')))[1],
+                    (array_agg(l.name ORDER BY e.server_time))[1]
+                ) AS location_name,
+                (array_agg(e.id ORDER BY e.server_time) FILTER (
+                    WHERE e.event_type = 'CHECK_IN' AND e.status IN ('SUCCESS', 'WARNING_CONFIRMED')
+                ))[1] AS check_in_id,
+                (array_agg(e.id ORDER BY e.server_time DESC) FILTER (
+                    WHERE e.event_type = 'CHECK_OUT' AND e.status IN ('SUCCESS', 'WARNING_CONFIRMED')
+                ))[1] AS check_out_id,
+                -- Every attempt of the day, refused ones included, so "show
+                -- invalid attempts" can list them one by one instead of
+                -- folding four tries into a single line.
+                jsonb_agg(jsonb_build_object(
+                    'id', e.id,
+                    'event_type', e.event_type,
+                    'status', e.status,
+                    'server_time', e.server_time,
+                    'location_name', l.name,
+                    'failure_code', e.failure_code,
+                    'source', e.source
+                ) ORDER BY e.server_time) AS attempts
             FROM attendance_events e
             JOIN users u ON u.id = e.member_id
             LEFT JOIN member_profiles mp ON mp.user_id = u.id
@@ -264,6 +297,7 @@ def attendance_sessions(user: CurrentUser, filters: dict) -> dict:
             "check_in_id": row[10],
             "check_out_id": row[11],
             "status": status,
+            "attempts": row[12],
         })
     return {"total": total, "items": items}
 
@@ -323,7 +357,7 @@ def login_history(user: CurrentUser, member_id: uuid.UUID, limit: int) -> dict:
 
 
 # What a person may change on a record, and what stays as the machine left it.
-EDITABLE_FIELDS = ("status", "server_time", "location_id", "face_ok", "location_ok", "note")
+EDITABLE_FIELDS = ("status", "failure_code", "server_time", "location_id", "note")
 
 
 def manual_adjust(user: CurrentUser, event_id: uuid.UUID, payload: dict) -> dict:
@@ -354,7 +388,11 @@ def manual_adjust(user: CurrentUser, event_id: uuid.UUID, payload: dict) -> dict
     new_status = payload.get("status")
     new_time: datetime | None = payload.get("server_time")
     new_location = payload.get("location_id")
+    new_failure = payload.get("failure_code")
     note = payload.get("note")
+
+    if new_failure is not None and new_failure not in ADJUSTABLE_FAILURES:
+        raise HTTPException(status_code=422, detail="INVALID_FAILURE_CODE")
     if new_status is not None and new_status not in ADJUSTABLE_STATUSES:
         raise HTTPException(status_code=422, detail="INVALID_ATTENDANCE_STATUS")
 
@@ -371,24 +409,73 @@ def manual_adjust(user: CurrentUser, event_id: uuid.UUID, payload: dict) -> dict
             if owned is None:
                 raise HTTPException(status_code=404, detail="LOCATION_NOT_FOUND")
 
+        if new_time is not None:
+            # A day that ends before it starts is not a correction, it is a typo
+            # that would make the hours negative everywhere they are counted.
+            other = connection.execute(
+                """
+                SELECT event_type::text, server_time FROM attendance_events
+                WHERE member_id = %s AND id <> %s AND deleted_at IS NULL
+                  AND status IN ('SUCCESS', 'WARNING_CONFIRMED')
+                  AND (server_time AT TIME ZONE %s)::date = (%s AT TIME ZONE %s)::date
+                """,
+                (current["member_id"], event_id, APP_TIMEZONE, new_time, APP_TIMEZONE),
+            ).fetchall()
+            for kind, moment in other:
+                if current["event_type"] == "CHECK_OUT" and kind == "CHECK_IN" and new_time < moment:
+                    raise HTTPException(status_code=422, detail="TIME_BEFORE_CHECK_IN")
+                if current["event_type"] == "CHECK_IN" and kind == "CHECK_OUT" and new_time > moment:
+                    raise HTTPException(status_code=422, detail="TIME_AFTER_CHECK_OUT")
+
         before = {
             "status": current["status"],
+            "failure_code": current["failure_code"],
             "server_time": current["server_time"].isoformat(),
             "location_id": str(current["location_id"]),
-            "face_ok": current["face_verdict_override"],
-            "location_ok": current["location_verdict_override"],
             "note": current["reason"],
         }
         after = {
             "status": new_status if "status" in touched and new_status else before["status"],
             "server_time": (new_time or current["server_time"]).isoformat(),
             "location_id": str(new_location) if new_location is not None else before["location_id"],
-            "face_ok": payload["face_ok"] if "face_ok" in touched else before["face_ok"],
-            "location_ok": payload["location_ok"] if "location_ok" in touched else before["location_ok"],
+            # A valid record has nothing to explain, so its reason code goes.
+            "failure_code": (
+                None
+                if (new_status or before["status"]) in {"SUCCESS", "WARNING_CONFIRMED"}
+                else new_failure if "failure_code" in touched
+                else before["failure_code"]
+            ),
             "note": (note.strip() or None) if isinstance(note, str) else before["note"],
         }
         if before == after:
             raise HTTPException(status_code=422, detail="NOTHING_TO_ADJUST")
+
+        # Numbers derived from the time and the place have to follow them.
+        # Leaving them behind is how a corrected 08:30 arrival went on saying
+        # "muộn 12 phút" from the time it replaced.
+        effective_time = new_time or current["server_time"]
+        rule = connection.execute(
+            "SELECT expected_check_in, expected_check_out, grace_minutes, enforce_hours"
+            " FROM locations WHERE id = %s",
+            (after["location_id"],),
+        ).fetchone()
+        late_minutes = (
+            _minutes_late(rule, effective_time) if current["event_type"] == "CHECK_IN" else None
+        )
+        early_minutes = (
+            _minutes_early_leave(rule, effective_time) if current["event_type"] == "CHECK_OUT" else None
+        )
+
+        # The distance was measured against the old site; against the new one it
+        # is a different number, computed from the coordinates already stored.
+        distance = current["distance_meters"]
+        if current["latitude"] is not None and after["location_id"] != str(current["location_id"]):
+            place = connection.execute(
+                "SELECT latitude, longitude FROM locations WHERE id = %s", (after["location_id"],)
+            ).fetchone()
+            distance = haversine_distance_meters(
+                current["latitude"], current["longitude"], float(place[0]), float(place[1])
+            )
 
         connection.execute(
             """
@@ -396,8 +483,10 @@ def manual_adjust(user: CurrentUser, event_id: uuid.UUID, payload: dict) -> dict
             SET status = %s::attendance_status,
                 server_time = %s,
                 location_id = %s,
-                face_verdict_override = %s,
-                location_verdict_override = %s,
+                minutes_late = %s,
+                minutes_early_leave = %s,
+                distance_meters = %s,
+                failure_code = %s,
                 reason = %s,
                 -- Keep the device's own timestamp the first time it is corrected.
                 original_server_time = COALESCE(original_server_time, %s),
@@ -408,10 +497,12 @@ def manual_adjust(user: CurrentUser, event_id: uuid.UUID, payload: dict) -> dict
             """,
             (
                 after["status"],
-                new_time or current["server_time"],
+                effective_time,
                 after["location_id"],
-                after["face_ok"],
-                after["location_ok"],
+                late_minutes or None,
+                early_minutes or None,
+                distance,
+                after["failure_code"],
                 after["note"],
                 current["server_time"],
                 manager_id,

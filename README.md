@@ -36,7 +36,8 @@ Người dùng mở web trên điện thoại, chụp một tấm ảnh, hệ th
 - Lịch tháng; bấm vào một ngày là ra bảng ngày công gộp sẵn giờ vào – giờ ra
 - Duyệt yêu cầu đổi ảnh khuôn mặt, có ảnh cũ và ảnh mới đặt cạnh nhau
 - Sửa bản ghi theo từng lượt vào/ra: giờ, địa điểm, trạng thái và phán quyết vị trí, khuôn mặt
-- Duyệt yêu cầu chỉnh công, nhật ký mọi thao tác
+- Duyệt yêu cầu chỉnh công: duyệt xong bảng công đổi ngay, bản ghi ghi rõ nguồn gốc
+- Nhật ký mọi thao tác sửa, xoá, phân quyền
 
 **Quản trị**
 - Phân quyền theo màn hình và theo hành động: xem, thêm, sửa, xoá
