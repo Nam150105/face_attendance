@@ -718,7 +718,19 @@ export const api = {
   async managerAttendanceImage(eventId: string): Promise<string> {
     return URL.createObjectURL(await requestBlob(`/manager/attendance/${eventId}/image`));
   },
-  manualAdjust(eventId: string, payload: { status?: string; server_time?: string; reason: string }) {
+  manualAdjust(
+    eventId: string,
+    payload: {
+      status?: string;
+      server_time?: string;
+      location_id?: string;
+      // null puts the verdict back to whatever the recogniser measured.
+      face_ok?: boolean | null;
+      location_ok?: boolean | null;
+      note?: string;
+      reason: string;
+    },
+  ) {
     return request<ManagerAttendanceEvent>(`/manager/attendance/${eventId}/manual-adjust`, {
       method: "POST",
       json: payload,

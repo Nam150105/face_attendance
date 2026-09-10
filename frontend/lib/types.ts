@@ -280,6 +280,13 @@ export interface ManagerAttendanceEvent {
   face_distance: number | null;
   face_engine: string | null;
   has_enrollment_photo: boolean;
+  /** A person's verdict beside the machine's; null means nobody overrode it. */
+  face_verdict_override: boolean | null;
+  location_verdict_override: boolean | null;
+  original_server_time: string | null;
+  edited_at: string | null;
+  edit_reason: string | null;
+  edited_by_email: string | null;
 }
 
 export interface AttendanceFilters {

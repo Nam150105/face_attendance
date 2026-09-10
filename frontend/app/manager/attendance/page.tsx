@@ -22,7 +22,7 @@ import { api } from "../../../lib/api";
 import { formatDateTime } from "../../../lib/geo";
 import { describeError, describeFailure } from "../../../lib/messages";
 import { describeMinutes } from "../../../lib/member";
-import type { AttendanceStatus, ManagerAttendanceEvent } from "../../../lib/types";
+import type { AttendanceStatus, ManagerAttendanceEvent, ManagerLocation } from "../../../lib/types";
 
 /** A day of one manager's people fits on one screen; there is nothing to page. */
 const DAY_LIMIT = 200;
@@ -124,6 +124,24 @@ function shortClock(value: string | null): string {
   return new Date(value).toLocaleTimeString("vi-VN", { hour: "2-digit", minute: "2-digit" });
 }
 
+/** A verdict is the machine's until somebody overrules it. */
+type Verdict = "machine" | "yes" | "no";
+
+function verdictOf(value: boolean | null | undefined): Verdict {
+  return value === null || value === undefined ? "machine" : value ? "yes" : "no";
+}
+
+function verdictValue(verdict: Verdict): boolean | null {
+  return verdict === "machine" ? null : verdict === "yes";
+}
+
+/** A timestamp in the shape <input type="datetime-local"> wants, in local time. */
+function toLocalInput(iso: string): string {
+  const at = new Date(iso);
+  const pad = (value: number) => String(value).padStart(2, "0");
+  return `${at.getFullYear()}-${pad(at.getMonth() + 1)}-${pad(at.getDate())}T${pad(at.getHours())}:${pad(at.getMinutes())}`;
+}
+
 export default function ManagerAttendancePage() {
   const may = usePermissions("records");
   const [search, setSearch] = useState("");
@@ -138,13 +156,24 @@ export default function ManagerAttendancePage() {
   const [error, setError] = useState<string | null>(null);
 
   const [selected, setSelected] = useState<ManagerAttendanceEvent | null>(null);
-  const [imageUrl, setImageUrl] = useState<string | null>(null);
-  const [imageError, setImageError] = useState<string | null>(null);
   const [faceUrl, setFaceUrl] = useState<string | null>(null);
   const [faceError, setFaceError] = useState<string | null>(null);
   const [pairFor, setPairFor] = useState<Session | null>(null);
+  // The two evidence photos belong to the day, not to whichever half is being
+  // edited, so they are fetched once and stay put while the form switches.
+  const [entryUrl, setEntryUrl] = useState<string | null>(null);
   const [exitUrl, setExitUrl] = useState<string | null>(null);
-  const [adjustStatus, setAdjustStatus] = useState("");
+  const [half, setHalf] = useState<"in" | "out">("in");
+  const [locations, setLocations] = useState<ManagerLocation[]>([]);
+
+  // The edit form. Every field starts at what the record currently says, so
+  // saving without touching anything changes nothing.
+  const [editStatus, setEditStatus] = useState("");
+  const [editTime, setEditTime] = useState("");
+  const [editLocation, setEditLocation] = useState("");
+  const [editFace, setEditFace] = useState<Verdict>("machine");
+  const [editPlace, setEditPlace] = useState<Verdict>("machine");
+  const [editNote, setEditNote] = useState("");
   const [adjustReason, setAdjustReason] = useState("");
   const [adjustError, setAdjustError] = useState<string | null>(null);
   const [adjustNotice, setAdjustNotice] = useState<string | null>(null);
@@ -179,11 +208,19 @@ export default function ManagerAttendancePage() {
 
   useEffect(() => {
     return () => {
-      if (imageUrl) {
-        URL.revokeObjectURL(imageUrl);
+      if (entryUrl) {
+        URL.revokeObjectURL(entryUrl);
       }
     };
-  }, [imageUrl]);
+  }, [entryUrl]);
+
+  useEffect(() => {
+    return () => {
+      if (exitUrl) {
+        URL.revokeObjectURL(exitUrl);
+      }
+    };
+  }, [exitUrl]);
 
   useEffect(() => {
     return () => {
@@ -194,51 +231,65 @@ export default function ManagerAttendancePage() {
   }, [faceUrl]);
 
   async function openPair(session: Session) {
+    const first = session.check_in_id ? "in" : "out";
     const id = session.check_in_id ?? session.check_out_id;
     if (!id) {
       return;
     }
     setPairFor(session);
+    setHalf(first);
+    setEntryUrl(null);
+    setExitUrl(null);
+    setFaceUrl(null);
+    setFaceError(null);
+    setDeleteReason("");
     try {
-      await openDetail(await api.managerAttendanceDetail(id));
-      // The photo taken on the way out is the other half of the evidence.
-      // Showing only the arrival meant half of every question went unanswered.
-      setExitUrl(null);
-      if (session.check_out_id && session.check_out_id !== id) {
+      const event = await api.managerAttendanceDetail(id);
+      loadForm(event);
+      // Both photos, once. Whichever half is being corrected, the manager is
+      // looking at the same pair of faces.
+      if (session.check_in_id) {
+        setEntryUrl(await api.managerAttendanceImage(session.check_in_id).catch(() => null));
+      }
+      if (session.check_out_id) {
         setExitUrl(await api.managerAttendanceImage(session.check_out_id).catch(() => null));
+      }
+      if (event.has_enrollment_photo) {
+        setFaceUrl(await api.memberFacePhoto(event.member_id).catch(() => null));
+      }
+      if (locations.length === 0) {
+        setLocations(await api.managerLocations().catch(() => []));
       }
     } catch (cause) {
       setError(describeError(cause));
     }
   }
 
-  async function openDetail(event: ManagerAttendanceEvent) {
+  /** Point the form at one half of the day. */
+  async function switchHalf(next: "in" | "out") {
+    const id = next === "in" ? pairFor?.check_in_id : pairFor?.check_out_id;
+    if (!id || next === half) {
+      return;
+    }
+    setHalf(next);
+    try {
+      loadForm(await api.managerAttendanceDetail(id));
+    } catch (cause) {
+      setAdjustError(describeError(cause));
+    }
+  }
+
+  function loadForm(event: ManagerAttendanceEvent) {
     setSelected(event);
-    setImageUrl(null);
-    setImageError(null);
-    setFaceUrl(null);
-    setFaceError(null);
-    setAdjustStatus(event.status);
+    setEditStatus(event.status);
+    setEditTime(toLocalInput(event.server_time));
+    setEditLocation(event.location_id);
+    setEditFace(verdictOf(event.face_verdict_override));
+    setEditPlace(verdictOf(event.location_verdict_override));
+    setEditNote(event.reason ?? "");
     setAdjustReason("");
     setAdjustError(null);
     setAdjustNotice(null);
-    setDeleteReason("");
-    if (event.has_image) {
-      try {
-        setImageUrl(await api.managerAttendanceImage(event.id));
-      } catch (cause) {
-        setImageError(describeError(cause));
-      }
-    }
-    // The registered face and the face that turned up, so the comparison is a
-    // person's judgement and not only a number the system produced.
-    if (event.has_enrollment_photo) {
-      try {
-        setFaceUrl(await api.memberFacePhoto(event.member_id));
-      } catch (cause) {
-        setFaceError(describeError(cause));
-      }
-    }
   }
 
   async function removeRecord() {
@@ -277,10 +328,17 @@ export default function ManagerAttendancePage() {
     setAdjustError(null);
     setAdjustNotice(null);
     try {
-      const updated = await api.manualAdjust(selected.id, { status: adjustStatus, reason: adjustReason.trim() });
-      setSelected(updated);
-      setAdjustNotice("Đã cập nhật trạng thái và lưu vào nhật ký hoạt động.");
-      setAdjustReason("");
+      const updated = await api.manualAdjust(selected.id, {
+        status: editStatus,
+        server_time: new Date(editTime).toISOString(),
+        location_id: editLocation,
+        face_ok: verdictValue(editFace),
+        location_ok: verdictValue(editPlace),
+        note: editNote.trim(),
+        reason: adjustReason.trim(),
+      });
+      loadForm(updated);
+      setAdjustNotice("Đã lưu và ghi vào nhật ký hoạt động.");
       await load();
     } catch (cause) {
       setAdjustError(describeError(cause));
@@ -393,15 +451,18 @@ export default function ManagerAttendancePage() {
         </Card>
       ) : null}
 
-      {/* Side-by-Side Face Evidence & Adjustment Modal */}
-      {selected ? (
-        <Dialog title="Chi tiết lượt chấm công" onClose={() => {
+      {/* One day's evidence, and the form that corrects it */}
+      {selected && pairFor ? (
+        <Dialog
+          title="Chi tiết lượt chấm công"
+          onClose={() => {
             setSelected(null);
             setPairFor(null);
+            setEntryUrl(null);
             setExitUrl(null);
-          }}>
+          }}
+        >
           <div className="stack">
-            {/* The registered face beside the face that turned up */}
             <div className="face-compare">
               <div className="face-compare__cell">
                 <span className="face-compare__label">Ảnh đã đăng ký</span>
@@ -413,32 +474,23 @@ export default function ManagerAttendancePage() {
                   ) : selected.has_enrollment_photo ? (
                     <span className="spinner" />
                   ) : (
-                    <p className="face-compare__missing">
-                      Người này đăng ký khuôn mặt trước khi hệ thống lưu ảnh, nên không có ảnh gốc để đối chiếu.
-                    </p>
+                    <p className="face-compare__missing">Không có ảnh gốc để đối chiếu.</p>
                   )}
                 </div>
               </div>
-              <div className="face-compare__cell">
-                <span className="face-compare__label">
-                  {selected.event_type === "CHECK_IN" ? "Ảnh lúc vào" : "Ảnh lúc ra"}
-                </span>
-                <div className="face-compare__frame">
-                  {imageUrl ? (
-                    <img src={imageUrl} alt="Ảnh chụp lúc ghi nhận" />
-                  ) : imageError ? (
-                    <p className="face-compare__missing" style={{ color: "var(--color-danger)" }}>{imageError}</p>
-                  ) : selected.has_image ? (
-                    <span className="spinner" />
-                  ) : (
-                    <p className="face-compare__missing">Lượt này không có ảnh kèm theo.</p>
-                  )}
+              {pairFor.check_in_id ? (
+                <div className="face-compare__cell">
+                  <span className="face-compare__label">Ảnh lúc vào</span>
+                  <div className="face-compare__frame">
+                    {entryUrl ? (
+                      <img src={entryUrl} alt="Ảnh chụp lúc chấm vào" />
+                    ) : (
+                      <p className="face-compare__missing">Lượt vào không có ảnh kèm theo.</p>
+                    )}
+                  </div>
                 </div>
-              </div>
-
-              {/* Only when the day really has two halves; a day with just one
-                  would otherwise show the same photo twice. */}
-              {pairFor?.check_in_id && pairFor?.check_out_id ? (
+              ) : null}
+              {pairFor.check_out_id ? (
                 <div className="face-compare__cell">
                   <span className="face-compare__label">Ảnh lúc ra</span>
                   <div className="face-compare__frame">
@@ -452,25 +504,19 @@ export default function ManagerAttendancePage() {
               ) : null}
             </div>
 
-            {/* One strip: when they came and went, and how sure the match was.
-                Two strips of three numbers each was a wall to read past. */}
             <div className="face-metric">
-              {pairFor ? (
-                <>
-                  <div>
-                    <p className="face-metric__label">Vào</p>
-                    <p className="face-metric__value">{clockOf(pairFor.check_in)}</p>
-                  </div>
-                  <div>
-                    <p className="face-metric__label">Ra</p>
-                    <p className="face-metric__value">{clockOf(pairFor.check_out)}</p>
-                  </div>
-                  <div>
-                    <p className="face-metric__label">Có mặt</p>
-                    <p className="face-metric__value">{presenceOf(pairFor)}</p>
-                  </div>
-                </>
-              ) : null}
+              <div>
+                <p className="face-metric__label">Vào</p>
+                <p className="face-metric__value">{clockOf(pairFor.check_in)}</p>
+              </div>
+              <div>
+                <p className="face-metric__label">Ra</p>
+                <p className="face-metric__value">{clockOf(pairFor.check_out)}</p>
+              </div>
+              <div>
+                <p className="face-metric__label">Có mặt</p>
+                <p className="face-metric__value">{presenceOf(pairFor)}</p>
+              </div>
               {selected.face_distance !== null || selected.face_match_score !== null ? (
                 <div>
                   <p className="face-metric__label">Khuôn mặt</p>
@@ -484,14 +530,44 @@ export default function ManagerAttendancePage() {
               ) : null}
             </div>
 
+            {/* Which half of the day is on the form. A day is two records, and
+                correcting one of them should not mean opening a second screen. */}
+            {pairFor.check_in_id && pairFor.check_out_id ? (
+              <div className="segmented" role="tablist" aria-label="Lượt cần xem">
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={half === "in"}
+                  className={half === "in" ? "is-active" : undefined}
+                  onClick={() => void switchHalf("in")}
+                >
+                  Lượt vào
+                </button>
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={half === "out"}
+                  className={half === "out" ? "is-active" : undefined}
+                  onClick={() => void switchHalf("out")}
+                >
+                  Lượt ra
+                </button>
+              </div>
+            ) : null}
+
             <DataList
               rows={[
                 { key: "Thành viên", value: selected.member_name ?? selected.member_email },
                 { key: "Địa điểm", value: selected.location_name },
-                { key: "Trạng thái", value: <Badge tone={STATUS_TONE[selected.status]}>{STATUS_LABELS[selected.status] ?? selected.status}</Badge> },
+                {
+                  key: "Trạng thái",
+                  value: (
+                    <Badge tone={STATUS_TONE[selected.status]}>
+                      {STATUS_LABELS[selected.status] ?? selected.status}
+                    </Badge>
+                  ),
+                },
                 { key: "Cách địa điểm", value: `${selected.distance_meters.toFixed(1)} m` },
-                // Two different things were both called "lý do": why the system
-                // refused, and what the member typed. They are separate rows.
                 ...(selected.failure_code
                   ? [
                       {
@@ -513,17 +589,33 @@ export default function ManagerAttendancePage() {
                 ...(selected.reason
                   ? [{ key: "Giải trình của thành viên", value: selected.reason }]
                   : []),
+                ...(selected.edited_at
+                  ? [
+                      {
+                        key: "Đã được sửa",
+                        value: `${formatDateTime(selected.edited_at)}${
+                          selected.edited_by_email ? ` · ${selected.edited_by_email}` : ""
+                        }${selected.edit_reason ? ` · ${selected.edit_reason}` : ""}`,
+                      },
+                    ]
+                  : []),
               ]}
             />
 
-            {/* The audit trail: needed when something is disputed, in the way
-                the rest of the time. */}
             <details className="disclosure">
               <summary>Thông tin kỹ thuật</summary>
               <DataList
                 rows={[
                   { key: "Sự kiện", value: selected.event_type === "CHECK_IN" ? "Check-in" : "Check-out" },
                   { key: "Thời điểm ghi nhận", value: formatDateTime(selected.server_time) },
+                  ...(selected.original_server_time
+                    ? [
+                        {
+                          key: "Thiết bị báo lúc đầu",
+                          value: formatDateTime(selected.original_server_time),
+                        },
+                      ]
+                    : []),
                   { key: "Lưu vào hệ thống lúc", value: formatDateTime(selected.created_at) },
                   { key: "Sai số định vị", value: `${selected.gps_accuracy_meters.toFixed(0)} m` },
                   {
@@ -540,86 +632,139 @@ export default function ManagerAttendancePage() {
               />
             </details>
 
-            {/* Manual Status Adjustment Box */}
             {may.edit ? (
-            <div
-              style={{
-                background: "var(--surface-input)",
-                padding: "var(--space-2)",
-                borderRadius: "var(--radius-md)",
-                border: "1px solid var(--border-subtle)",
-              }}
-            >
-              <h3 style={{ fontSize: "var(--text-sm)", fontWeight: 700, marginBottom: "8px" }}>
-                Điều chỉnh trạng thái
-              </h3>
+              <div className="edit-box">
+                <h3 className="subhead">
+                  Sửa {selected.event_type === "CHECK_IN" ? "lượt vào" : "lượt ra"}
+                </h3>
 
-              {adjustNotice ? <Alert tone="success">{adjustNotice}</Alert> : null}
-              {adjustError ? <Alert tone="danger">{adjustError}</Alert> : null}
+                {adjustNotice ? <Alert tone="success">{adjustNotice}</Alert> : null}
+                {adjustError ? <Alert tone="danger">{adjustError}</Alert> : null}
 
-              <div className="stack stack--tight">
-                <SelectField
-                  label="Trạng thái mới"
-                  value={adjustStatus}
-                  onChange={(e) => setAdjustStatus(e.target.value)}
-                >
-                  <option value="SUCCESS">Hợp lệ</option>
-                  <option value="WARNING_CONFIRMED">Hợp lệ có lý do</option>
-                  <option value="FAILED">Không hợp lệ</option>
-                  <option value="BLOCKED">Ngoài phạm vi</option>
-                </SelectField>
+                <div className="stack stack--tight">
+                  <div className="filter-row">
+                    <Field
+                      label="Thời điểm"
+                      type="datetime-local"
+                      value={editTime}
+                      onChange={(event) => setEditTime(event.target.value)}
+                    />
+                    <SelectField
+                      label="Địa điểm"
+                      value={editLocation}
+                      onChange={(event) => setEditLocation(event.target.value)}
+                    >
+                      {locations.some((row) => row.id === editLocation) ? null : (
+                        <option value={editLocation}>{selected.location_name}</option>
+                      )}
+                      {locations.map((row) => (
+                        <option key={row.id} value={row.id}>
+                          {row.name}
+                        </option>
+                      ))}
+                    </SelectField>
+                  </div>
 
-                <TextAreaField
-                  label="Lý do điều chỉnh (bắt buộc)"
-                  required
-                  placeholder="Nêu rõ căn cứ phê duyệt hoặc lý do sửa trạng thái…"
-                  value={adjustReason}
-                  onChange={(e) => setAdjustReason(e.target.value)}
-                />
+                  {/* The machine measured; a person may disagree. Both answers
+                      are kept — the score is never rewritten. */}
+                  <div className="verdicts">
+                    <div className="verdict">
+                      <span className="field__label">Vị trí</span>
+                      <div className="segmented segmented--sm">
+                        {(["machine", "yes", "no"] as Verdict[]).map((value) => (
+                          <button
+                            type="button"
+                            key={value}
+                            className={editPlace === value ? "is-active" : undefined}
+                            aria-pressed={editPlace === value}
+                            onClick={() => setEditPlace(value)}
+                          >
+                            {value === "machine" ? "Theo máy đo" : value === "yes" ? "Hợp lệ" : "Không hợp lệ"}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
 
-                <Button
-                  onClick={submitAdjust}
-                  loading={adjusting}
-                  disabled={adjustReason.trim().length === 0}
-                  style={{ marginTop: "6px" }}
-                  block
-                >
-                  Lưu thay đổi
-                </Button>
+                    <div className="verdict">
+                      <span className="field__label">Khuôn mặt</span>
+                      <div className="segmented segmented--sm">
+                        {(["machine", "yes", "no"] as Verdict[]).map((value) => (
+                          <button
+                            type="button"
+                            key={value}
+                            className={editFace === value ? "is-active" : undefined}
+                            aria-pressed={editFace === value}
+                            onClick={() => setEditFace(value)}
+                          >
+                            {value === "machine" ? "Theo máy đo" : value === "yes" ? "Khớp" : "Không khớp"}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+
+                  <SelectField
+                    label="Trạng thái bản ghi"
+                    value={editStatus}
+                    onChange={(event) => setEditStatus(event.target.value)}
+                  >
+                    <option value="SUCCESS">Hợp lệ</option>
+                    <option value="WARNING_CONFIRMED">Hợp lệ có lý do</option>
+                    <option value="FAILED">Không hợp lệ</option>
+                    <option value="BLOCKED">Ngoài phạm vi</option>
+                  </SelectField>
+
+                  <Field
+                    label="Giải trình của thành viên"
+                    placeholder="Ghi lại lời của thành viên nếu có"
+                    value={editNote}
+                    onChange={(event) => setEditNote(event.target.value)}
+                  />
+
+                  <TextAreaField
+                    label="Lý do sửa (bắt buộc)"
+                    required
+                    placeholder="Ví dụ: đồng hồ máy lệch 15 phút, đã đối chiếu camera cửa."
+                    value={adjustReason}
+                    onChange={(event) => setAdjustReason(event.target.value)}
+                  />
+
+                  <Button
+                    onClick={() => void submitAdjust()}
+                    loading={adjusting}
+                    disabled={adjustReason.trim().length < 3}
+                    block
+                  >
+                    Lưu thay đổi
+                  </Button>
+                </div>
               </div>
-            </div>
             ) : null}
 
             {may.delete ? (
-            <div className="danger-zone">
-              <h3 className="danger-zone__title">
-                {pairFor ? "Xoá cả ngày công này" : "Xoá bản ghi này"}
-              </h3>
-              <p className="danger-zone__text">
-                {pairFor
-                  ? "Xoá hết lượt vào, lượt ra và cả những lần bị từ chối trong ngày này. "
-                  : "Bản ghi sẽ biến khỏi bảng công. "}
-                Việc xoá được ghi vào nhật ký kèm tên bạn và lý do, quản trị hệ thống vẫn
-                khôi phục lại được.
-              </p>
-              <TextAreaField
-                label="Lý do xoá (bắt buộc)"
-                placeholder="Ví dụ: chấm nhầm ca, thành viên bấm hai lần…"
-                value={deleteReason}
-                onChange={(e) => setDeleteReason(e.target.value)}
-              />
-              <Button
-                variant="danger"
-                onClick={() => void removeRecord()}
-                loading={deleting}
-                disabled={deleteReason.trim().length < 3}
-                block
-              >
-                {pairFor ? "Xoá cả ngày công" : "Xoá bản ghi"}
-              </Button>
-            </div>
+              <div className="danger-zone">
+                <h3 className="danger-zone__title">Xoá cả ngày công này</h3>
+                <p className="danger-zone__text">
+                  Xoá hết lượt vào, lượt ra và cả những lần bị từ chối trong ngày này. Việc xoá được
+                  ghi vào nhật ký kèm tên bạn và lý do, quản trị hệ thống vẫn khôi phục lại được.
+                </p>
+                <TextAreaField
+                  label="Lý do xoá (bắt buộc)"
+                  placeholder="Ví dụ: chấm nhầm ca, thành viên bấm hai lần…"
+                  value={deleteReason}
+                  onChange={(event) => setDeleteReason(event.target.value)}
+                />
+                <Button
+                  variant="danger"
+                  onClick={() => void removeRecord()}
+                  loading={deleting}
+                  disabled={deleteReason.trim().length < 3}
+                  block
+                >
+                  Xoá cả ngày công
+                </Button>
+              </div>
             ) : null}
-
           </div>
         </Dialog>
       ) : null}

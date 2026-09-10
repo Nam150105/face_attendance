@@ -52,9 +52,9 @@ export function Shell({ children, narrow }: { children: ReactNode; narrow?: bool
   // frame at people who are signed in.
   const [signedIn, setSignedIn] = useState<boolean | undefined>(undefined);
   const [face, setFace] = useState<string | null>(null);
-  // A manager sees fourteen items. Showing all of them at once means the ones
-  // they came for are somewhere below the fold on a phone, so only the group
-  // holding the current screen stays open.
+  // Every group starts open: with the menu down to a handful of items, hiding
+  // half of them costs a click on every visit and saves nothing. Collapsing is
+  // there for whoever wants it, and it is remembered while the tab is open.
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
 
   useEffect(() => {
@@ -198,9 +198,8 @@ export function Shell({ children, narrow }: { children: ReactNode; narrow?: bool
         </Link>
 
         <nav className="sidebar__nav">
-          {sections.map((section, index) => {
-            const holdsCurrent = section.items.some((item) => item.key === current?.key);
-            const open = collapsed[section.group] ?? (holdsCurrent || index === 0);
+          {sections.map((section) => {
+            const open = collapsed[section.group] ?? true;
             return (
               <div className="sidebar__group" key={section.group}>
                 <button

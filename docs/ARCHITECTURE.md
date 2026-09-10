@@ -4,7 +4,7 @@ Tài liệu cho người tiếp nhận, bảo trì hoặc nâng cấp. Mô tả 
 
 > Khác với `02_ARCHITECTURE.md` — tệp đó là đặc tả thiết kế ban đầu. Tệp này mô tả cái đang chạy thật; khi hai bên lệch nhau, tệp này đúng về hiện trạng.
 
-Cập nhật: 2026-09-09 · migration `020_session_policy`
+Cập nhật: 2026-09-10 · migration `021_record_overrides`
 
 ---
 
@@ -195,6 +195,14 @@ Danh sách chấm công theo ngày, ngày công trong hồ sơ thành viên và 
 
 Màn hình không được cấp thì không có trong menu, và gõ thẳng URL sẽ bị chuyển hướng lặng lẽ về màn hình dùng được. Báo cho ai đó rằng họ thiếu một quyền họ không tự cấp được là một ngõ cụt.
 
+### Sửa bản ghi: ý kiến người nằm cạnh số máy đo
+
+`manual_adjust` sửa được giờ, địa điểm, trạng thái, giải trình và hai phán quyết — vị trí có hợp lệ không, khuôn mặt có khớp không. Cái nó **không** sửa là `face_match_score`, `face_distance` và `distance_meters`: đó là những gì máy đo được, và một bản ghi đã sửa mà lặng lẽ mang điểm số bịa ra thì tệ hơn là không sửa.
+
+Vì vậy phán quyết của người nằm ở cột riêng: `face_verdict_override`, `location_verdict_override` (NULL = chưa ai ghi đè, đọc theo máy). Giờ thì sửa thẳng — đó là số đọc từ đồng hồ, không phải phép đo con người — nhưng `original_server_time` giữ lại giá trị đầu tiên. `edited_at` / `edited_by` / `edit_reason` trả lời câu "ai sửa, lúc nào, vì sao", và nhật ký giữ cả trước lẫn sau.
+
+Sửa theo **từng lượt**: một ngày công là hai bản ghi, màn hình cho chọn lượt vào hay lượt ra rồi nạp form theo lượt đó.
+
 ### Xoá mềm và xoá vĩnh viễn
 
 Người quản lý chỉ xoá mềm (`deleted_at`, `deleted_by`, `delete_reason`) — bản ghi biến khỏi danh sách nhưng ảnh bằng chứng còn nguyên và quản trị viên khôi phục được. Xoá vĩnh viễn là quyền của quản trị hệ thống.
@@ -262,6 +270,7 @@ Không có mock. Mọi probe chạy trên hệ thống thật đang chạy.
 | `rules_probe` (11) | Một người một quản lý; một phiên mỗi ngày |
 | `devices_probe` (12) | Bật tắt một/nhiều thiết bị theo vai trò |
 | `delete_day_probe` (12) | Xoá ngày công xoá trọn ngày, đúng phạm vi, xoá mềm |
+| `edit_record_probe` (16) | Sửa từng lượt; số máy đo không bị viết đè; phạm vi và nhật ký |
 | `reading_probe` (16) | Một ngày thật: đăng ký → chấm vào → chấm ra; số đo OpenCV/face_recognition và chấm ra ở nơi khác |
 | `teams_probe` (35) | Mã đơn vị, duyệt/từ chối vào nhóm |
 | `face_change_probe` (27) | Duyệt đổi khuôn mặt, dùng ảnh chân dung thật |

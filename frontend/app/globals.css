@@ -4022,3 +4022,35 @@ body {
   padding: 0 12px;
   font-size: var(--text-xs);
 }
+
+/* Correcting a record ------------------------------------------------------
+   Set apart from the read-only detail above it, because saving here rewrites
+   somebody's working day. */
+.edit-box {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: var(--space-2);
+  background: var(--surface-input);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+}
+
+/* Two verdicts side by side on a desktop, stacked on a phone. */
+.verdicts {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: var(--space-1);
+}
+
+.verdict {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.verdict .segmented {
+  max-width: 100%;
+  overflow-x: auto;
+}

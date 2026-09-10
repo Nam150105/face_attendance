@@ -24,8 +24,20 @@ from app.services.manager_attendance import (
 
 
 class ManualAdjustRequest(BaseModel):
+    """
+    Everything a person may correct on one record.
+
+    Left out on purpose: face_match_score, face_distance and distance_meters.
+    Those are what the system measured; `face_ok` and `location_ok` are what a
+    person decided about them, and the two are kept apart.
+    """
+
     status: str | None = Field(default=None, pattern="^(SUCCESS|WARNING_CONFIRMED|BLOCKED|FAILED)$")
     server_time: datetime | None = None
+    location_id: UUID | None = None
+    face_ok: bool | None = None
+    location_ok: bool | None = None
+    note: str | None = Field(default=None, max_length=500)
     reason: str = Field(min_length=3, max_length=500)
 
 
@@ -119,7 +131,8 @@ def attendance_evidence(event_id: UUID, user: CurrentUser = Depends(require_scre
 def adjust(
     event_id: UUID, request: ManualAdjustRequest, user: CurrentUser = Depends(require_action("records", "edit"))
 ) -> dict:
-    return manual_adjust(user, event_id, request.model_dump())
+    # exclude_unset keeps "not mentioned" apart from "explicitly set to null".
+    return manual_adjust(user, event_id, request.model_dump(exclude_unset=True))
 
 
 @router.delete("/attendance/day")

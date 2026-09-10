@@ -23,7 +23,9 @@ EVENT_COLUMNS = """
     e.failure_code, e.deleted_at,
     e.face_distance, e.face_engine,
     EXISTS (SELECT 1 FROM face_embeddings f
-            WHERE f.member_id = e.member_id AND f.revoked_at IS NULL AND f.image_object_key IS NOT NULL)
+            WHERE f.member_id = e.member_id AND f.revoked_at IS NULL AND f.image_object_key IS NOT NULL),
+    e.face_verdict_override, e.location_verdict_override, e.original_server_time,
+    e.edited_at, e.edit_reason, editor.email
 """
 
 
@@ -54,6 +56,14 @@ def _event(row: tuple) -> dict:
         "face_distance": float(row[22]) if row[22] is not None else None,
         "face_engine": row[23],
         "has_enrollment_photo": row[24],
+        # NULL means nobody overrode the machine; the screen falls back to what
+        # was measured.
+        "face_verdict_override": row[25],
+        "location_verdict_override": row[26],
+        "original_server_time": row[27],
+        "edited_at": row[28],
+        "edit_reason": row[29],
+        "edited_by_email": row[30],
     }
 
 
@@ -100,6 +110,7 @@ def _scoped_event(connection: psycopg.Connection, user: CurrentUser, event_id: u
         JOIN users u ON u.id = e.member_id
         LEFT JOIN member_profiles mp ON mp.user_id = e.member_id
         JOIN locations l ON l.id = e.location_id
+        LEFT JOIN users editor ON editor.id = e.edited_by
         WHERE e.id = %s AND {scope}
         """,
         [event_id, *scope_params],
@@ -154,6 +165,7 @@ def list_attendance(user: CurrentUser, filters: dict) -> dict:
             JOIN users u ON u.id = e.member_id
             LEFT JOIN member_profiles mp ON mp.user_id = e.member_id
             JOIN locations l ON l.id = e.location_id
+            LEFT JOIN users editor ON editor.id = e.edited_by
             WHERE {where}
             ORDER BY e.server_time DESC
             LIMIT %s OFFSET %s
@@ -310,30 +322,102 @@ def login_history(user: CurrentUser, member_id: uuid.UUID, limit: int) -> dict:
     }
 
 
+# What a person may change on a record, and what stays as the machine left it.
+EDITABLE_FIELDS = ("status", "server_time", "location_id", "face_ok", "location_ok", "note")
+
+
 def manual_adjust(user: CurrentUser, event_id: uuid.UUID, payload: dict) -> dict:
+    """
+    Correct one record: its time, its place, its verdicts, its status.
+
+    A record is evidence, and evidence gets corrected — the phone's clock was
+    off, the GPS drifted indoors, the light was bad and a real face was refused.
+    What is *not* corrected is what the machine measured. face_match_score and
+    distance_meters keep the numbers they were born with; the manager's opinion
+    is written next to them as an override, so months later it is still possible
+    to say what the system saw and what a person decided about it.
+
+    Every change needs a reason and lands in the audit log.
+    """
     manager_id = user.id
     reason = (payload.get("reason") or "").strip()
     if not reason:
         raise HTTPException(status_code=422, detail="ADJUST_REASON_REQUIRED")
+
+    # Presence, not truthiness: `face_ok: null` is a real instruction — it puts
+    # the verdict back to whatever the recogniser measured — and it must not be
+    # confused with "the client did not mention this field".
+    touched = {field for field in EDITABLE_FIELDS if field in payload}
+    if not touched:
+        raise HTTPException(status_code=422, detail="NOTHING_TO_ADJUST")
+
     new_status = payload.get("status")
     new_time: datetime | None = payload.get("server_time")
-    if new_status is None and new_time is None:
-        raise HTTPException(status_code=422, detail="NOTHING_TO_ADJUST")
+    new_location = payload.get("location_id")
+    note = payload.get("note")
     if new_status is not None and new_status not in ADJUSTABLE_STATUSES:
         raise HTTPException(status_code=422, detail="INVALID_ATTENDANCE_STATUS")
 
     with psycopg.connect(DATABASE_URL) as connection:
         current = _event(_scoped_event(connection, user, event_id))
-        before = {"status": current["status"], "server_time": current["server_time"].isoformat()}
+
+        if new_location is not None and str(new_location) != str(current["location_id"]):
+            # Moving a record to a site the manager does not own would hide it
+            # from themselves and show it to somebody else.
+            owned = connection.execute(
+                "SELECT 1 FROM locations WHERE id = %s AND (%s OR manager_user_id = %s)",
+                (new_location, user.role == "SUPER_ADMIN", manager_id),
+            ).fetchone()
+            if owned is None:
+                raise HTTPException(status_code=404, detail="LOCATION_NOT_FOUND")
+
+        before = {
+            "status": current["status"],
+            "server_time": current["server_time"].isoformat(),
+            "location_id": str(current["location_id"]),
+            "face_ok": current["face_verdict_override"],
+            "location_ok": current["location_verdict_override"],
+            "note": current["reason"],
+        }
         after = {
-            "status": new_status or current["status"],
+            "status": new_status if "status" in touched and new_status else before["status"],
             "server_time": (new_time or current["server_time"]).isoformat(),
+            "location_id": str(new_location) if new_location is not None else before["location_id"],
+            "face_ok": payload["face_ok"] if "face_ok" in touched else before["face_ok"],
+            "location_ok": payload["location_ok"] if "location_ok" in touched else before["location_ok"],
+            "note": (note.strip() or None) if isinstance(note, str) else before["note"],
         }
         if before == after:
             raise HTTPException(status_code=422, detail="NOTHING_TO_ADJUST")
+
         connection.execute(
-            "UPDATE attendance_events SET status = %s::attendance_status, server_time = %s WHERE id = %s",
-            (after["status"], new_time or current["server_time"], event_id),
+            """
+            UPDATE attendance_events
+            SET status = %s::attendance_status,
+                server_time = %s,
+                location_id = %s,
+                face_verdict_override = %s,
+                location_verdict_override = %s,
+                reason = %s,
+                -- Keep the device's own timestamp the first time it is corrected.
+                original_server_time = COALESCE(original_server_time, %s),
+                edited_at = now(),
+                edited_by = %s,
+                edit_reason = %s
+            WHERE id = %s
+            """,
+            (
+                after["status"],
+                new_time or current["server_time"],
+                after["location_id"],
+                after["face_ok"],
+                after["location_ok"],
+                after["note"],
+                current["server_time"],
+                manager_id,
+                reason,
+                event_id,
+            ),
         )
         connection.execute(
             """

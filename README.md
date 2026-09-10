@@ -35,6 +35,7 @@ Người dùng mở web trên điện thoại, chụp một tấm ảnh, hệ th
 - Gắn địa điểm cho cả nhóm: ai vào nhóm là chấm công được ở đó, kể cả người vào sau
 - Lịch tháng; bấm vào một ngày là ra bảng ngày công gộp sẵn giờ vào – giờ ra
 - Duyệt yêu cầu đổi ảnh khuôn mặt, có ảnh cũ và ảnh mới đặt cạnh nhau
+- Sửa bản ghi theo từng lượt vào/ra: giờ, địa điểm, trạng thái và phán quyết vị trí, khuôn mặt
 - Duyệt yêu cầu chỉnh công, nhật ký mọi thao tác
 
 **Quản trị**

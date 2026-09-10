@@ -66,7 +66,26 @@ Bấm vào một dòng. Bạn thấy:
 
 Toạ độ, sai số định vị, mã bản ghi và thư viện nhận diện nằm trong mục **Thông tin kỹ thuật** — mở ra khi cần đối chất, còn lại thì gấp gọn.
 
-Nếu có sai sót, bạn **Điều chỉnh trạng thái** kèm lý do, hoặc **Xoá cả ngày công** kèm lý do.
+### Sửa một lượt
+
+Một ngày công có hai lượt, và bạn sửa **từng lượt một**: bấm **Lượt vào** hoặc **Lượt ra** ở giữa hộp chi tiết, form bên dưới chuyển theo.
+
+Sửa được mọi thứ trên lượt đó:
+
+| Mục | Ý nghĩa |
+|---|---|
+| **Thời điểm** | Giờ ghi nhận. Giờ máy báo lúc đầu vẫn được giữ lại trong *Thông tin kỹ thuật* |
+| **Địa điểm** | Chuyển lượt này sang một địa điểm khác **của bạn** |
+| **Vị trí** | *Theo máy đo* / *Hợp lệ* / *Không hợp lệ* — dùng khi GPS lệch trong nhà nhưng bạn biết người đó có mặt |
+| **Khuôn mặt** | *Theo máy đo* / *Khớp* / *Không khớp* — dùng khi ảnh thiếu sáng bị từ chối oan, hoặc ngược lại |
+| **Trạng thái bản ghi** | Hợp lệ / Hợp lệ có lý do / Không hợp lệ / Ngoài phạm vi |
+| **Giải trình của thành viên** | Ghi lại lời của họ nếu họ nói miệng với bạn |
+
+Mỗi lần sửa bắt buộc nêu **lý do sửa**, và bản ghi sẽ mang dòng *"Đã được sửa"* kèm tên bạn để ai đọc sau cũng biết.
+
+> Khoảng cách khuôn mặt và khoảng cách tới địa điểm **không sửa được** — đó là số máy đo. Ý kiến của bạn được ghi cạnh số đó chứ không viết đè lên. Vài tháng sau vẫn trả lời được: máy thấy gì, và người quyết định thế nào.
+
+Hoặc bạn **Xoá cả ngày công** kèm lý do.
 
 > Xoá là xoá **trọn ngày** của người đó: lượt vào, lượt ra và cả những lần bị từ chối trong ngày. Không có chuyện xoá nửa ngày rồi còn lại một lượt lẻ. Cả hai thao tác đều vào nhật ký, và bản ghi đã xoá thì quản trị hệ thống vẫn khôi phục được — khôi phục được từng lượt một nếu chỉ cần lấy lại một nửa.
 
