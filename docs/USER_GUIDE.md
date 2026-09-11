@@ -51,7 +51,7 @@ Chưa duyệt thì họ chưa chấm công được ở đâu cả.
 
 **Bản ghi** là một tấm lịch tháng. Mỗi ngày hiện chồng người kèm chấm màu: xanh là đúng giờ, vàng là chưa chấm ra, đỏ là đi muộn.
 
-Bấm vào một ngày, danh sách ngày đó hiện ngay bên dưới: **mỗi người một dòng** — tên, giờ vào → giờ ra, tổng thời gian có mặt, nơi chấm công, và một nhãn tình trạng. Bấm vào dòng để mở chi tiết. Trên điện thoại, mười người vẫn nằm gọn trong một màn hình rưỡi. Bấm **Xuất CSV** để lấy đúng ngày đang xem.
+Bấm vào một ngày, danh sách ngày đó hiện ngay bên dưới: **mỗi người một dòng** — tên, giờ vào → giờ ra, tổng thời gian có mặt, nơi chấm công, và một nhãn tình trạng: *Đủ vào ra · Đi muộn · Chưa chấm ra · Thiếu lượt vào · Khuôn mặt không khớp · Địa điểm không khớp*. Lịch tháng và bảng công của thành viên dùng đúng cách tính này, nên ba nơi không bao giờ nói khác nhau về một ngày. Bấm vào dòng để mở chi tiết. Trên điện thoại, mười người vẫn nằm gọn trong một màn hình rưỡi. Bấm **Xuất CSV** để lấy đúng ngày đang xem.
 
 Mặc định chỉ hiện những lượt hợp lệ. Muốn xem cả lượt bị từ chối thì tích **Hiện cả lượt không hợp lệ**.
 
@@ -76,10 +76,10 @@ Sửa được mọi thứ trên lượt đó:
 |---|---|
 | **Thời điểm** | Giờ ghi nhận. Giờ máy báo lúc đầu vẫn được giữ lại trong *Thông tin kỹ thuật* |
 | **Địa điểm** | Chuyển lượt này sang một địa điểm khác **của bạn** |
-| **Trạng thái bản ghi** | Bốn lựa chọn: *Hợp lệ* · *Hợp lệ có lý do* · *Khuôn mặt không khớp* · *Lệch vị trí* (kèm số mét đo được). Chọn đúng một cái — không còn hai công tắc riêng để nói ngược nhau |
+| **Trạng thái bản ghi** | Bốn lựa chọn: *Hợp lệ* · *Hợp lệ có lý do* · *Khuôn mặt không khớp* · *Địa điểm không khớp* . Chọn đúng một cái |
 | **Giải trình của thành viên** | Ghi lại lời của họ nếu họ nói miệng với bạn |
 
-Mỗi lần sửa bắt buộc nêu **lý do sửa**, và bản ghi sẽ mang dòng *"Đã được sửa"* kèm tên bạn để ai đọc sau cũng biết.
+Người quản lý bắt buộc nêu **lý do sửa** (quản trị hệ thống thì không), và bản ghi sẽ mang dòng *"Đã được sửa"* kèm tên người sửa để ai đọc sau cũng biết.
 
 Sửa giờ thì số phút đi muộn, về sớm tự tính lại theo giờ quy định của địa điểm; đổi địa điểm thì khoảng cách tính lại từ toạ độ đã lưu.
 
@@ -173,7 +173,7 @@ Chấm công xong, màn hình hiện khoảng cách khuôn mặt mà bộ nhận
 
 ## Khi có sai sót
 
-- **Quên chấm ra**: hệ thống tự đóng phiên sau 24 giờ. Muốn ghi đúng giờ thì gửi **Yêu cầu chỉnh công**.
+- **Quên chấm ra**: sau 20 tiếng kể từ lúc chấm vào, phiên tự khép — nút trở lại "Chấm vào" cho ngày mới, còn ngày cũ hiện *Chưa chấm ra*. Hệ thống **không tự ghi giờ ra thay bạn**; muốn có giờ ra thì gửi **Yêu cầu chỉnh công**.
 - **Quên chấm vào**: gửi **Yêu cầu chỉnh công**, nêu rõ giờ thật.
 - **Đổi diện mạo, ảnh cũ nhận không ra**: vào **Chấm công → Xin đổi ảnh khuôn mặt**, chụp ảnh mới và nêu lý do. Người quản lý duyệt thì ảnh mới có hiệu lực; trong lúc chờ bạn vẫn chấm công bằng ảnh cũ.
 - **Không biết hỏi ai**: vào **Hồ sơ**, mục *Người quản lý của bạn* có tên, email và số điện thoại, bấm là gọi hoặc gửi mail được ngay.
@@ -192,6 +192,9 @@ Chấm công cần chứng minh bạn có mặt đúng nơi. Không có vị tr�
 **Ảnh của tôi có bị đưa đi đâu không?**
 Không. Ảnh nằm trong kho lưu trữ riêng của tổ chức bạn, không có đường dẫn công khai, chỉ bạn và người quản lý trực tiếp xem được.
 
+**Tôi có phải đăng nhập lại thường xuyên không?**
+Không. Đăng nhập một lần là ở lại, miễn là bạn mở app ít nhất một lần mỗi 90 ngày. Nếu bạn từng bị đẩy ra sau khoảng 15 phút mà không làm gì, đó là lỗi đã sửa ngày 11/09.
+
 **Tôi đăng nhập ở máy khác thì máy cũ ra sao?**
 Tuỳ cài đặt của tổ chức bạn. Quản trị hệ thống chọn từng vai trò được dùng một thiết bị hay nhiều thiết bị; nếu đang giới hạn một thiết bị thì mở máy mới là máy cũ bị đẩy ra ngay.
 
@@ -205,4 +208,4 @@ Chỉ phần diễn ra tại địa điểm họ quản lý. Nếu bạn từng 
 Không. Mỗi người chỉ có một người quản lý tại một thời điểm. Muốn chuyển sang nhóm khác, người quản lý hiện tại gỡ bạn ra trước, rồi bạn nhập mã nhóm mới.
 
 **Một ngày chấm công được mấy lần?**
-Một lần vào và một lần ra. Đã đủ cặp thì hôm đó không mở phiên mới được nữa. Nếu quên chấm ra, hệ thống tự đóng phiên sau 24 giờ và hôm sau bạn chấm vào bình thường.
+Một lần vào và một lần ra. Hôm nay đã chấm vào rồi thì không mở phiên thứ hai. Nếu quên chấm ra, sau 20 tiếng phiên tự khép và hôm sau bạn chấm vào bình thường; ngày quên đó hiện "Chưa chấm ra" chờ bạn gửi chỉnh công. Về sau nửa đêm thì lượt ra vẫn tính cho ngày bạn đã vào.

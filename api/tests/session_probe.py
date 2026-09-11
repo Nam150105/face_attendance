@@ -96,9 +96,26 @@ def main() -> int:
         rotated_access = rotated.get("access_token", "")
         rotated_refresh = rotated.get("refresh_token", "")
 
+        # Within the grace window the retired secret is still honoured — this
+        # is a second tab of the same browser, not an attacker — and it lands
+        # on the same session with a fresh pair.
+        status, again = call("POST", "/auth/refresh", body={"refresh_token": pc2_refresh})
+        check("Refresh token vừa xoay vẫn dùng được trong 60 giây (thẻ thứ hai của cùng trình duyệt)",
+              status == 200 and len(active_sessions(member_email)) == 1, f"HTTP {status}")
+        rotated_access = again.get("access_token", rotated_access)
+        rotated_refresh = again.get("refresh_token", rotated_refresh)
+
+        # Beyond the window it is a replay and is refused.
+        with psycopg.connect(DATABASE_URL) as connection:
+            connection.execute(
+                "UPDATE refresh_sessions SET rotated_at = now() - interval '2 minutes'"
+                " WHERE user_id = (SELECT id FROM users WHERE email = %s)",
+                (member_email,),
+            )
+            connection.commit()
         status, payload = call("POST", "/auth/refresh", body={"refresh_token": pc2_refresh})
         detail = payload.get("detail") if isinstance(payload, dict) else ""
-        check("Refresh token cũ không dùng lại được sau khi xoay",
+        check("Quá 60 giây thì refresh token cũ bị từ chối",
               status == 401 and detail == "SESSION_REVOKED", f"HTTP {status} {detail}")
 
         # --- 7. Another user is untouched ------------------------------------

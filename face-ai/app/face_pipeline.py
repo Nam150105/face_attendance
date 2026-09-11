@@ -99,6 +99,65 @@ class FacePipeline:
             contrast_boosted=quality.contrast_boosted,
         )
 
+    def guide(self, analysis: FaceAnalysis, image_bgr: np.ndarray) -> dict:
+        """
+        One instruction for the person in front of the camera, in priority
+        order: the thing most likely to make the next frame usable comes first.
+
+        These are the same measurements the verifier will make on the final
+        photo, so what the guide accepts is what the check-in accepts. A guide
+        that used looser numbers than the judge would lead people to a shutter
+        that then refuses them.
+        """
+        height, width = image_bgr.shape[:2]
+        grey = cv2.cvtColor(image_bgr, cv2.COLOR_BGR2GRAY)
+        # Light is judged where the face is, not across the whole frame: a dark
+        # face in front of a bright window averages out to "fine" and the
+        # person is told to look at the camera when the fix is to turn round.
+        # With no face found, the middle of the frame is where one would be.
+        if analysis.face_box is not None:
+            x1, y1, x2, y2 = analysis.face_box
+            region = grey[max(y1, 0):max(y2, 1), max(x1, 0):max(x2, 1)]
+        else:
+            region = grey[height // 5 : height * 4 // 5, width // 5 : width * 4 // 5]
+        brightness = float(np.mean(region)) if region.size else float(np.mean(grey))
+
+        # Light first. In a dark or blown-out frame the detector finds nothing,
+        # and "chưa thấy khuôn mặt" would send the person hunting for a framing
+        # problem when the fix is to move towards — or away from — the light.
+        if brightness < MINIMUM_BRIGHTNESS + 25:
+            hint = "TOO_DARK"
+        elif brightness > MAXIMUM_BRIGHTNESS - 30:
+            hint = "TOO_BRIGHT"
+        elif analysis.face_count == 0:
+            hint = "NO_FACE"
+        elif analysis.face_count > 1:
+            hint = "MULTIPLE_FACES"
+        else:
+            x1, y1, x2, y2 = analysis.face_box  # type: ignore[misc]
+            face_width = (x2 - x1) / max(width, 1)
+            centre_x = ((x1 + x2) / 2) / max(width, 1)
+            centre_y = ((y1 + y2) / 2) / max(height, 1)
+            if face_width < 0.22:
+                hint = "TOO_FAR"
+            elif face_width > 0.75:
+                hint = "TOO_CLOSE"
+            elif not (0.25 < centre_x < 0.75 and 0.2 < centre_y < 0.8):
+                hint = "OFF_CENTRE"
+            elif analysis.blur_score is not None and analysis.blur_score < MINIMUM_SHARPNESS * 1.5:
+                hint = "BLURRY"
+            else:
+                hint = "OK"
+
+        box = None
+        if analysis.face_box is not None:
+            x1, y1, x2, y2 = analysis.face_box
+            box = {
+                "x": x1 / max(width, 1), "y": y1 / max(height, 1),
+                "w": (x2 - x1) / max(width, 1), "h": (y2 - y1) / max(height, 1),
+            }
+        return {"hint": hint, "ready": hint == "OK", "box": box, "region_brightness": round(brightness, 1)}
+
     def validate(self, analysis: FaceAnalysis, strict: bool) -> None:
         """
         `strict` is enrolment: the reference face is compared against for months,

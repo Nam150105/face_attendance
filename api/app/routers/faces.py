@@ -157,6 +157,50 @@ async def verify_face(image: UploadFile = File(...), user: CurrentUser = Depends
     return response
 
 
+# Frames for live guidance are small (the client sends 320px) and frequent
+# (one or two a second while the camera is open), so the limit is per user and
+# generous, and nothing about the frame is ever stored.
+GUIDE_LIMIT_PER_MINUTE = 150
+
+
+@router.post("/guide")
+async def guide_face(
+    image: UploadFile = File(...),
+    user: CurrentUser = Depends(require_screen("attendance")),
+) -> dict:
+    """
+    What the person should do before pressing the shutter.
+
+    The frame goes through the same OpenCV measurements and the same detector
+    the final photo will, so "sẵn sàng" here means the check-in will not be
+    refused for framing or light. The frame is analysed and discarded.
+    """
+    enforce_rate_limit("face-guide", str(user.id), limit=GUIDE_LIMIT_PER_MINUTE, window_seconds=60)
+    image_bytes = await image.read(MAX_IMAGE_BYTES + 1)
+    validate_image_upload(image_bytes)
+    try:
+        async with httpx.AsyncClient(timeout=10) as client:
+            response = await client.post(
+                f"{FACE_AI_URL}/v1/analyze",
+                files={"image": (image.filename or "frame.jpg", image_bytes, "image/jpeg")},
+            )
+            response.raise_for_status()
+            result = response.json()
+    except httpx.HTTPError as error:
+        raise HTTPException(status_code=503, detail="FACE_MODEL_NOT_CONFIGURED") from error
+    if result.get("status") != "ANALYZED":
+        # A frame the pipeline could not even decode: say so as a hint, not a
+        # crash, because the next frame is 700 ms away.
+        return {"hint": "NO_FACE", "ready": False, "box": None}
+    return {
+        "hint": result.get("hint", "NO_FACE"),
+        "ready": bool(result.get("ready")),
+        "box": result.get("box"),
+        "brightness": result.get("brightness_score"),
+        "sharpness": result.get("blur_score"),
+    }
+
+
 async def _face_ai_enroll(image_bytes: bytes, filename: str) -> dict:
     files = {"image": (filename, image_bytes, "image/jpeg")}
     async with httpx.AsyncClient(timeout=30) as client:

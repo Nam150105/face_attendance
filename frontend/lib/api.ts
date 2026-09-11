@@ -11,6 +11,7 @@ import type {
   AttendanceResult,
   AttendanceState,
   AttendanceStatus,
+  FaceGuide,
   AuditLogEntry,
   BulkAddResult,
   CurrentUser,
@@ -116,7 +117,40 @@ export function isNetworkError(error: unknown): boolean {
   return error instanceof ApiError && error.statusCode === 0;
 }
 
-async function refreshTokens(): Promise<TokenPair | null> {
+/**
+ * Seconds until an access token stops working, read from the token itself.
+ * No verification is needed for this: the server will verify; the client only
+ * wants to know whether to refresh *before* asking rather than after a 401.
+ */
+function secondsUntilExpiry(accessToken: string): number {
+  try {
+    const payload = JSON.parse(atob(accessToken.split(".")[1].replace(/-/g, "+").replace(/_/g, "/")));
+    return typeof payload.exp === "number" ? payload.exp - Date.now() / 1000 : Infinity;
+  } catch {
+    return Infinity;
+  }
+}
+
+// Refresh a little early, so a page that fires five requests at once never
+// sees five 401s and never races itself to the refresh endpoint.
+const REFRESH_AHEAD_SECONDS = 90;
+
+// One refresh at a time for the whole tab. Every caller that finds the
+// token expired awaits the same promise instead of each spending the refresh
+// token separately — which is how the second one used to get itself logged
+// out for "replaying" a secret the first one had just retired.
+let refreshInFlight: Promise<TokenPair | null> | null = null;
+
+function refreshTokens(): Promise<TokenPair | null> {
+  if (!refreshInFlight) {
+    refreshInFlight = doRefresh().finally(() => {
+      refreshInFlight = null;
+    });
+  }
+  return refreshInFlight;
+}
+
+async function doRefresh(): Promise<TokenPair | null> {
   const tokens = readTokens();
   if (!tokens) {
     return null;
@@ -133,8 +167,14 @@ async function refreshTokens(): Promise<TokenPair | null> {
     // so the caller can retry once the network is back.
     return null;
   }
-  if (!response.ok) {
+  if (response.status === 401 || response.status === 403) {
+    // The server really does not know this session any more.
     clearTokens();
+    return null;
+  }
+  if (!response.ok) {
+    // 5xx or 429 while the API restarts or is busy: the session is fine, the
+    // moment is not. Signing somebody out for a deploy is what this used to do.
     return null;
   }
   const next = (await response.json()) as TokenPair;
@@ -172,9 +212,15 @@ async function request<T>(path: string, options: RequestOptions = {}): Promise<T
     headers["Content-Type"] = "application/json";
   }
   if (auth) {
-    const tokens = readTokens();
+    let tokens = readTokens();
     if (!tokens) {
       throw new ApiError(401, "NOT_AUTHENTICATED", "NOT_AUTHENTICATED");
+    }
+    if (retryOnUnauthorized && secondsUntilExpiry(tokens.access_token) < REFRESH_AHEAD_SECONDS) {
+      tokens = (await refreshTokens()) ?? readTokens();
+      if (!tokens) {
+        throw new ApiError(401, "NOT_AUTHENTICATED", "NOT_AUTHENTICATED");
+      }
     }
     headers["X-API-Key"] = tokens.access_token;
   }
@@ -214,9 +260,15 @@ async function request<T>(path: string, options: RequestOptions = {}): Promise<T
 
 /** Private images come back as bytes, never as a public URL. */
 async function requestBlob(path: string): Promise<Blob> {
-  const tokens = readTokens();
+  let tokens = readTokens();
   if (!tokens) {
     throw new ApiError(401, "NOT_AUTHENTICATED", "NOT_AUTHENTICATED");
+  }
+  if (secondsUntilExpiry(tokens.access_token) < REFRESH_AHEAD_SECONDS) {
+    tokens = (await refreshTokens()) ?? readTokens();
+    if (!tokens) {
+      throw new ApiError(401, "NOT_AUTHENTICATED", "NOT_AUTHENTICATED");
+    }
   }
   const response = await fetch(`${API_BASE_URL}${path}`, {
     headers: { "X-API-Key": tokens.access_token },
@@ -273,6 +325,12 @@ export const api = {
   },
   faceStatus() {
     return request<FaceEnrollmentStatus>("/faces/me");
+  },
+  /** One small frame in, one instruction out. Nothing is kept. */
+  guideFace(frame: Blob) {
+    const form = new FormData();
+    form.append("image", frame, "frame.jpg");
+    return request<FaceGuide>("/faces/guide", { method: "POST", form });
   },
   changePassword(current_password: string, new_password: string) {
     return request<void>("/auth/change-password", {
@@ -704,7 +762,7 @@ export const api = {
         location_name: string | null;
         check_in_id: string | null;
         check_out_id: string | null;
-        status: "ON_TIME" | "LATE" | "OPEN" | "REJECTED";
+        status: "ON_TIME" | "LATE" | "OPEN" | "NO_CHECK_IN" | "REJECTED_FACE" | "REJECTED_PLACE";
         /** Every event of that day, refused attempts included. */
         attempts: {
           id: string;
@@ -738,7 +796,8 @@ export const api = {
       server_time?: string;
       location_id?: string;
       note?: string;
-      reason: string;
+      /** Required of managers; the system administrator may leave it empty. */
+      reason?: string;
     },
   ) {
     return request<ManagerAttendanceEvent>(`/manager/attendance/${eventId}/manual-adjust`, {

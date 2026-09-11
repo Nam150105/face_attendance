@@ -11,6 +11,7 @@ from fastapi import HTTPException
 
 from app.auth import CurrentUser, DATABASE_URL
 from app.domain.geofence import GeofencePolicy, GeofenceStatus, evaluate_geofence
+from app.services.attendance_days import session_is_open
 from app.services.member_portal import APP_TIMEZONE, LOCAL_ZONE, notify
 from app.services.storage import PrivateObjectStorage
 
@@ -149,56 +150,7 @@ def _notify_managers(
         notify(connection, manager_id, category, title, body, payload)
 
 
-AUTO_CHECK_OUT_HOURS = int(os.environ.get("AUTO_CHECK_OUT_HOURS", "24"))
 
-
-def close_stale_sessions(connection: psycopg.Connection, member_id: uuid.UUID) -> int:
-    """
-    Close a check-in nobody ever checked out of.
-
-    Someone who forgets to check out would otherwise stay "still working" for
-    ever and be unable to start the next day, because a second check-in is
-    refused while one is open. The closing event is marked as system-generated:
-    it has no photo and no location reading, because nobody was measured.
-    """
-    open_event = _open_state(connection, member_id)
-    if open_event is None:
-        return 0
-    opened_at = open_event[2]
-    if (_utc_now() - opened_at).total_seconds() < AUTO_CHECK_OUT_HOURS * 3600:
-        return 0
-
-    closes_at = opened_at + timedelta(hours=AUTO_CHECK_OUT_HOURS)
-    connection.execute(
-        """
-        INSERT INTO attendance_events
-            (member_id, location_id, event_type, status, server_time, latitude, longitude,
-             gps_accuracy_meters, distance_meters, reason, idempotency_key)
-        VALUES (%s, %s, 'CHECK_OUT', 'SUCCESS', %s, 0, 0, 0, 0, %s, %s)
-        """,
-        (
-            member_id,
-            open_event[1],
-            closes_at,
-            f"Hệ thống tự kết thúc sau {AUTO_CHECK_OUT_HOURS} giờ vì không có lượt ra",
-            f"auto-checkout-{open_event[0]}",
-        ),
-    )
-    notify(
-        connection, member_id, "AUTO_CHECK_OUT",
-        "Hệ thống đã tự kết thúc buổi làm việc",
-        f"Buổi bắt đầu lúc {opened_at.astimezone(LOCAL_ZONE).strftime('%H:%M %d/%m')} chưa có lượt ra, "
-        f"nên hệ thống tự đóng sau {AUTO_CHECK_OUT_HOURS} giờ. Lần tới bạn nhớ bấm ra khi kết thúc nhé.",
-        {"opened_at": opened_at.isoformat(), "auto": True},
-    )
-    _notify_managers(
-        connection, member_id, "AUTO_CHECK_OUT",
-        f"{_member_label(connection, member_id)} không bấm giờ ra",
-        f"Buổi bắt đầu lúc {opened_at.astimezone(LOCAL_ZONE).strftime('%H:%M %d/%m')} đã được hệ thống "
-        f"tự đóng sau {AUTO_CHECK_OUT_HOURS} giờ.",
-        {"member_id": str(member_id), "opened_at": opened_at.isoformat()},
-    )
-    return 1
 
 
 def _location_name(connection: psycopg.Connection, location_id: uuid.UUID) -> str:
@@ -280,22 +232,44 @@ def _notify_check_out(
         )
 
 
-def _open_state(connection: psycopg.Connection, member_id: uuid.UUID) -> tuple | None:
+def _unclosed_check_in(connection: psycopg.Connection, member_id: uuid.UUID) -> tuple | None:
+    """The latest valid check-in with no valid check-out after it, however old."""
     return connection.execute(
         """
         SELECT id, location_id, server_time FROM attendance_events
-        WHERE member_id = %s AND deleted_at IS NULL AND event_type = 'CHECK_IN' AND status IN ('SUCCESS', 'WARNING_CONFIRMED')
+        WHERE member_id = %s AND deleted_at IS NULL AND event_type = 'CHECK_IN'
+          AND status IN ('SUCCESS', 'WARNING_CONFIRMED')
           AND NOT EXISTS (
               SELECT 1 FROM attendance_events checkout
               WHERE checkout.member_id = attendance_events.member_id
                 AND checkout.event_type = 'CHECK_OUT'
-                AND checkout.status = 'SUCCESS' AND checkout.deleted_at IS NULL
+                -- A check-out from another site is WARNING_CONFIRMED and still
+                -- a check-out. Counting only SUCCESS left people "at work"
+                -- for a day after they had gone home.
+                AND checkout.status IN ('SUCCESS', 'WARNING_CONFIRMED')
+                AND checkout.deleted_at IS NULL
                 AND checkout.server_time > attendance_events.server_time
           )
         ORDER BY server_time DESC LIMIT 1
         """,
         (member_id,),
     ).fetchone()
+
+
+def _open_state(connection: psycopg.Connection, member_id: uuid.UUID) -> tuple | None:
+    """
+    The session this person can still check out of, or None.
+
+    Open is a matter of time, not of a row somebody wrote: a check-in stays
+    open for SESSION_MAX_HOURS and then simply is not. Nothing is inserted to
+    close it — the day shows "chưa chấm ra" and a person fixes it — so there
+    is no job to run, no fake departure at coordinates 0,0, and nothing that
+    lands on tomorrow and blocks it.
+    """
+    row = _unclosed_check_in(connection, member_id)
+    if row is None or not session_is_open(row[2]):
+        return None
+    return row
 
 
 def _event_response(row: tuple) -> dict:
@@ -346,27 +320,24 @@ def _record_rejection(
     connection.commit()
 
 
-def _closed_session_today(connection: psycopg.Connection, member_id: uuid.UUID) -> tuple | None:
+def _checked_in_today(connection: psycopg.Connection, member_id: uuid.UUID) -> bool:
     """
-    A session already finished today, if there is one.
+    Has this person already opened a session today (local time)?
 
-    Cut in local time: at +7 an evening check-out grouped by UTC would land on
-    the day before and let somebody start again the same evening.
+    Counted by check-ins, not check-outs. Counting check-outs meant a departure
+    that fell on the next calendar day — after midnight, or invented by the old
+    auto-close — locked that whole next day.
     """
     return connection.execute(
         """
-        SELECT min(server_time) FILTER (WHERE event_type = 'CHECK_IN'),
-               max(server_time) FILTER (WHERE event_type = 'CHECK_OUT')
-        FROM attendance_events
-        WHERE member_id = %s
-          AND deleted_at IS NULL
+        SELECT 1 FROM attendance_events
+        WHERE member_id = %s AND deleted_at IS NULL AND event_type = 'CHECK_IN'
           AND status IN ('SUCCESS', 'WARNING_CONFIRMED')
           AND (server_time AT TIME ZONE %s)::date = (now() AT TIME ZONE %s)::date
-        HAVING max(server_time) FILTER (WHERE event_type = 'CHECK_OUT') IS NOT NULL
+        LIMIT 1
         """,
         (member_id, APP_TIMEZONE, APP_TIMEZONE),
-    ).fetchone()
-
+    ).fetchone() is not None
 
 def _reject(status_code: int, detail: str) -> HTTPException:
     return HTTPException(status_code=status_code, detail=detail)
@@ -410,12 +381,11 @@ def check_in(
             raise _reject(409, "IDEMPOTENCY_KEY_CONFLICT")
         connection.execute("SELECT id FROM users WHERE id = %s FOR UPDATE", (user.id,)).fetchone()
         # A forgotten check-out from yesterday must not block today's start.
-        close_stale_sessions(connection, user.id)
         if _open_state(connection, user.id) is not None:
             raise _reject(409, "CHECK_IN_ALREADY_EXISTS")
-        if _closed_session_today(connection, user.id) is not None:
-            # Already worked and signed off today. A second session would show
-            # up as a second working day for the same date.
+        if _checked_in_today(connection, user.id):
+            # Already opened a session today. A second one would show up as a
+            # second working day for the same date.
             raise _reject(409, "ALREADY_WORKED_TODAY")
         location = _location_for_member(connection, user.id, location_id)
         if location is None:
@@ -532,7 +502,10 @@ def check_out(
         connection.execute("SELECT id FROM users WHERE id = %s FOR UPDATE", (user.id,)).fetchone()
         open_event = _open_state(connection, user.id)
         if open_event is None:
-            raise _reject(409, "CHECK_OUT_WITHOUT_CHECK_IN")
+            # Two different situations, two different messages: never checked
+            # in, or checked in so long ago that the session has lapsed.
+            stale = _unclosed_check_in(connection, user.id)
+            raise _reject(409, "SESSION_EXPIRED" if stale is not None else "CHECK_OUT_WITHOUT_CHECK_IN")
         opened_at = open_event[1]
         # Leaving from somewhere else is allowed — a shift can end at another
         # site of the same organisation — but it is not the default, and it is
@@ -656,8 +629,6 @@ MY_EVENT_COLUMNS = """
 
 def my_state(user: CurrentUser) -> dict:
     with psycopg.connect(DATABASE_URL) as connection:
-        if close_stale_sessions(connection, user.id):
-            connection.commit()
         open_event = _open_state(connection, user.id)
         enrolled = connection.execute(
             "SELECT 1 FROM face_embeddings WHERE member_id = %s AND revoked_at IS NULL LIMIT 1", (user.id,)

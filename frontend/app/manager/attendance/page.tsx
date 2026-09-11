@@ -34,11 +34,13 @@ const STATUS_TONE: Record<AttendanceStatus, "success" | "warning" | "danger"> = 
   FAILED: "danger",
 };
 
+// The same four words the edit form uses, so a badge and the dropdown never
+// describe one record two ways.
 const STATUS_LABELS: Record<AttendanceStatus, string> = {
   SUCCESS: "Hợp lệ",
   WARNING_CONFIRMED: "Hợp lệ có lý do",
-  BLOCKED: "Ngoài phạm vi",
-  FAILED: "Không hợp lệ",
+  BLOCKED: "Địa điểm không khớp",
+  FAILED: "Khuôn mặt không khớp",
 };
 
 function exportSessions(day: string, sessions: Session[]) {
@@ -83,7 +85,7 @@ interface Session {
   location_name: string | null;
   check_in_id: string | null;
   check_out_id: string | null;
-  status: "ON_TIME" | "LATE" | "OPEN" | "REJECTED";
+  status: "ON_TIME" | "LATE" | "OPEN" | "NO_CHECK_IN" | "REJECTED_FACE" | "REJECTED_PLACE";
   /** Every event of that day, refused attempts included. */
   attempts: {
     id: string;
@@ -100,7 +102,9 @@ const SESSION_LABEL: Record<Session["status"], string> = {
   ON_TIME: "Đủ vào ra",
   LATE: "Đi muộn",
   OPEN: "Chưa chấm ra",
-  REJECTED: "Không chấm được",
+  NO_CHECK_IN: "Thiếu lượt vào",
+  REJECTED_FACE: "Khuôn mặt không khớp",
+  REJECTED_PLACE: "Địa điểm không khớp",
 };
 
 const SOURCE_LABEL: Record<string, string> = {
@@ -113,7 +117,9 @@ const SESSION_TONE: Record<Session["status"], "success" | "warning" | "danger" |
   ON_TIME: "success",
   LATE: "danger",
   OPEN: "warning",
-  REJECTED: "neutral",
+  NO_CHECK_IN: "warning",
+  REJECTED_FACE: "neutral",
+  REJECTED_PLACE: "neutral",
 };
 
 /** Time between arriving and leaving; nothing yet if the day is still open. */
@@ -154,7 +160,7 @@ const VERDICTS: { key: Verdict; status: string; failure: string | null; label: s
   { key: "VALID", status: "SUCCESS", failure: null, label: "Hợp lệ" },
   { key: "EXCUSED", status: "WARNING_CONFIRMED", failure: null, label: "Hợp lệ có lý do" },
   { key: "FACE", status: "FAILED", failure: "FACE_NOT_MATCHED", label: "Khuôn mặt không khớp" },
-  { key: "PLACE", status: "BLOCKED", failure: "OUTSIDE_ALLOWED_ZONE", label: "Lệch vị trí" },
+  { key: "PLACE", status: "BLOCKED", failure: "OUTSIDE_ALLOWED_ZONE", label: "Địa điểm không khớp" },
 ];
 
 function verdictOf(event: ManagerAttendanceEvent): Verdict {
@@ -163,10 +169,8 @@ function verdictOf(event: ManagerAttendanceEvent): Verdict {
   return event.status === "BLOCKED" ? "PLACE" : "FACE";
 }
 
-/** "Lệch vị trí" is only useful with the number that makes it a fact. */
-function verdictLabel(verdict: Verdict, distance: number | null): string {
-  const base = VERDICTS.find((item) => item.key === verdict)!.label;
-  return verdict === "PLACE" && distance !== null ? `${base} (${distance.toFixed(1)} m)` : base;
+function verdictLabel(verdict: Verdict): string {
+  return VERDICTS.find((item) => item.key === verdict)!.label;
 }
 
 /** A timestamp in the shape <input type="datetime-local"> wants, in local time. */
@@ -199,6 +203,9 @@ export default function ManagerAttendancePage() {
   const [exitUrl, setExitUrl] = useState<string | null>(null);
   const [half, setHalf] = useState<"in" | "out">("in");
   const [locations, setLocations] = useState<ManagerLocation[]>([]);
+  // A manager explains every change to the people it affects; the system
+  // administrator is who those explanations go to, so they may skip it.
+  const [isAdmin, setIsAdmin] = useState(false);
 
   // The edit form. Every field starts at what the record currently says, so
   // saving without touching anything changes nothing.
@@ -237,6 +244,13 @@ export default function ManagerAttendancePage() {
   useEffect(() => {
     void load();
   }, [load]);
+
+  useEffect(() => {
+    api
+      .me()
+      .then((me) => setIsAdmin(me.role === "SUPER_ADMIN"))
+      .catch(() => setIsAdmin(false));
+  }, []);
 
   useEffect(() => {
     return () => {
@@ -781,7 +795,7 @@ export default function ManagerAttendancePage() {
                   >
                     {VERDICTS.map((item) => (
                       <option key={item.key} value={item.key}>
-                        {verdictLabel(item.key, selected.distance_meters)}
+                        {verdictLabel(item.key)}
                       </option>
                     ))}
                   </SelectField>
@@ -794,8 +808,8 @@ export default function ManagerAttendancePage() {
                   />
 
                   <TextAreaField
-                    label="Lý do sửa (bắt buộc)"
-                    required
+                    label={isAdmin ? "Lý do sửa (không bắt buộc)" : "Lý do sửa (bắt buộc)"}
+                    required={!isAdmin}
                     placeholder="Ví dụ: đồng hồ máy lệch 15 phút, đã đối chiếu camera cửa."
                     value={adjustReason}
                     onChange={(event) => setAdjustReason(event.target.value)}
@@ -804,7 +818,7 @@ export default function ManagerAttendancePage() {
                   <Button
                     onClick={() => void submitAdjust()}
                     loading={adjusting}
-                    disabled={adjustReason.trim().length < 3}
+                    disabled={!isAdmin && adjustReason.trim().length < 3}
                     block
                   >
                     Lưu thay đổi

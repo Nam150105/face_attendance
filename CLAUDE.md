@@ -66,10 +66,11 @@ router  ->  service  ->  psycopg  ->  PostgreSQL
 
 ## 6. Design system
 
-Theo skill `design-system` (dark cloud-platform aesthetic):
+Nền sáng, chữ tối. Bảng màu tối kiểu "xanh đen" trước đây đặt mọi nội dung cách nền chỉ hai sắc độ — hợp với màn hình chào, mệt mắt với bảng công đọc cả ngày.
 
-- Font: IBM Plex Sans. Type scale: 12/14/16/20/24/32.
-- Màu: primary `#0c5cab`, success `#10b981`, warning `#f59e0b`, danger `#ef4444`, surface `#09090b`, text `#fafafa`.
+- Font: Plus Jakarta Sans (chữ), IBM Plex Mono (số). Type scale: 12/13.5/15/18/22/28/36.
+- Màu: primary `#0c5cab`, success `#0e7a55`, warning `#b45309`, danger `#dc2626`; nền trang `#f3f5f8`, thẻ `#ffffff`, chữ `#0f172a`. Mọi màu chữ đạt ≥ 4.5:1 trên nền nó đứng — kiểm bằng script Playwright quét từng nút chữ (ba ngoại lệ hợp lệ: chữ trắng trên avatar gradient, chip lịch, và nhãn HUD đè lên video).
+- Chỉ dùng token trong `:root`; không hard-code màu. Khung camera là ngoại lệ duy nhất còn nền tối (`#020408`) vì video cần thế.
 - Spacing: lưới 8pt.
 - Touch target tối thiểu 44px, focus-visible luôn hiện, tôn trọng `prefers-reduced-motion`, WCAG 2.2 AA.
 - Mọi màn hình phải xử lý đủ 4 trạng thái: empty / loading / error / success.
@@ -118,7 +119,7 @@ Tài khoản demo do migration `002_seed_local_demo` tạo ra chỉ dùng cho m�
 ## 10. Trạng thái hiện tại
 
 - **Xong:** Phase 0–10, cộng các đợt mở rộng sau roadmap: nhận diện bằng OpenCV + face_recognition, phân quyền theo màn hình và hành động, nhóm có mã cho người mới xin vào, duyệt đổi khuôn mặt, mã lỗi tra cứu được, cách ly dữ liệu theo địa điểm, một người một quản lý, một phiên mỗi ngày, và màn hình **Quản lý nhóm** gộp cả duyệt người / địa điểm / chỉnh công / đổi khuôn mặt.
-- **Migration hiện tại:** `023_drop_verdicts`.
+- **Migration hiện tại:** `025_refresh_grace`.
 - **Tiếp theo:** xem mục 9 và 10 trong `docs/ARCHITECTURE.md`.
 - **Đã deploy:** https://namnangno.click, chạy từ máy dev qua Cloudflare Tunnel (service `tunnel` trong compose).
 - **Nợ kỹ thuật đã biết:** xem mục "Known issues" trong [README.md](README.md).

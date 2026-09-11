@@ -56,6 +56,7 @@ const CODE_MESSAGES: Record<string, string> = {
   ALREADY_WORKED_TODAY: "Hôm nay bạn đã chấm công vào và ra rồi. Nếu có nhầm lẫn, bạn gửi yêu cầu chỉnh công để người quản lý xem giúp.",
   ALREADY_HAS_MANAGER: "Bạn đang thuộc một nhóm khác. Nhờ người quản lý hiện tại gỡ bạn ra trước rồi mới xin vào nhóm mới được.",
   CHECKOUT_LOCATION_REASON_REQUIRED: "Bạn chấm ra ở nơi khác nơi đã chấm vào. Nêu lý do giúp nhé.",
+  SESSION_EXPIRED: "Lượt vào của bạn đã quá 20 tiếng nên phiên đã khép, không chấm ra được nữa. Bạn gửi yêu cầu chỉnh công để người quản lý ghi giờ ra giúp.",
   CURRENT_PASSWORD_WRONG: "Mật khẩu hiện tại chưa đúng. Bạn nhập lại giúp nhé.",
   NEW_PASSWORD_SAME_AS_OLD: "Mật khẩu mới trùng mật khẩu cũ. Bạn chọn mật khẩu khác nhé.",
   SYSTEM_ERROR: "Hệ thống gặp trục trặc nên chưa làm được việc này. Bạn thử lại sau ít phút nhé.",

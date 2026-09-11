@@ -188,9 +188,9 @@ export default function ManagerHomePage() {
               >
                 <span
                   style={{
-                    fontSize: "11px",
+                    fontSize: "var(--text-sm)",
                     fontWeight: 700,
-                    color: isHovered ? "var(--color-cyan)" : "var(--text-muted)",
+                    color: isHovered ? "var(--color-primary)" : "var(--text-secondary)",
                     fontVariantNumeric: "tabular-nums",
                   }}
                 >
@@ -214,11 +214,11 @@ export default function ManagerHomePage() {
 
         <div className="chart-legend">
           <div className="chart-legend-item">
-            <span className="chart-legend-dot" style={{ background: "linear-gradient(180deg, #60a5fa, #2563eb)" }} />
+            <span className="chart-legend-dot" style={{ background: "var(--color-primary)" }} />
             <span>Check-in</span>
           </div>
           <div className="chart-legend-item">
-            <span className="chart-legend-dot" style={{ background: "linear-gradient(180deg, #a78bfa, #7c3aed)" }} />
+            <span className="chart-legend-dot" style={{ background: "var(--color-cyan)" }} />
             <span>Check-out</span>
           </div>
         </div>

@@ -107,7 +107,7 @@ def main() -> int:
         )
         refused = day_of(wide, refused_day.isoformat())
         check("Bật hiện lượt không hợp lệ thì thấy ngày bị từ chối",
-              refused is not None and refused["status"] == "REJECTED",
+              refused is not None and refused["status"] in {"REJECTED_PLACE", "REJECTED_FACE"},
               refused["status"] if refused else "thiếu")
 
         check("Mỗi dòng kèm mã bản ghi để mở chi tiết",

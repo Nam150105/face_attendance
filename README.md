@@ -20,11 +20,12 @@ Người dùng mở web trên điện thoại, chụp một tấm ảnh, hệ th
 
 **Chấm công**
 - Nhận diện khuôn mặt trên ảnh chụp tại chỗ, không dùng ảnh có sẵn trong máy
+- Camera tự hướng dẫn trước khi chụp: quá xa, quá tối, quá chói, lệch khung — chỉ mở nút chụp khi ảnh chắc chắn dùng được
 - Kiểm tra vị trí theo bán kính quanh địa điểm; ngoài vùng cho phép thì không ghi nhận
 - Giờ làm việc theo từng địa điểm, có mức cho phép đến muộn
 - Một ngày một phiên: đã đủ cặp vào–ra thì không mở phiên mới trong ngày
 - Chấm ra ở nơi khác nơi chấm vào được, nhưng phải giải trình và bản ghi giữ lại lý do
-- Tự đóng phiên sau 24 giờ nếu quên chấm ra
+- Quên chấm ra thì phiên tự khép sau 20 tiếng, không bịa giờ ra; ngày đó chờ chỉnh công
 - Người chấm công nhìn thấy đúng số đo mà bộ nhận diện đã dùng để quyết định
 
 **Quản lý**

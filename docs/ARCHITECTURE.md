@@ -4,7 +4,7 @@ Tài liệu cho người tiếp nhận, bảo trì hoặc nâng cấp. Mô tả 
 
 > Khác với `02_ARCHITECTURE.md` — tệp đó là đặc tả thiết kế ban đầu. Tệp này mô tả cái đang chạy thật; khi hai bên lệch nhau, tệp này đúng về hiện trạng.
 
-Cập nhật: 2026-09-11 · migration `023_drop_verdicts`
+Cập nhật: 2026-09-11 · migration `025_refresh_grace`
 
 ---
 
@@ -161,13 +161,31 @@ Bảng `session_policies (role, allow_multiple_devices)` quyết định từng 
 
 Cột `refresh_sessions.enforce_single_session` vẫn là thứ chỉ số duy nhất từng phần dựa vào, nên tắt bật không đụng gì tới ràng buộc cũ. Bật giới hạn có hiệu lực **ngay**: mỗi người giữ phiên mới nhất, các phiên còn lại đóng với lý do `DEVICE_POLICY_CHANGED`. Tắt thì không ai bị đăng xuất.
 
+### Đăng nhập rồi thì ở lại
+
+Access token sống 15 phút, refresh token 90 ngày và **trượt** theo mỗi lần làm mới — dùng app đều thì không bao giờ phải đăng nhập lại, giống một ứng dụng mạng xã hội. Ba lý do từng khiến người dùng bị đẩy ra "vô cớ", và cách chặn từng cái:
+
+1. **Năm request cùng lúc đúng lúc access token hết hạn.** Mỗi request nhận 401, mỗi cái tự đi làm mới bằng cùng một refresh token; máy chủ xoay secret ở lần đầu và từ chối bốn lần sau như thể bị phát lại token đánh cắp → xoá token → về trang đăng nhập. Nay: trình duyệt **làm mới trước khi hết hạn** (còn dưới 90 giây là làm mới) và **chỉ một lượt làm mới tại một thời điểm** cho cả tab (`refreshInFlight`); máy chủ **chấp nhận secret vừa xoay trong 60 giây** (`previous_token_hash` + `rotated_at`, migration 025) và trả lại đúng cặp hiện hành lấy từ Redis, để thẻ nào cũng cầm cùng một secret. Quá 60 giây thì vẫn là phát lại và bị từ chối.
+2. **API khởi động lại giữa lúc làm mới.** Trình duyệt từng xoá token khi refresh trả bất kỳ mã lỗi nào, kể cả 503 lúc deploy. Nay chỉ xoá khi 401/403.
+3. **Chính sách một thiết bị.** Với vai trò đang bật "một thiết bị", đăng nhập ở máy thứ hai là máy thứ nhất bị đẩy ra — đó là chủ ý, không phải lỗi; tắt ở màn hình Phân quyền nếu muốn dùng nhiều máy.
+
 ### Một phiên đăng nhập mỗi tài khoản
 
 `refresh_sessions` có chỉ mục unit một phần trên phiên đang hoạt động. Mọi request đều kiểm tra trạng thái phiên trong CSDL, không chỉ chữ ký JWT — nếu chỉ tin chữ ký thì thu hồi phiên không có tác dụng cho tới khi token hết hạn.
 
-### Một phiên mỗi ngày
+### Phiên: mở theo thời gian, không bịa lượt ra
 
-Đã có một cặp vào–ra trong ngày (cắt theo `APP_TIMEZONE`) thì lượt vào tiếp theo bị từ chối với `ALREADY_WORKED_TODAY`. Không có ràng buộc này thì chấm ra lúc 17:00 rồi chấm vào lúc 17:01 sinh ra hai ngày công cho cùng một ngày. Phiên còn mở vẫn bị chặn như cũ bằng `CHECK_IN_ALREADY_EXISTS`, và phiên quên chấm ra tự đóng sau 24 giờ.
+Toàn bộ quy tắc vào/ra nằm trong `attendance_days.py` và `_open_state` của `attendance.py`:
+
+- **Phiên mở tối đa `SESSION_MAX_HOURS` = 20 tiếng** kể từ lượt vào. Quá đó, "đang trong phiên" đơn giản là không còn đúng nữa — không có job nào chạy, không có bản ghi nào được chèn. Ngày đó hiện *Chưa chấm ra* cho tới khi thành viên gửi chỉnh công hoặc người quản lý sửa. Cơ chế cũ chèn một `CHECK_OUT` giả ở toạ độ 0,0 lúc giờ vào + 24h — tức rơi sang ngày hôm sau và khoá luôn ngày hôm sau; migration 024 đánh dấu và xoá mềm những dòng đó.
+- **Lượt ra `WARNING_CONFIRMED` (chấm ra ở nơi khác) cũng đóng phiên.** Trước đây chỉ `SUCCESS` mới đóng, nên ai chấm ra ở nơi khác vẫn "đang làm việc" cả ngày sau.
+- **Một phiên mỗi ngày tính theo lượt vào**: hôm nay đã có lượt vào hợp lệ thì `ALREADY_WORKED_TODAY`. Tính theo lượt ra như cũ thì một lượt ra rơi sang ngày mới (sau nửa đêm, hoặc do máy bịa) khoá cả ngày mới.
+- **Lượt ra thuộc về ngày của lượt vào nó đóng** (trong cửa sổ 20 tiếng), không thuộc về ngày dương lịch nó rơi vào. Vào 22:00, ra 00:30 là một ngày công của hôm trước, không phải "hôm trước chưa ra + hôm sau có lượt ra mồ côi".
+- Chấm ra khi phiên đã quá 20 tiếng → `SESSION_EXPIRED` (khác với `CHECK_OUT_WITHOUT_CHECK_IN`), câu tiếng Việt chỉ thẳng sang chỉnh công.
+
+### Một hàm cho trạng thái ngày
+
+Bảng ngày công của người quản lý, lịch tháng và bảng công cá nhân từng có ba bản SQL riêng với ba thứ tự ưu tiên khác nhau (bảng nói "chưa chấm ra", lịch nói "đi muộn" cho cùng một ngày; bảng công cá nhân tính lại độ muộn theo giờ của địa điểm *mặc định* chứ không phải nơi đã chấm). Nay cả ba gọi `attendance_days.days()`; trạng thái ngày là `ON_TIME · LATE · OPEN · NO_CHECK_IN · REJECTED_FACE · REJECTED_PLACE`, chưa chấm ra ưu tiên hơn đi muộn (số phút muộn vẫn đi kèm dòng), ngày chỉ có lượt bị từ chối thì gọi tên đúng nửa bị từ chối. Bảng công cá nhân giữ bộ từ riêng của nó qua một bảng ánh xạ, nhưng dữ liệu bên dưới là cùng một dòng.
 
 ### Chấm ra ở nơi khác nơi chấm vào
 
@@ -203,7 +221,9 @@ Vì vậy phán quyết của người nằm ở cột riêng: `face_verdict_ove
 
 Sửa theo **từng lượt**: một ngày công là hai bản ghi, màn hình cho chọn lượt vào hay lượt ra rồi nạp form theo lượt đó.
 
-Phán quyết là **một ô duy nhất** với bốn lựa chọn: *Hợp lệ · Hợp lệ có lý do · Khuôn mặt không khớp · Lệch vị trí (kèm số mét đo được)*. Mỗi lựa chọn ứng với một cặp `status` + `failure_code` — đúng hai cột hệ thống tự điền khi nó tự phán quyết, nên bản ghi người sửa và bản ghi máy ghi đọc giống hệt nhau.
+Người quản lý **bắt buộc nêu lý do** — họ phải trả lời với người có ngày công bị sửa. Quản trị hệ thống thì không: họ là người mà những lời giải thích đó được gửi tới. Kiểm ở service (nơi biết vai trò), không phải ở schema.
+
+Phán quyết là **một ô duy nhất** với bốn lựa chọn: *Hợp lệ · Hợp lệ có lý do · Khuôn mặt không khớp · Địa điểm không khớp . Mỗi lựa chọn ứng với một cặp `status` + `failure_code` — đúng hai cột hệ thống tự điền khi nó tự phán quyết, nên bản ghi người sửa và bản ghi máy ghi đọc giống hệt nhau.
 
 Trước đó từng có hai công tắc riêng cho vị trí và khuôn mặt đứng cạnh ô trạng thái. Ba nơi nói về một chuyện thì sớm muộn cũng mâu thuẫn: "khuôn mặt không khớp" nằm ngay cạnh "Hợp lệ" không cho người đọc biết cái nào tính. Hai cột ghi đè bị xoá ở migration 023.
 
@@ -288,15 +308,17 @@ Không có mock. Mọi probe chạy trên hệ thống thật đang chạy.
 | `rbac_probe` (50) | Phân quyền màn hình và hành động, trình duyệt dữ liệu |
 | `isolation_probe` (17) | Phạm vi đọc theo địa điểm; địa điểm theo nhóm |
 | `rules_probe` (11) | Một người một quản lý; một phiên mỗi ngày |
+| `session_rules_probe` (14) | Phiên khép sau 20 tiếng không bịa lượt ra; ra sau nửa đêm thuộc ngày vào; ba màn hình một câu trả lời |
 | `devices_probe` (12) | Bật tắt một/nhiều thiết bị theo vai trò |
 | `delete_day_probe` (12) | Xoá ngày công xoá trọn ngày, đúng phạm vi, xoá mềm |
-| `edit_record_probe` (19) | Sửa từng lượt; tính lại số dẫn xuất; số máy đo không bị viết đè |
+| `edit_record_probe` (20) | Sửa từng lượt; tính lại số dẫn xuất; số máy đo không bị viết đè |
 | `correction_probe` (15) | Duyệt chỉnh công ghi vào bảng công; chặn chấm công khi chưa đủ điều kiện |
 | `reading_probe` (16) | Một ngày thật: đăng ký → chấm vào → chấm ra; số đo OpenCV/face_recognition và chấm ra ở nơi khác |
 | `teams_probe` (35) | Mã đơn vị, duyệt/từ chối vào nhóm |
 | `face_change_probe` (27) | Duyệt đổi khuôn mặt, dùng ảnh chân dung thật |
 | `sessions_probe` (10) | Gộp cặp vào/ra theo ngày |
-| `session_probe` (20) | Một phiên mỗi tài khoản |
+| `session_probe` (21) | Một phiên mỗi tài khoản; secret vừa xoay còn dùng được 60 giây |
+| `stay_signed_in_probe` (6) | Năm refresh song song không thành một lần đăng xuất |
 | `portal_probe` (16) | Đổi mật khẩu, liên hệ người quản lý, mã lỗi |
 | `hours_probe` (8) | Quy tắc giờ vào/ra |
 | `calendar_probe` (13) | Lịch tháng, múi giờ |

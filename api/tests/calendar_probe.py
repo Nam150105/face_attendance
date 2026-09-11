@@ -110,14 +110,17 @@ def main() -> int:
               edge is not None and edge["people"][0]["check_in"] and edge["people"][0]["check_out"])
 
         late = day_of(payload, late_day.isoformat())
-        check("Vào muộn hiện đúng trạng thái và số phút",
-              late is not None and late["people"][0]["status"] == "LATE"
+        # A late arrival with no departure: the missing check-out is the thing
+        # to act on, the minutes late travel with the row. Same rule as the
+        # day list and the member's own timesheet.
+        check("Vào muộn chưa ra: hiện chưa chấm ra, vẫn giữ số phút muộn",
+              late is not None and late["people"][0]["status"] == "OPEN"
               and late["people"][0]["minutes_late"] == 18,
               f"{late['people'][0]['status']} {late['people'][0]['minutes_late']}'" if late else "thiếu")
 
         blocked = day_of(payload, blocked_day.isoformat())
         check("Lượt bị từ chối vẫn hiện nhưng không tính là đi làm",
-              blocked is not None and blocked["people"][0]["status"] == "REJECTED"
+              blocked is not None and blocked["people"][0]["status"] in {"REJECTED_PLACE", "REJECTED_FACE"}
               and blocked["people"][0]["check_in"] is None,
               blocked["people"][0]["status"] if blocked else "thiếu")
 

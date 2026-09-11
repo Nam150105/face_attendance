@@ -1,66 +1,67 @@
 import unittest
-from datetime import datetime, time, timedelta, timezone
+from datetime import datetime, timedelta, timezone
 
-from app.services.member_portal import LOCAL_ZONE, _day_status, local_date
+from app.services.attendance_days import SESSION_MAX_HOURS, day_status, session_is_open
+from app.services.member_portal import LOCAL_ZONE, local_date
 
 
 def utc(year: int, month: int, day: int, hour: int, minute: int = 0) -> datetime:
     return datetime(year, month, day, hour, minute, tzinfo=timezone.utc)
 
 
-def shift(start: str, grace: int = 10) -> tuple:
-    hour, minute = (int(part) for part in start.split(":"))
-    return (time(hour, minute), time(17, 0), grace, None)
-
-
 class DayStatusTests(unittest.TestCase):
-    def test_no_check_in_without_rejection_is_absent(self) -> None:
-        self.assertEqual(_day_status(None, None, None, False), "ABSENT")
+    """
+    One function decides how a day went, for every screen. Lateness itself is
+    computed where the record is written (see test_hour_rules); here it is an
+    input.
+    """
 
-    def test_no_check_in_after_a_rejected_attempt_is_invalid(self) -> None:
-        self.assertEqual(_day_status(None, None, None, True), "INVALID")
+    def test_only_a_face_refusal_names_the_face(self) -> None:
+        self.assertEqual(day_status(None, None, 0, ["FACE_NOT_MATCHED"]), "REJECTED_FACE")
 
-    def test_check_in_without_check_out(self) -> None:
-        self.assertEqual(_day_status(utc(2026, 9, 1, 1), None, None, False), "MISSING_CHECK_OUT")
+    def test_only_a_place_refusal_names_the_place(self) -> None:
+        self.assertEqual(day_status(None, None, 0, ["OUTSIDE_ALLOWED_ZONE"]), "REJECTED_PLACE")
 
-    def test_complete_day_without_a_shift_is_valid(self) -> None:
-        # No schedule means there is nothing to be late against.
+    def test_last_refusal_decides_when_there_were_several(self) -> None:
+        # Two tries: first the GPS was off, then the face. The last one is the
+        # one the person walked away with.
         self.assertEqual(
-            _day_status(utc(2026, 9, 1, 6), utc(2026, 9, 1, 10), None, False),
-            "VALID",
+            day_status(None, None, 0, ["OUTSIDE_ALLOWED_ZONE", "FACE_NOT_MATCHED"]),
+            "REJECTED_FACE",
         )
 
-    def test_on_time_against_a_local_shift(self) -> None:
-        # 01:05 UTC is 08:05 in Asia/Ho_Chi_Minh: inside the 08:00 + 10 min grace.
-        self.assertEqual(
-            _day_status(utc(2026, 9, 1, 1, 5), utc(2026, 9, 1, 10), shift("08:00"), False),
-            "VALID",
-        )
+    def test_check_in_without_check_out_is_open(self) -> None:
+        self.assertEqual(day_status(utc(2026, 9, 1, 1), None, 0, []), "OPEN")
 
-    def test_late_against_a_local_shift(self) -> None:
-        # 02:00 UTC is 09:00 local, well past 08:10.
-        self.assertEqual(
-            _day_status(utc(2026, 9, 1, 2), utc(2026, 9, 1, 10), shift("08:00"), False),
-            "LATE",
-        )
+    def test_complete_day_on_time(self) -> None:
+        self.assertEqual(day_status(utc(2026, 9, 1, 1), utc(2026, 9, 1, 10), 0, []), "ON_TIME")
 
-    def test_grace_boundary_is_inclusive(self) -> None:
-        # Exactly 08:10 local must not count as late.
-        self.assertEqual(
-            _day_status(utc(2026, 9, 1, 1, 10), utc(2026, 9, 1, 10), shift("08:00"), False),
-            "VALID",
-        )
-        self.assertEqual(
-            _day_status(utc(2026, 9, 1, 1, 11), utc(2026, 9, 1, 10), shift("08:00"), False),
-            "LATE",
-        )
+    def test_complete_day_late(self) -> None:
+        self.assertEqual(day_status(utc(2026, 9, 1, 2), utc(2026, 9, 1, 10), 18, []), "LATE")
 
     def test_missing_check_out_wins_over_late(self) -> None:
-        # A day can be both; the missing check-out is the one to act on.
+        # A day can be both; the missing check-out is the one to act on, and
+        # the minutes late are still on the row for whoever reads it.
+        self.assertEqual(day_status(utc(2026, 9, 1, 3), None, 45, []), "OPEN")
+
+    def test_a_refusal_on_a_day_that_was_worked_does_not_change_it(self) -> None:
         self.assertEqual(
-            _day_status(utc(2026, 9, 1, 3), None, shift("08:00"), False),
-            "MISSING_CHECK_OUT",
+            day_status(utc(2026, 9, 1, 1), utc(2026, 9, 1, 10), 0, ["FACE_NOT_MATCHED"]),
+            "ON_TIME",
         )
+
+
+class SessionWindowTests(unittest.TestCase):
+    def test_open_inside_the_window(self) -> None:
+        now = utc(2026, 9, 1, 12)
+        self.assertTrue(session_is_open(now - timedelta(hours=SESSION_MAX_HOURS - 1), now))
+
+    def test_closed_once_the_window_has_passed(self) -> None:
+        now = utc(2026, 9, 1, 12)
+        self.assertFalse(session_is_open(now - timedelta(hours=SESSION_MAX_HOURS), now))
+
+    def test_window_is_twenty_hours_by_default(self) -> None:
+        self.assertEqual(SESSION_MAX_HOURS, 20)
 
 
 class LocalDateTests(unittest.TestCase):

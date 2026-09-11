@@ -31,7 +31,7 @@ from app.auth import (
     validate_password,
     DATABASE_URL,
 )
-from app.security import clear_rate_limit, client_ip, enforce_rate_limit
+from app.security import clear_rate_limit, client_ip, enforce_rate_limit, recall, remember_briefly
 from app.services.permissions import permissions_for
 from app.services.teams import request_join
 from fastapi import Depends
@@ -158,6 +158,12 @@ def login(request: LoginRequest, http_request: Request) -> TokenResponse:
         )
 
 
+# How long a just-retired refresh secret is still accepted. Long enough for
+# a burst of parallel requests and a slow phone; far too short to matter to
+# anybody who stole a token days ago.
+REFRESH_GRACE_SECONDS = 60
+
+
 @router.post("/refresh", response_model=TokenResponse)
 def refresh(request: RefreshRequest, http_request: Request) -> TokenResponse:
     enforce_rate_limit("refresh-ip", client_ip(http_request), limit=60, window_seconds=300)
@@ -165,34 +171,63 @@ def refresh(request: RefreshRequest, http_request: Request) -> TokenResponse:
     session_id = payload.get("sid")
     if not session_id:
         raise unauthorized(SESSION_REVOKED)
+    presented = digest_token(request.refresh_token)
     with psycopg.connect(DATABASE_URL) as connection:
-        # FOR UPDATE stops two parallel refreshes from both rotating the same
-        # token; the loser finds the hash already changed and is refused.
+        # FOR UPDATE serialises two refreshes of the same session. The loser
+        # used to be refused outright, as if it were replaying a stolen token;
+        # but the usual loser is the same browser — a second tab, or a page
+        # that fired five requests the instant the access token lapsed. So a
+        # secret retired within the last REFRESH_GRACE_SECONDS is still
+        # honoured, and the caller gets the current pair.
         row = connection.execute(
             """
-            SELECT id, user_id FROM refresh_sessions
-            WHERE id = %s AND token_hash = %s AND revoked_at IS NULL AND expires_at > now()
+            SELECT id, user_id,
+                   token_hash = %s AS current,
+                   previous_token_hash = %s
+                       AND rotated_at > now() - make_interval(secs => %s) AS recent
+            FROM refresh_sessions
+            WHERE id = %s AND revoked_at IS NULL AND expires_at > now()
+              AND (token_hash = %s OR previous_token_hash = %s)
             FOR UPDATE
             """,
-            (session_id, digest_token(request.refresh_token)),
+            (presented, presented, REFRESH_GRACE_SECONDS, session_id, presented, presented),
         ).fetchone()
-        if row is None:
+        if row is None or not (row[2] or row[3]):
             raise unauthorized(SESSION_REVOKED)
         user = connection.execute("SELECT role::text, status::text FROM users WHERE id = %s", (row[1],)).fetchone()
         if user is None or user[1] != "ACTIVE":
             raise unauthorized("User is not active")
 
+        if not row[2]:
+            # The grace path: somebody else in the same browser already rotated
+            # this secret moments ago. Hand back the pair they were given —
+            # kept for the grace window in Redis, never in the database — so
+            # every tab ends up holding the same current secret. Rotating again
+            # here would leave five tabs with five different secrets, four of
+            # them dead.
+            current = recall(f"refresh-grace:{row[0]}:{presented}")
+            if current:
+                connection.rollback()
+                return TokenResponse(
+                    access_token=create_access_token(str(row[1]), user[0], str(row[0])),
+                    refresh_token=current,
+                )
+
         # Rotate the secret but keep the session: the device stays the same one.
+        # The retired secret is honoured for the grace window and no longer.
         new_refresh_token, expires_at = create_refresh_token(str(row[1]), user[0], str(row[0]))
         connection.execute(
             """
             UPDATE refresh_sessions
-            SET token_hash = %s, expires_at = %s, last_used_at = now(), last_active_at = now()
+            SET previous_token_hash = %s,
+                rotated_at = now(),
+                token_hash = %s, expires_at = %s, last_used_at = now(), last_active_at = now()
             WHERE id = %s
             """,
-            (digest_token(new_refresh_token), expires_at, row[0]),
+            (presented, digest_token(new_refresh_token), expires_at, row[0]),
         )
         connection.commit()
+        remember_briefly(f"refresh-grace:{row[0]}:{presented}", new_refresh_token, REFRESH_GRACE_SECONDS)
         return TokenResponse(
             access_token=create_access_token(str(row[1]), user[0], str(row[0])),
             refresh_token=new_refresh_token,

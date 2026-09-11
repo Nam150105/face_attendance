@@ -10,6 +10,7 @@ from fastapi import HTTPException
 from app.auth import CurrentUser, DATABASE_URL
 from app.domain.geofence import haversine_distance_meters
 from app.services.attendance import _minutes_early_leave, _minutes_late
+from app.services.attendance_days import days as build_days
 from app.services.member_portal import APP_TIMEZONE
 from app.services.permissions import assert_can_see_member, visible_member_ids
 from app.services.storage import PrivateObjectStorage
@@ -184,123 +185,25 @@ def list_attendance(user: CurrentUser, filters: dict) -> dict:
 
 def attendance_sessions(user: CurrentUser, filters: dict) -> dict:
     """
-    One row per person per local day: first check-in, last check-out, and what
-    happened in between. Reading two separate event rows and pairing them by eye
-    is exactly the work a manager should not be doing.
+    One row per person per working day, from the shared day builder — the
+    same rows the calendar and the member's own timesheet are made of.
     """
     with psycopg.connect(DATABASE_URL) as connection:
         scope, scope_params = _scope(connection, user)
-        conditions = [scope, "e.deleted_at IS NULL"]
-        parameters: list = [*scope_params]
-        if not filters.get("include_invalid"):
-            conditions.append("e.status IN ('SUCCESS', 'WARNING_CONFIRMED')")
-        if filters.get("member_id"):
-            conditions.append("e.member_id = %s")
-            parameters.append(filters["member_id"])
+        parameters = list(scope_params)
         if filters.get("location_id"):
-            conditions.append("e.location_id = %s")
+            scope = f"({scope}) AND e.location_id = %s"
             parameters.append(filters["location_id"])
-        if filters.get("date_from"):
-            conditions.append("(e.server_time AT TIME ZONE %s)::date >= %s")
-            parameters.extend([APP_TIMEZONE, filters["date_from"]])
-        if filters.get("date_to"):
-            conditions.append("(e.server_time AT TIME ZONE %s)::date <= %s")
-            parameters.extend([APP_TIMEZONE, filters["date_to"]])
-        where = " AND ".join(conditions)
+        date_from = filters.get("date_from") or (date.today() - timedelta(days=31))
+        date_to = filters.get("date_to") or date.today()
+        rows = build_days(
+            connection, scope, parameters, date_from, date_to,
+            bool(filters.get("include_invalid")), filters.get("member_id"),
+        )
 
-        grouped = f"""
-            SELECT
-                (e.server_time AT TIME ZONE %s)::date AS work_date,
-                e.member_id,
-                u.email,
-                mp.full_name,
-                min(e.server_time) FILTER (
-                    WHERE e.event_type = 'CHECK_IN' AND e.status IN ('SUCCESS', 'WARNING_CONFIRMED')
-                ) AS first_in,
-                max(e.server_time) FILTER (
-                    WHERE e.event_type = 'CHECK_OUT' AND e.status IN ('SUCCESS', 'WARNING_CONFIRMED')
-                ) AS last_out,
-                -- Every aggregate below is filtered the same way as the two
-                -- times above. They were not, so a day with a refused attempt
-                -- showed the valid arrival time next to the refused attempt's
-                -- id, and opening the row edited a record the row was not
-                -- describing.
-                max(e.minutes_late) FILTER (
-                    WHERE e.event_type = 'CHECK_IN' AND e.status IN ('SUCCESS', 'WARNING_CONFIRMED')
-                ) AS minutes_late,
-                max(e.minutes_early_leave) FILTER (
-                    WHERE e.event_type = 'CHECK_OUT' AND e.status IN ('SUCCESS', 'WARNING_CONFIRMED')
-                ) AS minutes_early,
-                count(*) FILTER (WHERE e.status IN ('BLOCKED', 'FAILED')) AS rejected,
-                COALESCE(
-                    (array_agg(l.name ORDER BY e.server_time)
-                     FILTER (WHERE e.status IN ('SUCCESS', 'WARNING_CONFIRMED')))[1],
-                    (array_agg(l.name ORDER BY e.server_time))[1]
-                ) AS location_name,
-                (array_agg(e.id ORDER BY e.server_time) FILTER (
-                    WHERE e.event_type = 'CHECK_IN' AND e.status IN ('SUCCESS', 'WARNING_CONFIRMED')
-                ))[1] AS check_in_id,
-                (array_agg(e.id ORDER BY e.server_time DESC) FILTER (
-                    WHERE e.event_type = 'CHECK_OUT' AND e.status IN ('SUCCESS', 'WARNING_CONFIRMED')
-                ))[1] AS check_out_id,
-                -- Every attempt of the day, refused ones included, so "show
-                -- invalid attempts" can list them one by one instead of
-                -- folding four tries into a single line.
-                jsonb_agg(jsonb_build_object(
-                    'id', e.id,
-                    'event_type', e.event_type,
-                    'status', e.status,
-                    'server_time', e.server_time,
-                    'location_name', l.name,
-                    'failure_code', e.failure_code,
-                    'source', e.source
-                ) ORDER BY e.server_time) AS attempts
-            FROM attendance_events e
-            JOIN users u ON u.id = e.member_id
-            LEFT JOIN member_profiles mp ON mp.user_id = u.id
-            LEFT JOIN locations l ON l.id = e.location_id
-            WHERE {where}
-            GROUP BY work_date, e.member_id, u.email, mp.full_name
-        """
-
-        total = connection.execute(
-            f"SELECT count(*) FROM ({grouped}) AS sessions", [APP_TIMEZONE, *parameters]
-        ).fetchone()[0]
-        rows = connection.execute(
-            f"{grouped} ORDER BY work_date DESC, first_in DESC NULLS LAST LIMIT %s OFFSET %s",
-            [APP_TIMEZONE, *parameters, filters.get("limit", 25), filters.get("offset", 0)],
-        ).fetchall()
-
-    items = []
-    for row in rows:
-        check_in, check_out = row[4], row[5]
-        minutes_late = row[6] or 0
-        if check_in is None:
-            status = "REJECTED"
-        elif check_out is None:
-            status = "OPEN"
-        elif minutes_late > 0:
-            status = "LATE"
-        else:
-            status = "ON_TIME"
-        items.append({
-            "work_date": row[0].isoformat(),
-            "member_id": row[1],
-            "member_email": row[2],
-            "member_name": row[3],
-            "check_in": check_in,
-            "check_out": check_out,
-            "minutes_late": minutes_late,
-            "minutes_early_leave": row[7] or 0,
-            "rejected": row[8],
-            "location_name": row[9],
-            "check_in_id": row[10],
-            "check_out_id": row[11],
-            "status": status,
-            "attempts": row[12],
-        })
-    return {"total": total, "items": items}
-
+    limit = filters.get("limit", 25)
+    offset = filters.get("offset", 0)
+    return {"total": len(rows), "items": rows[offset:offset + limit]}
 
 def get_attendance(user: CurrentUser, event_id: uuid.UUID) -> dict:
     with psycopg.connect(DATABASE_URL) as connection:
@@ -366,16 +269,17 @@ def manual_adjust(user: CurrentUser, event_id: uuid.UUID, payload: dict) -> dict
 
     A record is evidence, and evidence gets corrected — the phone's clock was
     off, the GPS drifted indoors, the light was bad and a real face was refused.
-    What is *not* corrected is what the machine measured. face_match_score and
-    distance_meters keep the numbers they were born with; the manager's opinion
-    is written next to them as an override, so months later it is still possible
-    to say what the system saw and what a person decided about it.
+    What is *not* corrected is what the machine measured: face_match_score and
+    face_distance keep the numbers they were born with, so months later it is
+    still possible to say what the system saw and what a person decided.
 
-    Every change needs a reason and lands in the audit log.
+    Every change lands in the audit log. A manager must say why — they answer
+    to the person whose day they are changing. The system administrator is who
+    those answers go to, so for them the reason is optional.
     """
     manager_id = user.id
     reason = (payload.get("reason") or "").strip()
-    if not reason:
+    if user.role != "SUPER_ADMIN" and len(reason) < 3:
         raise HTTPException(status_code=422, detail="ADJUST_REASON_REQUIRED")
 
     # Presence, not truthiness: `face_ok: null` is a real instruction — it puts
@@ -506,7 +410,7 @@ def manual_adjust(user: CurrentUser, event_id: uuid.UUID, payload: dict) -> dict
                 after["note"],
                 current["server_time"],
                 manager_id,
-                reason,
+                reason or None,
                 event_id,
             ),
         )
@@ -515,7 +419,7 @@ def manual_adjust(user: CurrentUser, event_id: uuid.UUID, payload: dict) -> dict
             INSERT INTO audit_logs (actor_user_id, action, entity_type, entity_id, before_json, after_json, reason)
             VALUES (%s, 'ATTENDANCE_MANUALLY_ADJUSTED', 'attendance_event', %s, %s::jsonb, %s::jsonb, %s)
             """,
-            (manager_id, event_id, json.dumps(before), json.dumps(after), reason),
+            (manager_id, event_id, json.dumps(before), json.dumps(after), reason or None),
         )
         connection.commit()
         return _event(_scoped_event(connection, user, event_id))
@@ -669,94 +573,44 @@ def manager_dashboard(manager_id: uuid.UUID) -> dict:
 
 def attendance_calendar(user: CurrentUser, month: str, include_invalid: bool = False) -> dict:
     """
-    One month of attendance shaped for a wall calendar: a row per member per
-    local day, so a manager sees who turned up and how the day went without
-    reading a table of raw events.
-
-    Days are cut in the organisation's own timezone. Grouping by UTC would file
-    an early-morning arrival under the day before.
+    One month shaped for a wall calendar, from the shared day builder. The
+    calendar and the day list can no longer disagree about a day because they
+    are the same rows arranged differently.
     """
     try:
         first = datetime.strptime(month, "%Y-%m").date()
     except ValueError:
         raise HTTPException(status_code=422, detail="MONTH_FORMAT_INVALID")
-    last = (first + timedelta(days=32)).replace(day=1)
+    last = (first + timedelta(days=32)).replace(day=1) - timedelta(days=1)
 
     with psycopg.connect(DATABASE_URL) as connection:
         scope, scope_params = _scope(connection, user)
-        include_invalid_sql = "TRUE" if include_invalid else "FALSE"
-        rows = connection.execute(
-            f"""
-            SELECT
-                (e.server_time AT TIME ZONE %s)::date AS work_date,
-                e.member_id,
-                u.email,
-                mp.full_name,
-                min(e.server_time) FILTER (
-                    WHERE e.event_type = 'CHECK_IN' AND e.status IN ('SUCCESS', 'WARNING_CONFIRMED')
-                ) AS first_check_in,
-                max(e.server_time) FILTER (
-                    WHERE e.event_type = 'CHECK_OUT' AND e.status IN ('SUCCESS', 'WARNING_CONFIRMED')
-                ) AS last_check_out,
-                max(e.minutes_late) FILTER (WHERE e.event_type = 'CHECK_IN') AS minutes_late,
-                max(e.minutes_early_leave) FILTER (WHERE e.event_type = 'CHECK_OUT') AS minutes_early,
-                count(*) FILTER (WHERE e.status IN ('SUCCESS', 'WARNING_CONFIRMED')) AS accepted,
-                count(*) FILTER (WHERE e.status IN ('BLOCKED', 'FAILED')) AS rejected,
-                count(*) FILTER (WHERE e.status = 'WARNING_CONFIRMED') AS off_radius,
-                (array_agg(l.name ORDER BY e.server_time))[1] AS location_name
-            FROM attendance_events e
-            JOIN users u ON u.id = e.member_id
-            LEFT JOIN member_profiles mp ON mp.user_id = u.id
-            LEFT JOIN locations l ON l.id = e.location_id
-            WHERE {scope}
-              AND e.deleted_at IS NULL
-              AND ({include_invalid_sql} OR e.status IN ('SUCCESS', 'WARNING_CONFIRMED'))
-              AND (e.server_time AT TIME ZONE %s)::date >= %s
-              AND (e.server_time AT TIME ZONE %s)::date < %s
-            GROUP BY work_date, e.member_id, u.email, mp.full_name
-            ORDER BY work_date, first_check_in NULLS LAST, u.email
-            """,
-            (APP_TIMEZONE, *scope_params, APP_TIMEZONE, first, APP_TIMEZONE, last),
-        ).fetchall()
+        rows = build_days(connection, scope, list(scope_params), first, last, include_invalid)
 
     days: dict[str, list[dict]] = {}
     events = present = late = open_sessions = rejected_total = off_radius_total = 0
     for row in rows:
-        work_date = row[0].isoformat()
-        minutes_late = row[6] or 0
-        check_in, check_out = row[4], row[5]
-        if check_in is None:
-            # Only rejected attempts that day: worth showing, but nobody was present.
-            status = "REJECTED"
-        elif minutes_late > 0:
-            status = "LATE"
-        elif check_out is None:
-            status = "OPEN"
-        else:
-            status = "ON_TIME"
-
-        days.setdefault(work_date, []).append({
-            "member_id": row[1],
-            "member_email": row[2],
-            "member_name": row[3],
-            "check_in": check_in,
-            "check_out": check_out,
-            "minutes_late": minutes_late,
-            "minutes_early_leave": row[7] or 0,
-            "rejected": row[9],
-            "off_radius": row[10],
-            "location_name": row[11],
-            "status": status,
+        days.setdefault(row["work_date"], []).append({
+            "member_id": row["member_id"],
+            "member_email": row["member_email"],
+            "member_name": row["member_name"],
+            "check_in": row["check_in"],
+            "check_out": row["check_out"],
+            "minutes_late": row["minutes_late"],
+            "minutes_early_leave": row["minutes_early_leave"],
+            "rejected": row["rejected"],
+            "off_radius": row["off_radius"],
+            "location_name": row["location_name"],
+            "status": row["status"],
         })
-
-        events += row[8] + row[9]
-        rejected_total += row[9]
-        off_radius_total += row[10]
-        if check_in is not None:
+        events += row["event_count"]
+        rejected_total += row["rejected"]
+        off_radius_total += row["off_radius"]
+        if row["check_in"] is not None:
             present += 1
-            if minutes_late > 0:
+            if row["minutes_late"] > 0:
                 late += 1
-            if check_out is None:
+            if row["check_out"] is None:
                 open_sessions += 1
 
     return {
@@ -771,7 +625,6 @@ def attendance_calendar(user: CurrentUser, month: str, include_invalid: bool = F
         },
         "days": [{"date": day, "people": people} for day, people in sorted(days.items())],
     }
-
 
 def delete_attendance_day(
     user: CurrentUser, member_id: uuid.UUID, work_date: date, reason: str

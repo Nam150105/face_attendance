@@ -52,10 +52,17 @@ async def engine() -> dict:
 @app.post("/v1/analyze", tags=["face"])
 async def analyze(image: UploadFile = File(...)) -> dict:
     try:
-        _, analysis = pipeline.analyze(await image.read())
+        frame, analysis = pipeline.analyze(await image.read())
     except FacePipelineError as error:
         return {"status": "REJECTED", "code": str(error)}
-    return {"status": "ANALYZED", "engine": ENGINE, **_quality(analysis)}
+    return {
+        "status": "ANALYZED",
+        "engine": ENGINE,
+        **_quality(analysis),
+        # Live guidance for the camera screen: the same numbers, turned into
+        # the one thing the person should do next.
+        **pipeline.guide(analysis, frame),
+    }
 
 
 @app.post("/v1/preview", tags=["face"])

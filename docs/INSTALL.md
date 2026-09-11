@@ -248,3 +248,10 @@ docker compose run --rm -v "${PWD}/api:/src:ro" -v "D:/duong-dan/faces:/faces:ro
 ```
 
 `face_change_probe` kiểm luồng duyệt đổi khuôn mặt, `reading_probe` kiểm các số đo OpenCV/face_recognition trả về đúng cho người dùng và cho người quản lý.
+
+`guide_probe` kiểm dẫn hướng camera và cần thêm thư mục `faces/guide/` gồm các khung tối, chói, xa, nhoè dựng từ chân dung gốc. Dựng một lần bằng image `face-ai` (image `api` cố tình không có OpenCV):
+
+```powershell
+docker compose run --rm -v "D:/duong-dan/faces:/faces" -v "${PWD}/api/tests/fixtures:/src:ro" `
+  --entrypoint python face-ai /src/make_guide_frames.py /faces/einstein_a.jpg /faces/curie.jpg /faces/guide
+```

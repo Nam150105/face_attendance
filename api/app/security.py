@@ -118,3 +118,27 @@ def clear_rate_limit(bucket: str, identity: str, window_seconds: int) -> None:
         connection.delete(f"rl:{bucket}:{identity}:{window}")
     except redis.RedisError:
         return
+
+
+# ------------------------------------------------- short-lived shared values
+
+def remember_briefly(key: str, value: str, seconds: int) -> None:
+    """Keep a value for a few seconds, shared by every API worker. Best effort."""
+    client = _redis()
+    if client is None:
+        return
+    try:
+        client.setex(key, seconds, value)
+    except redis.RedisError:
+        pass
+
+
+def recall(key: str) -> str | None:
+    client = _redis()
+    if client is None:
+        return None
+    try:
+        value = client.get(key)
+    except redis.RedisError:
+        return None
+    return value.decode() if isinstance(value, bytes) else value

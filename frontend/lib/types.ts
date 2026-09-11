@@ -64,6 +64,27 @@ export interface FaceEnrollmentStatus {
   engine: RecognitionEngine;
 }
 
+/** What the camera screen should tell the person before they press the shutter. */
+export type FaceHint =
+  | "OK"
+  | "NO_FACE"
+  | "MULTIPLE_FACES"
+  | "TOO_DARK"
+  | "TOO_BRIGHT"
+  | "TOO_FAR"
+  | "TOO_CLOSE"
+  | "OFF_CENTRE"
+  | "BLURRY";
+
+export interface FaceGuide {
+  hint: FaceHint;
+  ready: boolean;
+  /** Where the detector saw the face, as fractions of the frame. */
+  box: { x: number; y: number; w: number; h: number } | null;
+  brightness?: number | null;
+  sharpness?: number | null;
+}
+
 export interface EnrollmentChallenge {
   challenge_id: string;
   challenge: string;
@@ -213,7 +234,7 @@ export interface LocationInput {
   enforce_hours: boolean;
 }
 
-export type CalendarDayStatus = "ON_TIME" | "LATE" | "OPEN" | "REJECTED";
+export type CalendarDayStatus = "ON_TIME" | "LATE" | "OPEN" | "NO_CHECK_IN" | "REJECTED_FACE" | "REJECTED_PLACE";
 
 export interface CalendarPerson {
   member_id: string;

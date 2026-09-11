@@ -15,7 +15,22 @@ from zoneinfo import ZoneInfo
 
 import psycopg
 
-from tests.security_probe import DATABASE_URL, call, cleanup, register
+from passlib.context import CryptContext
+
+from tests.security_probe import DATABASE_URL, PASSWORD, call, cleanup, register
+
+
+def make_admin(created: list[str]) -> str:
+    email = f"probe-admin-{uuid.uuid4().hex[:10]}@example.com"
+    created.append(email)
+    with psycopg.connect(DATABASE_URL) as connection:
+        connection.execute(
+            "INSERT INTO users (email, password_hash, role, status, email_verified_at)"
+            " VALUES (%s, %s, 'SUPER_ADMIN', 'ACTIVE', now())",
+            (email, CryptContext(schemes=["bcrypt"]).hash(PASSWORD)),
+        )
+        connection.commit()
+    return call("POST", "/auth/login", body={"email": email, "password": PASSWORD})[1]["access_token"]
 
 LOCAL_ZONE = ZoneInfo(os.getenv("APP_TIMEZONE", "Asia/Ho_Chi_Minh"))
 
@@ -175,7 +190,19 @@ def main() -> int:
         status, _ = call("POST", f"/manager/attendance/{check_in}/manual-adjust", manager, {
             "status": "SUCCESS", "reason": "x",
         })
-        check("Lý do quá ngắn thì không sửa được", status == 422, f"HTTP {status}")
+        check("Người quản lý không nêu lý do thì không sửa được", status == 422, f"HTTP {status}")
+
+        # The administrator is who managers explain themselves to; nobody
+        # stands above them to read a reason.
+        admin = make_admin(created)
+        status, by_admin = call("POST", f"/manager/attendance/{check_in}/manual-adjust", admin, {
+            "status": "WARNING_CONFIRMED",
+        })
+        check("Quản trị hệ thống sửa được mà không cần lý do",
+              status == 200 and by_admin.get("status") == "WARNING_CONFIRMED", f"HTTP {status}")
+        call("POST", f"/manager/attendance/{check_in}/manual-adjust", manager, {
+            "status": "SUCCESS", "reason": "Trả về như cũ để kiểm tiếp.",
+        })
 
         status, _ = call("POST", f"/manager/attendance/{check_in}/manual-adjust", manager, {
             "reason": "Không đổi gì cả, chỉ bấm lưu.",

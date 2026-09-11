@@ -40,7 +40,8 @@ class ManualAdjustRequest(BaseModel):
     server_time: datetime | None = None
     location_id: UUID | None = None
     note: str | None = Field(default=None, max_length=500)
-    reason: str = Field(min_length=3, max_length=500)
+    # Required for managers, checked in the service where the role is known.
+    reason: str | None = Field(default=None, max_length=500)
 
 
 router = APIRouter(prefix="/manager", tags=["manager-attendance"])

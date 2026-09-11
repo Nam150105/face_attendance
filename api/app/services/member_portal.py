@@ -65,82 +65,45 @@ def _hours_for(connection: psycopg.Connection, member_id: uuid.UUID) -> tuple | 
     ).fetchone()
 
 
-def _day_status(
-    check_in: datetime | None,
-    check_out: datetime | None,
-    hours: tuple | None,
-    had_invalid: bool,
-) -> str:
-    if check_in is None:
-        return "INVALID" if had_invalid else "ABSENT"
-    if check_out is None:
-        return "MISSING_CHECK_OUT"
-    if hours is not None:
-        start_time, _, grace_minutes, _ = hours
-        local_check_in = check_in.astimezone(LOCAL_ZONE)
-        latest_ok = datetime.combine(
-            local_check_in.date(), start_time, tzinfo=LOCAL_ZONE
-        ) + timedelta(minutes=grace_minutes or 0)
-        if local_check_in > latest_ok:
-            return "LATE"
-    return "VALID"
+# The member's screen keeps its own vocabulary; the rows underneath are the
+# same ones the manager sees, so the two can no longer disagree about a day.
+_MEMBER_STATUS = {
+    "ON_TIME": "VALID",
+    "LATE": "LATE",
+    "OPEN": "MISSING_CHECK_OUT",
+    "NO_CHECK_IN": "MISSING_CHECK_IN",
+    "REJECTED_FACE": "INVALID",
+    "REJECTED_PLACE": "INVALID",
+}
 
 
 def attendance_days(member_id: uuid.UUID, date_from: date | None, date_to: date | None) -> dict:
-    """
-    One row per day: first valid check-in, last valid check-out, worked minutes
-    and a status. Only SUCCESS/WARNING_CONFIRMED count as presence; BLOCKED and
-    FAILED are surfaced separately so a rejected attempt is never mistaken for
-    attendance.
-    """
+    """One row per day of this person's own attendance, from the shared builder."""
+    from app.services.attendance_days import days as build_days
+
     start, end = _range(date_from, date_to)
     with psycopg.connect(DATABASE_URL) as connection:
-        rows = connection.execute(
-            """
-            SELECT
-                (e.server_time AT TIME ZONE %s)::date AS work_date,
-                min(e.server_time) FILTER (
-                    WHERE e.event_type = 'CHECK_IN' AND e.status IN ('SUCCESS', 'WARNING_CONFIRMED')
-                ) AS first_check_in,
-                max(e.server_time) FILTER (
-                    WHERE e.event_type = 'CHECK_OUT' AND e.status IN ('SUCCESS', 'WARNING_CONFIRMED')
-                ) AS last_check_out,
-                count(*) FILTER (WHERE e.status IN ('BLOCKED', 'FAILED')) AS rejected_count,
-                count(*) FILTER (WHERE e.status = 'WARNING_CONFIRMED') AS warning_count,
-                count(*) AS event_count,
-                (array_agg(l.name ORDER BY e.server_time))[1] AS location_name
-            FROM attendance_events e
-            JOIN locations l ON l.id = e.location_id
-            WHERE e.member_id = %s AND e.deleted_at IS NULL
-              AND (e.server_time AT TIME ZONE %s)::date BETWEEN %s AND %s
-            GROUP BY 1
-            ORDER BY 1 DESC
-            """,
-            (APP_TIMEZONE, member_id, APP_TIMEZONE, start, end),
-        ).fetchall()
+        rows = build_days(connection, "e.member_id = %s", [member_id], start, end, True)
+        hours = _hours_for(connection, member_id)
 
-        days = []
-        for row in rows:
-            work_date, check_in, check_out, rejected, warnings, events, location_name = row
-            hours = _hours_for(connection, member_id)
-            worked_minutes = None
-            if check_in is not None and check_out is not None and check_out > check_in:
-                worked_minutes = int((check_out - check_in).total_seconds() // 60)
-            days.append(
-                {
-                    "work_date": work_date.isoformat(),
-                    "check_in": check_in.isoformat() if check_in else None,
-                    "check_out": check_out.isoformat() if check_out else None,
-                    "worked_minutes": worked_minutes,
-                    "status": _day_status(check_in, check_out, hours, rejected > 0),
-                    "rejected_count": rejected,
-                    "warning_count": warnings,
-                    "event_count": events,
-                    "location_name": location_name,
-                    "scheduled_start": hours[0].isoformat() if hours else None,
-                    "scheduled_end": hours[1].isoformat() if hours else None,
-                }
-            )
+    days = [
+        {
+            "work_date": row["work_date"],
+            # Left as datetimes so every screen gets the same "…Z" from the
+            # response serializer rather than two spellings of one instant.
+            "check_in": row["check_in"],
+            "check_out": row["check_out"],
+            "worked_minutes": row["worked_minutes"],
+            "status": _MEMBER_STATUS[row["status"]],
+            "rejected_count": row["rejected"],
+            "warning_count": row["off_radius"],
+            "event_count": row["event_count"],
+            "location_name": row["location_name"],
+            "scheduled_start": hours[0].isoformat() if hours else None,
+            "scheduled_end": hours[1].isoformat() if hours else None,
+        }
+        for row in rows
+    ]
 
     present = [d for d in days if d["check_in"]]
     total_minutes = sum(d["worked_minutes"] or 0 for d in days)
@@ -156,7 +119,6 @@ def attendance_days(member_id: uuid.UUID, date_from: date | None, date_to: date 
             "total_worked_minutes": total_minutes,
         },
     }
-
 
 def attendance_day_events(member_id: uuid.UUID, work_date: date) -> list[dict]:
     """Every attempt on one day, including the rejected ones."""

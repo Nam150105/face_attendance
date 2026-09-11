@@ -15,7 +15,9 @@ const STATUS: Record<CalendarDayStatus, { dot: string; label: string }> = {
   ON_TIME: { dot: "var(--color-success)", label: "Đúng giờ" },
   LATE: { dot: "var(--color-danger)", label: "Đi muộn" },
   OPEN: { dot: "var(--color-warning)", label: "Chưa chấm ra" },
-  REJECTED: { dot: "var(--text-muted)", label: "Không chấm được" },
+  NO_CHECK_IN: { dot: "var(--color-warning)", label: "Thiếu lượt vào" },
+  REJECTED_FACE: { dot: "var(--text-muted)", label: "Khuôn mặt không khớp" },
+  REJECTED_PLACE: { dot: "var(--text-muted)", label: "Địa điểm không khớp" },
 };
 
 function monthKey(value: Date): string {
@@ -54,7 +56,7 @@ function buildGrid(month: string): (string | null)[] {
 
 /** The badge says whether they turned up; this says how the day went. */
 function timing(person: CalendarPerson): string {
-  if (person.status === "REJECTED") {
+  if (person.status === "REJECTED_FACE" || person.status === "REJECTED_PLACE") {
     return `${person.rejected} lần bị từ chối`;
   }
   const notes: string[] = [];
@@ -273,8 +275,8 @@ export function AttendanceCalendar({
                     </p>
                   </div>
                   <div className="day-row__status">
-                    <Badge tone={person.status === "REJECTED" ? "danger" : "success"}>
-                      {person.status === "REJECTED" ? "Không vào được" : "Đi làm"}
+                    <Badge tone={person.check_in ? "success" : "danger"}>
+                      {person.check_in ? "Đi làm" : STATUS[person.status].label}
                     </Badge>
                     <p className="event__meta" style={{ color: STATUS[person.status].dot }}>
                       {timing(person)}
