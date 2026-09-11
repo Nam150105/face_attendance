@@ -4,7 +4,7 @@ Tài liệu cho người tiếp nhận, bảo trì hoặc nâng cấp. Mô tả 
 
 > Khác với `02_ARCHITECTURE.md` — tệp đó là đặc tả thiết kế ban đầu. Tệp này mô tả cái đang chạy thật; khi hai bên lệch nhau, tệp này đúng về hiện trạng.
 
-Cập nhật: 2026-09-11 · migration `025_refresh_grace`
+Cập nhật: 2026-09-11 · migration `026_drop_my_locations`
 
 ---
 
@@ -115,7 +115,7 @@ Nếu sao chép địa điểm của nhóm vào `member_locations` lúc duyệt,
 
 ### Phân quyền
 
-`role_permissions (role, screen, can_view, can_create, can_edit, can_delete)` — 20 màn hình × 3 vai trò.
+`role_permissions (role, screen, can_view, can_create, can_edit, can_delete)` — 20 màn hình × 3 vai trò (màn hình `my-locations` bỏ ở migration 026: nơi chấm công đã hiện ở trang chủ và ngay trong ô chọn lúc chấm công).
 
 Ràng buộc trong CSDL: không cấp được thêm/sửa/xoá khi chưa cấp xem. Được xoá thứ mình không nhìn thấy là cái bẫy, không phải quyền.
 
@@ -203,7 +203,7 @@ Thông báo do **ứng dụng tự viết** (ví dụ "Bạn đã từ chối qu
 
 ### Menu ngắn, màn hình gộp
 
-Người quản lý có bốn mục: Tổng quan nhóm, Bản ghi, Quản lý nhóm, Nhật ký. Bốn màn hình cũ — yêu cầu vào nhóm, đổi khuôn mặt, duyệt chỉnh công, địa điểm — vẫn còn khoá quyền riêng ở phía máy chủ nhưng không nằm trong menu nữa (`hidden: true` trong `screens.ts`); nội dung của chúng nằm trong **Quản lý nhóm**. Duyệt người và giao việc cho người là một việc; tách ra bốn màn hình là cách để quên mất một trong bốn.
+Người quản lý có bốn mục: Tổng quan nhóm, Bản ghi, Quản lý nhóm, Nhật ký. Ba khoá quyền — yêu cầu vào nhóm, đổi khuôn mặt, duyệt chỉnh công — không còn trang riêng: các trang mồ côi đã xoá, khoá vẫn giữ vì máy chủ chặn endpoint theo chúng và bảng phân quyền cần một dòng để bật tắt (`hidden: true` trong `screens.ts`, trỏ về `/manager/teams`). Trang `/manager/locations` còn lại làm trình sửa địa điểm có bản đồ, đi tới từ Quản lý nhóm. Duyệt người và giao việc cho người là một việc; tách ra bốn màn hình là cách để quên mất một trong bốn.
 
 ### Một dòng một người, phần còn lại nằm sau cú chạm
 
@@ -339,7 +339,6 @@ Giao diện kiểm bằng Playwright chạy Chrome hệ thống, ngoài kho mã.
 | `FACE_MATCH_TOLERANCE` chưa đánh giá FAR/FRR | Đang dùng 0.6, mặc định của thư viện |
 | Ca qua đêm | Ràng buộc `expected_check_in < expected_check_out` chặn ca 22:00–06:00 |
 | Frontend chưa có test trong kho mã | Kiểm bằng Playwright ngoài kho |
-| `face-ai` nạp cả hai engine | ONNX vẫn nạp dù không dùng, tốn ~250 MB |
 
 ---
 

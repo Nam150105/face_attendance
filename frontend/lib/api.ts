@@ -7,7 +7,6 @@ import type {
   AttendanceDayEvent,
   AttendanceDaysResponse,
   AttendanceEvent,
-  AttendanceFilters,
   AttendanceResult,
   AttendanceState,
   AttendanceStatus,
@@ -391,9 +390,6 @@ export const api = {
   updateTeam(teamId: string, patch: { name?: string; is_open?: boolean }) {
     return request<{ id: string }>(`/manager/teams/${teamId}`, { method: "PUT", json: patch });
   },
-  deleteTeam(teamId: string) {
-    return request<{ deleted: boolean }>(`/manager/teams/${teamId}`, { method: "DELETE" });
-  },
   joinRequests() {
     return request<
       {
@@ -668,12 +664,6 @@ export const api = {
       { method: "POST", json: { query } },
     );
   },
-  reversePlace(latitude: number, longitude: number) {
-    return request<{ label: string | null }>("/manager/locations/reverse-place", {
-      method: "POST",
-      json: { latitude, longitude },
-    });
-  },
   managerDashboard() {
     return request<ManagerDashboard>("/manager/dashboard");
   },
@@ -686,17 +676,8 @@ export const api = {
       json: teamId ? { emails, team_id: teamId } : { emails },
     });
   },
-  addMemberByEmail(email: string, teamId?: string) {
-    return request<ManagedMember>("/manager/members/add-by-email", {
-      method: "POST",
-      json: teamId ? { email, team_id: teamId } : { email },
-    });
-  },
   updateMembership(memberId: string, status: string) {
     return request<ManagedMember>(`/manager/members/${memberId}`, { method: "PUT", json: { status } });
-  },
-  removeMember(memberId: string) {
-    return request<{ member_id: string }>(`/manager/members/${memberId}`, { method: "DELETE" });
   },
   managerLocations() {
     return request<ManagerLocation[]>("/manager/locations");
@@ -728,15 +709,12 @@ export const api = {
       method: "DELETE",
     });
   },
-  managerAttendance(filters: AttendanceFilters = {}) {
-    return request<Paged<ManagerAttendanceEvent>>(`/manager/attendance${queryString(filters)}`);
+  memberLoginHistory(memberId: string, limit = 50) {
+    return request<LoginHistory>(`/manager/members/${memberId}/login-history?limit=${limit}`);
   },
   async memberFacePhoto(memberId: string): Promise<string> {
     const blob = await requestBlob(`/manager/members/${memberId}/face-photo`);
     return URL.createObjectURL(blob);
-  },
-  memberLoginHistory(memberId: string, limit = 50) {
-    return request<LoginHistory>(`/manager/members/${memberId}/login-history?limit=${limit}`);
   },
   managerAttendanceSessions(params: {
     member_id?: string;

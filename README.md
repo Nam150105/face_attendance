@@ -69,6 +69,10 @@ Yêu cầu tối thiểu: Docker Desktop, 8 GB RAM, 10 GB đĩa trống.
 
 Xem [`docs/USER_GUIDE.md`](docs/USER_GUIDE.md) — dành cho người quản lý và thành viên, không cần biết kỹ thuật.
 
+## Báo cáo tổng hợp
+
+Xem [`docs/SYSTEM_REPORT.md`](docs/SYSTEM_REPORT.md) — use case cho từng vai trò, cách hệ thống vận hành, và vai trò của OpenCV / face_recognition trong từng bước xử lý ảnh, kèm chỉ dẫn tới đúng tệp mã nguồn.
+
 ## Tài liệu kỹ thuật
 
 Xem [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) — kiến trúc, mô hình dữ liệu, phân quyền và các quyết định thiết kế, dành cho người tiếp nhận hoặc nâng cấp hệ thống.

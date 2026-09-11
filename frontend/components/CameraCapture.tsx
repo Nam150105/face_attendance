@@ -429,7 +429,7 @@ export function CameraCapture({ captureLabel, labels, onCaptured, phase = "idle"
             }
             block
           >
-            {captureLabel} · đếm ngược {COUNTDOWN_FROM}s
+            {captureLabel}
           </Button>
         )}
       </div>

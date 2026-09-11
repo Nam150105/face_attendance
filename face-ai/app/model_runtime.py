@@ -19,7 +19,13 @@ class ModelRuntimeStatus:
 
 class ModelRuntime:
     def __init__(self) -> None:
-        self.enabled = os.environ.get("FACE_AI_ENABLE_EMBEDDINGS", "false").lower() == "true"
+        # The ONNX pair (SCRFD + ArcFace) is the alternative engine. With
+        # face_recognition selected it was still being loaded — about 250 MB
+        # resident for models nothing ever called.
+        self.enabled = (
+            os.environ.get("FACE_AI_ENABLE_EMBEDDINGS", "false").lower() == "true"
+            and os.environ.get("FACE_ENGINE", "face_recognition").lower() != "face_recognition"
+        )
         self.detector_path = Path(os.environ.get("FACE_DETECTOR_MODEL_PATH", "/models/detector/face_detector.onnx"))
         self.embedding_path = Path(os.environ.get("FACE_EMBEDDING_MODEL_PATH", "/models/embedding/arcface.onnx"))
         self.embedding_dimension = int(os.environ.get("FACE_EMBEDDING_DIMENSION", "512"))

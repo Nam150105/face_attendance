@@ -174,11 +174,6 @@ body {
   padding: var(--space-2) var(--space-2) var(--space-6);
 }
 
-.shell--wide {
-  max-width: 1200px;
-  padding: var(--space-2) var(--space-3) var(--space-6);
-}
-
 @media (max-width: 768px) {
   .shell, .shell--wide {
     padding: var(--space-2) var(--space-2) var(--space-4);
@@ -200,56 +195,6 @@ body {
   border: 1px solid var(--border-subtle);
   box-shadow: var(--shadow-sm), var(--glass-inner-highlight);
   border-radius: var(--radius-lg);
-}
-
-.topbar__brand {
-  display: flex;
-  align-items: center;
-  min-width: 0;
-  gap: 12px;
-  font-size: var(--text-md);
-  font-weight: 700;
-  color: var(--text-primary);
-  text-decoration: none;
-  letter-spacing: -0.02em;
-}
-
-.topbar__logo {
-  width: 32px;
-  height: 32px;
-  filter: drop-shadow(0 0 10px var(--border-primary));
-  transition: transform 0.3s cubic-bezier(0.16, 1, 0.3, 1);
-}
-
-.topbar__brand:hover .topbar__logo {
-  transform: scale(1.08) rotate(-3deg);
-}
-
-.topbar__brand-text {
-  display: flex;
-  flex-direction: column;
-  min-width: 0;
-}
-
-.topbar__brand-title,
-.topbar__brand-badge {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.topbar__brand-title {
-  font-size: 15px;
-  font-weight: 700;
-  line-height: 1.2;
-}
-
-.topbar__brand-badge {
-  font-size: 10px;
-  font-weight: 600;
-  color: var(--color-cyan);
-  text-transform: uppercase;
-  letter-spacing: 0.1em;
 }
 
 .topbar__meta {
@@ -328,83 +273,6 @@ body {
 @keyframes netPulse {
   0%, 100% { opacity: 1; }
   50% { opacity: 0.25; }
-}
-
-/* Manager Navigation Bar (Pill style) -------------------------------------- */
-.nav {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 5px;
-  background: var(--surface-raised);
-  backdrop-filter: blur(12px);
-  border: 1px solid var(--border-subtle);
-  border-radius: var(--radius-md);
-  margin-bottom: var(--space-3);
-  overflow-x: auto;
-  scrollbar-width: none;
-  /* Fades pinned to the ends: they only show while there is more to scroll to,
-     so a cut-off menu no longer looks like the whole menu. */
-  background-image:
-    linear-gradient(to right, rgba(255, 255, 255, 0.95), rgba(255, 255, 255, 0)),
-    linear-gradient(to left, rgba(255, 255, 255, 0.95), rgba(255, 255, 255, 0)),
-    linear-gradient(to right, rgba(0, 0, 0, 0.45), rgba(0, 0, 0, 0)),
-    linear-gradient(to left, rgba(0, 0, 0, 0.45), rgba(0, 0, 0, 0));
-  background-position: left center, right center, left center, right center;
-  background-repeat: no-repeat;
-  background-size: 28px 100%, 28px 100%, 14px 100%, 14px 100%;
-  background-attachment: local, local, scroll, scroll;
-  scroll-snap-type: x proximity;
-}
-.nav::-webkit-scrollbar {
-  display: none;
-}
-
-.nav__link {
-  scroll-snap-align: start;
-}
-
-.nav__link {
-  display: inline-flex;
-  align-items: center;
-  /* Never shrink: the bar scrolls instead of squeezing labels out of their pill. */
-  flex: 0 0 auto;
-  gap: 8px;
-  padding: 8px 16px;
-  border-radius: var(--radius-sm);
-  font-size: var(--text-sm);
-  font-weight: 500;
-  color: var(--text-secondary);
-  text-decoration: none;
-  white-space: nowrap;
-  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
-}
-
-.nav__link:hover {
-  color: var(--text-primary);
-  background: var(--surface-hover);
-}
-
-.nav__link[aria-current="page"] {
-  color: #fff;
-  background: linear-gradient(135deg, var(--color-primary-strong), var(--color-primary));
-  box-shadow: 0 2px 10px var(--color-primary-glow), var(--glass-inner-highlight);
-  font-weight: 600;
-}
-
-.nav__badge {
-  display: inline-grid;
-  place-items: center;
-  min-width: 18px;
-  height: 18px;
-  padding: 0 5px;
-  margin-left: 2px;
-  border-radius: var(--radius-full);
-  background: var(--color-danger);
-  color: #fff;
-  font-size: 10px;
-  font-weight: 700;
-  line-height: 1;
 }
 
 /* Typography Hierarchy ----------------------------------------------------- */
@@ -860,13 +728,6 @@ body {
   padding: 20px;
 }
 
-.chart-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-bottom: 20px;
-}
-
 /* Tall enough that a one-person difference between two days is visible from
    across the desk. At 180px the whole week fitted in a thumbnail. */
 .chart-bars {
@@ -1096,34 +957,6 @@ body {
 @keyframes popScale {
   0% { transform: translate(-50%, -50%) scale(0.6); opacity: 0; }
   100% { transform: translate(-50%, -50%) scale(1); opacity: 1; }
-}
-
-/* Quality Metrics Grid */
-.quality {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: var(--space-1);
-  background: var(--surface-card);
-  padding: 12px;
-  border-radius: var(--radius-md);
-  border: 1px solid var(--border-subtle);
-  margin-top: var(--space-2);
-}
-
-.quality__item {
-  text-align: center;
-}
-
-.quality__value {
-  font-size: var(--text-lg);
-  font-weight: 700;
-  color: var(--color-cyan);
-  font-variant-numeric: tabular-nums;
-}
-
-.quality__label {
-  font-size: var(--text-xs);
-  color: var(--text-muted);
 }
 
 /* Data Tables & Lists ------------------------------------------------------ */
@@ -1525,22 +1358,6 @@ body {
   gap: 6px;
 }
 
-.daylist__row {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 8px 12px;
-  padding: 10px 14px;
-  background: var(--surface-card);
-  border: 1px solid var(--border-subtle);
-  border-radius: var(--radius-md);
-}
-
-.daylist__main {
-  flex: 1 1 180px;
-  min-width: 0;
-}
-
 .daylist__date {
   font-size: var(--text-sm);
   font-weight: 700;
@@ -1703,27 +1520,6 @@ body {
 /* A control whose value is too long for half a row. */
 .filters-bar__wide {
   grid-column: 1 / -1;
-}
-
-.search-input-wrap {
-  position: relative;
-  flex: 1 1 220px;
-  min-width: 0;
-  width: 240px;
-  max-width: 100%;
-}
-
-.search-icon {
-  position: absolute;
-  left: 14px;
-  top: 50%;
-  transform: translateY(-50%);
-  color: var(--text-muted);
-  pointer-events: none;
-}
-
-.search-input {
-  padding-left: 40px !important;
 }
 
 .filter-pills {
@@ -1894,10 +1690,6 @@ body {
   color: var(--text-secondary);
 }
 
-.topbar__brand-badge--admin {
-  color: var(--color-danger-strong);
-}
-
 /* Dialog & Modals ---------------------------------------------------------- */
 .dialog-backdrop {
   position: fixed;
@@ -1957,59 +1749,7 @@ body {
   overflow-wrap: anywhere;
 }
 
-/* Side-by-Side Face Photo Inspector Modal */
-.evidence-compare {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: var(--space-2);
-  margin-bottom: var(--space-3);
-}
-
 @media (max-width: 600px) {
-  .evidence-compare {
-    grid-template-columns: 1fr;
-  }
-}
-
-.evidence-box {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-.evidence-box__label {
-  font-size: var(--text-xs);
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  color: var(--text-secondary);
-}
-
-/* Evidence photos come from phones in either orientation, so the frame hugs the
-   image instead of forcing one aspect ratio and cropping the face away. */
-.evidence-img-wrap {
-  width: 100%;
-  min-height: 200px;
-  padding: var(--space-1);
-  background:
-    linear-gradient(135deg, var(--surface-hover), transparent),
-    #020408;
-  border-radius: var(--radius-md);
-  overflow: hidden;
-  border: 1px solid var(--border-subtle);
-  display: grid;
-  place-items: center;
-}
-
-.evidence-img {
-  /* max-* rather than width/height 100%: a centered grid item ignores a
-     percentage height, which previously let the image paint past the frame. */
-  width: auto;
-  height: auto;
-  max-width: 100%;
-  max-height: min(58vh, 440px);
-  object-fit: contain;
-  border-radius: var(--radius-sm);
 }
 
 /* Map Pin & Leaflet Custom Styles */
@@ -2317,20 +2057,12 @@ body {
     font-size: var(--text-lg);
   }
 
-  .evidence-img {
-    max-height: 44dvh;
-  }
-
   .timeline {
     padding-left: 20px;
   }
 
   .timeline__dot {
     left: -20px;
-  }
-
-  .quality {
-    gap: 4px;
   }
 
   /* Phone cameras are portrait; a 4/3 landscape box wasted most of the screen
@@ -2375,10 +2107,6 @@ body {
 @media (max-width: 480px) {
   .page-title {
     font-size: var(--text-lg);
-  }
-
-  .topbar__brand-title {
-    font-size: var(--text-sm);
   }
 
   .datalist__row,
@@ -4043,7 +3771,6 @@ body {
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius-sm);
 }
-
 
 /* The sign-in page's account of itself ------------------------------------
    Below the form, never above it: somebody who already has an account came

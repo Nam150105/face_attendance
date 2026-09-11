@@ -6,6 +6,7 @@ Tài liệu chia làm hai nhóm. Nhóm đầu mô tả **hệ thống đang ch�
 
 | Tệp | Dành cho |
 |---|---|
+| [`SYSTEM_REPORT.md`](SYSTEM_REPORT.md) | **Đọc trước tiên nếu là người mới.** Báo cáo tổng hợp: use case, cách vận hành, OpenCV và face_recognition làm gì và nằm ở tệp nào |
 | [`ARCHITECTURE.md`](ARCHITECTURE.md) | Người tiếp nhận, bảo trì, nâng cấp. Kiến trúc thật, mô hình quyền, lý do các quyết định |
 | [`INSTALL.md`](INSTALL.md) | Dựng lại hệ thống trên máy khác, sao lưu, khôi phục |
 | [`USER_GUIDE.md`](USER_GUIDE.md) | Người quản lý và thành viên |

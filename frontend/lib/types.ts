@@ -314,18 +314,6 @@ export interface ManagerAttendanceEvent {
   source: "DEVICE" | "CORRECTION" | "MANUAL";
 }
 
-export interface AttendanceFilters {
-  include_invalid?: boolean;
-  member_id?: string;
-  location_id?: string;
-  date_from?: string;
-  date_to?: string;
-  status?: AttendanceStatus;
-  event_type?: AttendanceEventType;
-  limit?: number;
-  offset?: number;
-}
-
 export interface AuditLogEntry {
   id: string;
   actor_user_id: string;

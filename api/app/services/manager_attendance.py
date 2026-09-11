@@ -74,13 +74,6 @@ def _event(row: tuple) -> dict:
     }
 
 
-def _managed_member_ids(connection: psycopg.Connection, manager_id: uuid.UUID) -> list[uuid.UUID]:
-    rows = connection.execute(
-        "SELECT member_user_id FROM manager_memberships WHERE manager_user_id = %s AND status = 'ACTIVE'",
-        (manager_id,),
-    ).fetchall()
-    return [row[0] for row in rows]
-
 
 # Deleted rows drop out of every listing; they stay reachable by id so a manager
 # can still open the one they just removed.

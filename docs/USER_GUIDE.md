@@ -135,6 +135,10 @@ Chưa được duyệt, hoặc đã duyệt nhưng chưa được gán nơi ch�
 
 Vào **Chấm công → Đăng ký khuôn mặt**, chụp một ảnh.
 
+Mỗi bước chỉ có **một nút**: *Mở camera* → *Chụp ảnh* (chỉ sáng lên khi khung hình đạt) → *Dùng ảnh này* hoặc *Chụp lại*.
+
+Mở camera lên là màn hình **tự nói bạn cần chỉnh gì**: *Khuôn mặt quá xa* · *Quá gần* · *Đưa khuôn mặt vào giữa khung* · *Chỗ này hơi tối* · *Quá chói, quay lưng lại nguồn sáng* · *Chỉ một người trong khung hình* · *Giữ yên máy*. Vòng ngắm chuyển **xanh lá** và nút chụp mới bấm được khi khung hình đạt — lúc đó ảnh chụp ra chắc chắn không bị từ chối vì ánh sáng hay khung hình.
+
 Ba điều giúp đạt ngay lần đầu:
 - Chỉ một mình bạn trong khung hình
 - Đứng nơi sáng đều, đừng để đèn hay cửa sổ ngay sau lưng

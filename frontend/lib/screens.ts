@@ -45,7 +45,6 @@ export const SCREENS: ScreenDefinition[] = [
   { key: "home", href: "/", label: "Trang chủ", group: "Chấm công" },
   { key: "attendance", href: "/attendance", label: "Chấm công", group: "Chấm công", match: ["/attendance", "/enroll"] },
   { key: "history", href: "/history", label: "Lịch sử của tôi", group: "Chấm công" },
-  { key: "my-locations", href: "/locations", label: "Nơi chấm công", group: "Chấm công" },
   { key: "my-corrections", href: "/corrections", label: "Yêu cầu chỉnh công", group: "Chấm công" },
   { key: "notifications", href: "/notifications", label: "Thông báo", group: "Chấm công" },
   { key: "profile", href: "/profile", label: "Hồ sơ", group: "Chấm công" },
@@ -61,10 +60,13 @@ export const SCREENS: ScreenDefinition[] = [
     // menu entries made a manager hop back and forth to do one job.
     match: ["/manager/teams"],
   },
-  { key: "join-requests", href: "/manager/join-requests", label: "Yêu cầu vào nhóm", group: "Quản lý", hidden: true },
-  { key: "face-requests", href: "/manager/face-requests", label: "Đổi khuôn mặt", group: "Quản lý", hidden: true },
+  // Three permissions with no page of their own: the work happens inside
+  // "Quản lý nhóm", and the keys stay because the server gates its endpoints
+  // by them and the permission grid needs a row to switch them.
+  { key: "join-requests", href: "/manager/teams", label: "Yêu cầu vào nhóm", group: "Quản lý", hidden: true },
+  { key: "face-requests", href: "/manager/teams", label: "Đổi khuôn mặt", group: "Quản lý", hidden: true },
+  { key: "corrections", href: "/manager/teams", label: "Duyệt chỉnh công", group: "Quản lý", hidden: true },
   { key: "locations", href: "/manager/locations", label: "Địa điểm", group: "Quản lý", hidden: true },
-  { key: "corrections", href: "/manager/corrections", label: "Duyệt chỉnh công", group: "Quản lý", hidden: true },
   { key: "audit", href: "/manager/audit-logs", label: "Nhật ký", group: "Quản lý" },
 
   { key: "admin-overview", href: "/admin", label: "Tổng quan hệ thống", group: "Hệ thống" },
@@ -75,7 +77,9 @@ export const SCREENS: ScreenDefinition[] = [
   { key: "admin-errors", href: "/admin/errors", label: "Sự cố hệ thống", group: "Hệ thống" },
 ];
 
-const BY_HREF = new Map(SCREENS.map((screen) => [screen.href, screen]));
+// Hidden screens share the hub's address, so only the visible ones may claim a
+// path — otherwise /manager/teams would resolve to whichever came last.
+const BY_HREF = new Map(SCREENS.filter((screen) => !screen.hidden).map((screen) => [screen.href, screen]));
 
 /**
  * Which screen a path belongs to. Longest prefix wins, so /manager/attendance

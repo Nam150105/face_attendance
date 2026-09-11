@@ -391,7 +391,7 @@ export default function AttendancePage() {
             </div>
           ) : (
             <CameraCapture
-              captureLabel={checkedIn ? "Chụp ảnh check-out" : "Chụp ảnh check-in"}
+              captureLabel={checkedIn ? "Chụp để chấm ra" : "Chụp để chấm vào"}
               labels={LABELS}
               onCaptured={onCaptured}
               phase={phase}

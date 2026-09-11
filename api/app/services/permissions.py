@@ -30,7 +30,6 @@ SCREENS: tuple[str, ...] = (
     "home",
     "attendance",
     "history",
-    "my-locations",
     "my-corrections",
     "notifications",
     "profile",
@@ -63,7 +62,6 @@ DEFAULT_PERMISSIONS: dict[str, tuple[str, str, str]] = {
     "home":              ("v",    "v",     "v"),
     "attendance":        ("v",    "v",     "v"),
     "history":           ("v",    "v",     "v"),
-    "my-locations":      ("v",    "v",     "v"),
     "my-corrections":    ("v",    "v",     "v"),
     "notifications":     ("v",    "v",     "v"),
     "profile":           ("v",    "v",     "v"),
@@ -104,10 +102,6 @@ def permissions_for(role: str) -> dict[str, dict[str, bool]]:
         row[0]: {"view": row[1], "create": row[2], "edit": row[3], "delete": row[4]}
         for row in rows
     }
-
-
-def allowed_screens(role: str) -> list[str]:
-    return [screen for screen, actions in permissions_for(role).items() if actions["view"]]
 
 
 def _assert_allowed(role: str, screen: str, action: str) -> None:

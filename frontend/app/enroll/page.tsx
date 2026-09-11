@@ -203,23 +203,14 @@ export default function EnrollPage() {
                 Về trang chính
               </Button>
             </div>
-          ) : (
-            <Button
-              size="lg"
-              onClick={() => void submit()}
-              loading={phase === "working"}
-              disabled={!captured}
-              block
-            >
-              {changing
-                ? captured
-                  ? "Gửi cho người quản lý duyệt"
-                  : "Chụp ảnh để gửi duyệt"
-                : captured
-                  ? "Hoàn tất đăng ký"
-                  : "Chụp ảnh để tiếp tục"}
+          ) : captured ? (
+            // Only once there is a photo. Before that, the only thing to do is
+            // in the camera box; a second greyed-out "Chụp ảnh" underneath it
+            // just made people wonder which one they were meant to press.
+            <Button size="lg" onClick={() => void submit()} loading={phase === "working"} block>
+              {changing ? "Dùng ảnh này, gửi duyệt" : "Dùng ảnh này"}
             </Button>
-          )}
+          ) : null}
         </div>
       </Card>
 

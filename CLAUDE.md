@@ -8,7 +8,8 @@ Spec nằm trong [`docs/`](docs/) và **luôn thắng** khi mâu thuẫn với c
 
 | File | Dùng khi |
 |---|---|
-| `ARCHITECTURE.md` | **Đọc trước tiên.** Kiến trúc hiện tại, mô hình quyền, quyết định thiết kế |
+| `SYSTEM_REPORT.md` | **Đọc trước tiên.** Báo cáo tổng hợp: use case, vận hành, OpenCV/face_recognition nằm ở đâu |
+| `ARCHITECTURE.md` | Kiến trúc hiện tại, mô hình quyền, quyết định thiết kế |
 | `INSTALL.md` | Dựng lại hệ thống trên máy khác |
 | `USER_GUIDE.md` | Người quản lý và thành viên dùng thế nào |
 | `00_MASTER_SPEC.md` | Definition of Done tổng thể, nguyên tắc bảo mật |
@@ -119,7 +120,7 @@ Tài khoản demo do migration `002_seed_local_demo` tạo ra chỉ dùng cho m�
 ## 10. Trạng thái hiện tại
 
 - **Xong:** Phase 0–10, cộng các đợt mở rộng sau roadmap: nhận diện bằng OpenCV + face_recognition, phân quyền theo màn hình và hành động, nhóm có mã cho người mới xin vào, duyệt đổi khuôn mặt, mã lỗi tra cứu được, cách ly dữ liệu theo địa điểm, một người một quản lý, một phiên mỗi ngày, và màn hình **Quản lý nhóm** gộp cả duyệt người / địa điểm / chỉnh công / đổi khuôn mặt.
-- **Migration hiện tại:** `025_refresh_grace`.
+- **Migration hiện tại:** `026_drop_my_locations`.
 - **Tiếp theo:** xem mục 9 và 10 trong `docs/ARCHITECTURE.md`.
 - **Đã deploy:** https://namnangno.click, chạy từ máy dev qua Cloudflare Tunnel (service `tunnel` trong compose).
 - **Nợ kỹ thuật đã biết:** xem mục "Known issues" trong [README.md](README.md).
@@ -128,7 +129,6 @@ Tài khoản demo do migration `002_seed_local_demo` tạo ra chỉ dùng cho m�
 
 - Liveness / anti-spoofing: **không có**. Ảnh chụp lại màn hình vẫn qua được. Đang chờ chọn provider thương mại.
 - Ca qua đêm (22:00–06:00): **không lưu được**, do ràng buộc `expected_check_in < expected_check_out`.
-- `face-ai` nạp **cả hai** engine dù chỉ dùng `face_recognition` — tốn khoảng 250 MB thường trực.
 - Lịch sao lưu tự động: **chưa có**. Script đã có nhưng phải chạy tay, chưa gắn cron.
 - Tài khoản demo `manager@example.com` / `member@example.com` từ migration 002 **vẫn tồn tại và đang ACTIVE** trên bản deploy công khai (manager@example.com đang quản lý 3 thành viên). Cân nhắc đổi mật khẩu hoặc chuyển sang SUSPENDED.
 - Retention dữ liệu sinh trắc học: **chưa có**. `07_SECURITY_PRIVACY.md` §6 yêu cầu thời hạn lưu cấu hình được và không giữ vô hạn — hiện ảnh bằng chứng và embedding được giữ mãi, chưa có job dọn.
