@@ -10,6 +10,7 @@ import { ManagerShell } from "../../../components/ManagerShell";
 import { TimeField } from "../../../components/TimeField";
 import { Alert, Badge, Button, Card, Checkbox, Empty, Field, LoadingRows } from "../../../components/ui";
 import { api } from "../../../lib/api";
+import { readPosition } from "../../../lib/geo";
 import { describeError } from "../../../lib/messages";
 import { shortTime } from "../../../lib/member";
 import type { LocationInput, ManagedMember, ManagerLocation } from "../../../lib/types";
@@ -49,8 +50,20 @@ export default function ManagerLocationsPage() {
   // The pin the manager tapped: a card under the map says what it is and
   // offers the same actions as the row, so the map is a way in, not a picture.
   const [picked, setPicked] = useState<string | null>(null);
+  const [pinning, setPinning] = useState(false);
+  const [pinNotice, setPinNotice] = useState<string | null>(null);
+  // Radii are typed as text so a field can be emptied while typing; the
+  // number is read back on save. Snapping "" to 10 the instant the field was
+  // cleared made "150" come out as "1050".
+  const [radiusText, setRadiusText] = useState({ allow: "", warning: "" });
 
   const pickedLocation = (locations ?? []).find((row) => row.id === picked) ?? null;
+
+  /** From the list to the map: pick the pin and bring the map on screen. */
+  function pickOnMap(id: string) {
+    setPicked(id);
+    document.querySelector(".site-map")?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }
   const siteMarkers = useMemo<MapMarker[]>(
     () =>
       (locations ?? []).map((row) => ({
@@ -93,12 +106,31 @@ export default function ManagerLocationsPage() {
 
   function openCreate() {
     setForm(EMPTY_FORM);
+    setRadiusText({ allow: String(EMPTY_FORM.allow_radius_meters), warning: String(EMPTY_FORM.warning_radius_meters) });
     setEditing(null);
     setCreating(true);
     setFormError(null);
+    setPinNotice(null);
+    // A manager usually creates a place while standing in it: the pin starts
+    // at the phone's position, and the form says so. Refused or slow GPS
+    // leaves the pin on the city centre with a hint to search or drag.
+    setPinning(true);
+    readPosition()
+      .then((position) => {
+        setForm((current) =>
+          current.latitude === EMPTY_FORM.latitude && current.longitude === EMPTY_FORM.longitude
+            ? { ...current, latitude: position.latitude, longitude: position.longitude }
+            : current,
+        );
+        setPinNotice(`Đã ghim tại vị trí hiện tại của bạn (±${position.accuracyMeters.toFixed(0)} m). Kéo ghim nếu cần chỉnh.`);
+      })
+      .catch(() => setPinNotice("Không lấy được vị trí hiện tại. Tìm địa chỉ, dán liên kết Google Maps hoặc kéo ghim trên bản đồ."))
+      .finally(() => setPinning(false));
   }
 
   function openEdit(location: ManagerLocation) {
+    setPinNotice(null);
+    setRadiusText({ allow: String(location.allow_radius_meters), warning: String(location.warning_radius_meters) });
     setForm({
       name: location.name,
       address: location.address,
@@ -132,6 +164,10 @@ export default function ManagerLocationsPage() {
     setFormError(null);
     if (!form.name.trim()) {
       setFormError("Vui lòng nhập tên địa điểm.");
+      return;
+    }
+    if (!radiusText.allow.trim() || !radiusText.warning.trim() || form.allow_radius_meters < 1) {
+      setFormError("Nhập hai khoảng cách bằng mét.");
       return;
     }
     if (form.warning_radius_meters <= form.allow_radius_meters) {
@@ -168,6 +204,7 @@ export default function ManagerLocationsPage() {
     }
     try {
       await api.destroyLocation(location.id);
+      setPicked((current) => (current === location.id ? null : current));
       await load();
     } catch (cause) {
       setError(describeError(cause));
@@ -325,7 +362,7 @@ export default function ManagerLocationsPage() {
       {error ? <Alert tone="danger">{error}</Alert> : null}
 
       {locations && locations.length > 0 ? (
-        <Card title="Bản đồ địa điểm" subtitle="Mỗi ghim là một nơi chấm công. Bấm ghim để sửa, gán người hoặc bật tắt.">
+        <Card title="Bản đồ địa điểm" subtitle="Mỗi ghim là một nơi chấm công. Bấm ghim, hoặc bấm một dòng trong danh sách, để sửa, gán người, bật tắt hay xoá.">
           <div className="site-map">
             <GeoMap
               circles={siteCircles}
@@ -362,8 +399,18 @@ export default function ManagerLocationsPage() {
                     </Button>
                   ) : null}
                   {may.edit ? (
-                    <Button size="sm" variant="ghost" onClick={() => void toggleDeactivate(pickedLocation)}>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      onClick={() => void toggleDeactivate(pickedLocation)}
+                      style={{ color: pickedLocation.is_active ? "var(--color-warning-strong)" : "var(--color-success)" }}
+                    >
                       {pickedLocation.is_active ? "Tắt" : "Bật"}
+                    </Button>
+                  ) : null}
+                  {may.delete ? (
+                    <Button size="sm" variant="ghost" onClick={() => void destroy(pickedLocation)} style={{ color: "var(--color-danger)" }}>
+                      Xoá
                     </Button>
                   ) : null}
                   <Button size="sm" variant="ghost" onClick={() => setPicked(null)}>
@@ -390,16 +437,24 @@ export default function ManagerLocationsPage() {
                   <th>Giờ làm việc</th>
                   <th>Khu vực cho phép</th>
                   <th>Trạng thái</th>
-                  <th aria-label="Thao tác" />
                 </tr>
               </thead>
               <tbody>
                 {locations.map((location) => (
-                  <tr key={location.id} className={location.id === picked ? "is-picked" : undefined}>
+                  <tr
+                    key={location.id}
+                    className={`is-clickable${location.id === picked ? " is-picked" : ""}`}
+                    tabIndex={0}
+                    onClick={() => pickOnMap(location.id)}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter" || event.key === " ") {
+                        event.preventDefault();
+                        pickOnMap(location.id);
+                      }
+                    }}
+                  >
                     <td data-label="Địa điểm">
-                      <button type="button" className="link-button event__label" onClick={() => setPicked(location.id)}>
-                        {location.name}
-                      </button>
+                      <p className="event__label">{location.name}</p>
                       <p className="event__meta">{location.address ?? "Chưa có địa chỉ"}</p>
                     </td>
                     <td data-label="Giờ làm việc">
@@ -422,40 +477,6 @@ export default function ManagerLocationsPage() {
                       <Badge tone={location.is_active ? "success" : "neutral"}>
                         {location.is_active ? "Đang bật" : "Đã tắt"}
                       </Badge>
-                    </td>
-                    <td data-label="Thao tác">
-                      <div className="row">
-                        {mayManageMembers.edit ? (
-                          <Button size="sm" variant="secondary" onClick={() => void openAssign(location)}>
-                            Gán người
-                          </Button>
-                        ) : null}
-                        {may.edit ? (
-                          <Button size="sm" variant="secondary" onClick={() => openEdit(location)}>
-                            Sửa
-                          </Button>
-                        ) : null}
-                        {may.edit ? (
-                          <Button
-                            size="sm"
-                            variant="ghost"
-                            onClick={() => void toggleDeactivate(location)}
-                            style={{ color: location.is_active ? "var(--color-warning)" : "var(--color-success)" }}
-                          >
-                            {location.is_active ? "Tắt" : "Bật"}
-                          </Button>
-                        ) : null}
-                        {may.delete ? (
-                          <Button
-                            size="sm"
-                            variant="ghost"
-                            onClick={() => void destroy(location)}
-                            style={{ color: "var(--color-danger)" }}
-                          >
-                            Xoá
-                          </Button>
-                        ) : null}
-                      </div>
                     </td>
                   </tr>
                 ))}
@@ -480,6 +501,8 @@ export default function ManagerLocationsPage() {
               onChange={(e) => setForm({ ...form, name: e.target.value })}
             />
 
+            {pinning ? <Alert tone="info">Đang lấy vị trí hiện tại để ghim…</Alert> : null}
+            {!pinning && pinNotice ? <Alert tone="info">{pinNotice}</Alert> : null}
             <LocationPicker
               point={{ latitude: form.latitude, longitude: form.longitude }}
               onPointChange={setPoint}
@@ -492,20 +515,32 @@ export default function ManagerLocationsPage() {
               <Field
                 label="Chấm công được trong (mét)"
                 type="number"
+                inputMode="numeric"
                 min={1}
                 max={5000}
                 required
-                value={form.allow_radius_meters}
-                onChange={(e) => setForm({ ...form, allow_radius_meters: parseInt(e.target.value, 10) || 10 })}
+                value={radiusText.allow}
+                onChange={(e) => {
+                  const text = e.target.value;
+                  setRadiusText((current) => ({ ...current, allow: text }));
+                  const value = parseInt(text, 10);
+                  if (!Number.isNaN(value)) setForm({ ...form, allow_radius_meters: value });
+                }}
               />
               <Field
                 label="Xa hơn mức này thì chặn (mét)"
                 type="number"
+                inputMode="numeric"
                 min={form.allow_radius_meters + 1}
                 max={10000}
                 required
-                value={form.warning_radius_meters}
-                onChange={(e) => setForm({ ...form, warning_radius_meters: parseInt(e.target.value, 10) || 20 })}
+                value={radiusText.warning}
+                onChange={(e) => {
+                  const text = e.target.value;
+                  setRadiusText((current) => ({ ...current, warning: text }));
+                  const value = parseInt(text, 10);
+                  if (!Number.isNaN(value)) setForm({ ...form, warning_radius_meters: value });
+                }}
               />
             </div>
             <p className="field__hint">

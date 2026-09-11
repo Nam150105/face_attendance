@@ -12,7 +12,7 @@ Làm đúng thứ tự này thì mọi thứ sau đó chạy trơn.
 
 ### Bước 1 — Tạo địa điểm
 
-Vào **Quản lý nhóm**, mở một nhóm, mục *Địa điểm chấm công* → **Quản lý địa điểm**. Trang *Địa điểm* mở đầu bằng **bản đồ mọi nơi chấm công**: mỗi ghim một địa điểm (ghim xám là nơi đã tắt), bấm ghim thì thẻ dưới bản đồ hiện tên, giờ, bán kính và các nút *Sửa · Gán người · Tắt/Bật*; bấm tên trong danh sách thì bản đồ bay tới nơi đó.
+Vào **Quản lý nhóm**, mở một nhóm, mục *Địa điểm chấm công* → **Quản lý địa điểm**. Trang *Địa điểm* mở đầu bằng **bản đồ mọi nơi chấm công**: mỗi ghim một địa điểm (ghim xám là nơi đã tắt), bấm ghim thì thẻ dưới bản đồ hiện tên, giờ, bán kính và các nút *Sửa · Gán người · Tắt/Bật · Xoá*. **Danh sách địa điểm** bên dưới chỉ để xem: bấm một dòng là bản đồ bay tới ghim đó và thẻ thao tác hiện ra. Bấm **Thêm địa điểm** thì ghim tự đặt ở vị trí điện thoại của bạn (nếu cho phép định vị) — kéo ghim, tìm địa chỉ hoặc dán liên kết Google Maps để chỉnh.
 
 - **Tìm trên bản đồ**: gõ địa chỉ, hoặc mở Google Maps trên điện thoại, chạm giữ vào đúng vị trí, chọn *Chia sẻ* rồi dán liên kết vào ô tìm. Cách này chính xác hơn gõ tên.
 - **Chấm công được trong (mét)**: đứng trong vòng tròn xanh thì chấm công bình thường. Với văn phòng, 50–100m là hợp lý.

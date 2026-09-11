@@ -49,8 +49,9 @@ export function circlePolygon(center: GeoPoint, radiusMeters: number, steps = 64
 /** A zoom at which a circle of this radius fills a comfortable share of the view. */
 export function zoomForRadius(radiusMeters: number, latitude: number): number {
   // Metres per pixel at zoom z is 156543.03 · cos(lat) / 2^z; aim for the
-  // circle's diameter to take about 320 px.
-  const metersPerPixel = (2 * radiusMeters) / 320;
+  // circle's diameter to take about 200 px, so a 50 m fence and the streets
+  // around it are both in the frame. 18 is as close as the tiles go.
+  const metersPerPixel = (2 * radiusMeters) / 200;
   const zoom = Math.log2((156543.03 * Math.cos((latitude * Math.PI) / 180)) / metersPerPixel);
-  return Math.min(19, Math.max(3, zoom));
+  return Math.min(18, Math.max(3, zoom));
 }
