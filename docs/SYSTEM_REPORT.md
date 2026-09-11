@@ -112,7 +112,7 @@ Người quản lý cũng là một thành viên đầy đủ (có hồ sơ, có
 ### UC6 · Tạo nhóm và gắn địa điểm
 
 1. *Quản lý nhóm* → gõ tên → **Tạo nhóm**. Hệ thống sinh mã 6 ký tự (bảng chữ bỏ `O/0`, `I/1` vì mã được đọc qua điện thoại). Bấm mã để sao chép.
-2. Bấm tên nhóm để mở tại chỗ: địa điểm của nhóm, người đang chờ, người trong nhóm.
+2. Bấm tên nhóm để mở tại chỗ: địa điểm của nhóm, người đang chờ, người trong nhóm (mỗi người một dòng kèm chấm trạng thái, có ô lọc; tạm ngưng/gỡ nằm trong hộp chi tiết của người đó). Ba ô đếm việc chờ luôn nằm trên một hàng, kể cả điện thoại; các form thêm địa điểm/thêm người gập lại cho tới khi cần.
 3. Trang *Địa điểm* mở đầu bằng bản đồ ghim mọi nơi chấm công (bấm ghim hoặc bấm dòng trong danh sách → thẻ thao tác: sửa, gán người, bật tắt, xoá; danh sách chỉ để xem). Tạo địa điểm mới thì ghim tự đặt ở vị trí GPS của người tạo. *Địa điểm* có thể tạo bằng cách tìm địa chỉ, dán liên kết Google Maps (chỉ chấp nhận host trong danh sách cho phép, chống SSRF) hoặc kéo ghim trên bản đồ MapLibre. Mỗi địa điểm có hai bán kính (cho phép / cảnh báo), **ca làm việc** — *Ca ngày* (vào < ra) hoặc *Ca đêm* vắt qua nửa đêm (ví dụ 22:00 – 06:00) — với giờ vào / giờ ra **bắt buộc**, số phút muộn chấp nhận.
 4. **Gắn địa điểm cho nhóm là một quy tắc**, tính bằng truy vấn: ai vào nhóm là chấm được ở đó ngay, rời nhóm là mất ngay. Không sao chép, nên không bao giờ lệch.
 5. Thêm người đã có tài khoản: dán danh sách email, **mỗi email một dòng**; kết quả nêu rõ từng email chưa thêm được và vì sao.

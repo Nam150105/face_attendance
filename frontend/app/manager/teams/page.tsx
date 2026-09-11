@@ -7,7 +7,6 @@ import { ManagerShell } from "../../../components/ManagerShell";
 import { MemberDetail } from "../../../components/MemberDetail";
 import {
   Alert,
-  Badge,
   Button,
   Card,
   Empty,
@@ -134,6 +133,8 @@ export default function TeamsPage() {
   const [newTeam, setNewTeam] = useState("");
   const [copied, setCopied] = useState<string | null>(null);
   const [detailFor, setDetailFor] = useState<ManagedMember | null>(null);
+  // Twenty people are a scroll; a filter box makes them a glance.
+  const [rosterSearch, setRosterSearch] = useState("");
   const [rejecting, setRejecting] = useState<{ kind: Queue; id: string; label: string } | null>(null);
   const [note, setNote] = useState("");
 
@@ -336,9 +337,9 @@ export default function TeamsPage() {
   }
 
   const queues: { key: Queue; label: string; count: number; visible: boolean }[] = [
-    { key: "join", label: "Y/C vào nhóm", count: joins.length, visible: mayJoin.view },
-    { key: "face", label: "Y/C Đổi khuôn mặt", count: faces.length, visible: mayFace.view },
-    { key: "correction", label: "Y/C Chỉnh công", count: corrections.length, visible: mayCorrect.view },
+    { key: "join", label: "Vào nhóm", count: joins.length, visible: mayJoin.view },
+    { key: "face", label: "Đổi khuôn mặt", count: faces.length, visible: mayFace.view },
+    { key: "correction", label: "Chỉnh công", count: corrections.length, visible: mayCorrect.view },
   ];
 
   return (
@@ -355,7 +356,7 @@ export default function TeamsPage() {
       {error ? <Alert tone="danger">{error}</Alert> : null}
       {notice ? <Alert tone="success">{notice}</Alert> : null}
 
-      <div className="queue-bar">
+      <div className="queue-bar" role="group" aria-label="Yêu cầu đang chờ">
         {queues
           .filter((item) => item.visible)
           .map((item) => (
@@ -675,9 +676,11 @@ export default function TeamsPage() {
                         )}
 
                         {may.edit ? (
+                          <details className="disclosure">
+                            <summary>Thêm địa điểm cho nhóm</summary>
                           <div className="row row--form">
                             <SelectField
-                              label="Thêm địa điểm cho nhóm"
+                              label="Địa điểm"
                               value={placeToAdd}
                               onChange={(event) => setPlaceToAdd(event.target.value)}
                             >
@@ -697,6 +700,7 @@ export default function TeamsPage() {
                               Quản lý địa điểm
                             </Link>
                           </div>
+                          </details>
                         ) : null}
                       </section>
 
@@ -746,90 +750,84 @@ export default function TeamsPage() {
                       ) : null}
 
                       <section className="unit__section">
-                        <h3 className="subhead">Người trong nhóm</h3>
+                        <div className="unit__section-head">
+                          <h3 className="subhead">Người trong nhóm{roster ? ` (${roster.length})` : ""}</h3>
+                          {roster && roster.length > 6 ? (
+                            <input
+                              className="input input--sm"
+                              placeholder="Lọc theo tên, email…"
+                              value={rosterSearch}
+                              onChange={(event) => setRosterSearch(event.target.value)}
+                              aria-label="Lọc người trong nhóm"
+                            />
+                          ) : null}
+                        </div>
                         {roster === null ? (
                           <LoadingRows count={3} />
                         ) : roster.length === 0 ? (
                           <Empty>Chưa ai ở trong nhóm này.</Empty>
                         ) : (
-                          <div className="stack stack--tight">
-                            {roster.map((member) => (
-                              <div className="line" key={member.user_id}>
-                                <button
-                                  type="button"
-                                  className="line__body line__body--action"
-                                  onClick={() => setDetailFor(member)}
-                                  title="Xem chi tiết"
-                                >
-                                  <p className="person__name">{member.full_name ?? member.email}</p>
-                                  <p className="event__meta">
-                                    {member.full_name ? member.email : "Chưa điền hồ sơ"}
-                                    {member.position ? ` · ${member.position}` : ""}
-                                  </p>
-                                </button>
-                                <Badge tone={member.membership_status === "ACTIVE" ? "success" : "warning"}>
-                                  {member.membership_status === "ACTIVE" ? "Đang hoạt động" : "Tạm ngưng"}
-                                </Badge>
-                                {may.edit ? (
-                                  <Button
-                                    size="sm"
-                                    variant="ghost"
-                                    disabled={busy}
-                                    onClick={() =>
-                                      void setMemberStatus(
-                                        team.id,
-                                        member.user_id,
-                                        member.membership_status === "ACTIVE" ? "SUSPENDED" : "ACTIVE",
-                                        member.membership_status === "ACTIVE"
-                                          ? `Tạm ngưng ${member.full_name ?? member.email}`
-                                          : `Cho ${member.full_name ?? member.email} hoạt động lại`,
-                                      )
-                                    }
+                          <ul className="roster">
+                            {roster
+                              .filter((member) => {
+                                const needle = rosterSearch.trim().toLowerCase();
+                                return (
+                                  !needle ||
+                                  (member.full_name ?? "").toLowerCase().includes(needle) ||
+                                  member.email.toLowerCase().includes(needle)
+                                );
+                              })
+                              .map((member) => (
+                                <li key={member.user_id}>
+                                  {/* One line per person: name, a status dot, a chevron. Everything
+                                      else — email, position, photo, history, suspend, remove — is
+                                      one tap away in the detail dialog. */}
+                                  <button
+                                    type="button"
+                                    className="roster__row"
+                                    onClick={() => setDetailFor(member)}
+                                    aria-label={`${member.full_name ?? member.email} · ${member.membership_status === "ACTIVE" ? "đang hoạt động" : "tạm ngưng"}`}
                                   >
-                                    {member.membership_status === "ACTIVE" ? "Tạm ngưng" : "Mở lại"}
-                                  </Button>
-                                ) : null}
-                                {may.delete ? (
-                                  <Button
-                                    size="sm"
-                                    variant="ghost"
-                                    disabled={busy}
-                                    onClick={() =>
-                                      void setMemberStatus(
-                                        team.id,
-                                        member.user_id,
-                                        "REMOVED",
-                                        `Gỡ ${member.full_name ?? member.email} khỏi nhóm`,
-                                      )
-                                    }
-                                    style={{ color: "var(--color-danger)" }}
-                                  >
-                                    Gỡ
-                                  </Button>
-                                ) : null}
-                              </div>
-                            ))}
-                          </div>
+                                    <span
+                                      className={`roster__dot${member.membership_status === "ACTIVE" ? " is-active" : ""}`}
+                                      aria-hidden="true"
+                                    />
+                                    <span className="roster__text">
+                                      <span className="roster__name">{member.full_name ?? member.email}</span>
+                                      <span className="roster__meta">
+                                        {member.full_name ? member.email : "Chưa điền hồ sơ"}
+                                        {member.position ? ` · ${member.position}` : ""}
+                                        {member.membership_status !== "ACTIVE" ? " · tạm ngưng" : ""}
+                                      </span>
+                                    </span>
+                                    <span className="roster__chevron" aria-hidden="true">›</span>
+                                  </button>
+                                </li>
+                              ))}
+                          </ul>
                         )}
 
                         {may.create ? (
-                          <div className="inline-form inline-form--stacked">
-                            <TextAreaField
-                              label="Thêm người vào nhóm"
-                              hint="Mỗi email một dòng. Họ phải có tài khoản trên hệ thống rồi."
-                              rows={3}
-                              placeholder={"an@congty.vn\nbinh@congty.vn"}
-                              value={inviteEmail}
-                              onChange={(event) => setInviteEmail(event.target.value)}
-                            />
-                            <Button
-                              loading={busy}
-                              disabled={!inviteEmail.trim()}
-                              onClick={() => void invite(team.id)}
-                            >
-                              Thêm{emailCount(inviteEmail) > 1 ? ` ${emailCount(inviteEmail)} người` : ""}
-                            </Button>
-                          </div>
+                          <details className="disclosure">
+                            <summary>Thêm người vào nhóm</summary>
+                            <div className="inline-form inline-form--stacked">
+                              <TextAreaField
+                                label="Email, mỗi người một dòng"
+                                hint="Họ phải có tài khoản trên hệ thống rồi."
+                                rows={3}
+                                placeholder={"an@congty.vn\nbinh@congty.vn"}
+                                value={inviteEmail}
+                                onChange={(event) => setInviteEmail(event.target.value)}
+                              />
+                              <Button
+                                loading={busy}
+                                disabled={!inviteEmail.trim()}
+                                onClick={() => void invite(team.id)}
+                              >
+                                Thêm{emailCount(inviteEmail) > 1 ? ` ${emailCount(inviteEmail)} người` : ""}
+                              </Button>
+                            </div>
+                          </details>
                         ) : null}
                       </section>
                     </div>
@@ -841,7 +839,52 @@ export default function TeamsPage() {
         )}
       </Card>
 
-      {detailFor ? <MemberDetail member={detailFor} onClose={() => setDetailFor(null)} /> : null}
+      {detailFor ? (
+        <MemberDetail
+          member={detailFor}
+          onClose={() => setDetailFor(null)}
+          actions={[
+            ...(may.edit && openTeam
+              ? [
+                  {
+                    label: detailFor.membership_status === "ACTIVE" ? "Tạm ngưng" : "Mở lại",
+                    disabled: busy,
+                    onClick: () => {
+                      const teamId = openTeam;
+                      const next = detailFor.membership_status === "ACTIVE" ? "SUSPENDED" : "ACTIVE";
+                      void setMemberStatus(
+                        teamId,
+                        detailFor.user_id,
+                        next,
+                        next === "SUSPENDED"
+                          ? `Tạm ngưng ${detailFor.full_name ?? detailFor.email}`
+                          : `Cho ${detailFor.full_name ?? detailFor.email} hoạt động lại`,
+                      ).then(() => setDetailFor(null));
+                    },
+                  },
+                ]
+              : []),
+            ...(may.delete && openTeam
+              ? [
+                  {
+                    label: "Gỡ khỏi nhóm",
+                    tone: "danger" as const,
+                    disabled: busy,
+                    onClick: () => {
+                      const teamId = openTeam;
+                      void setMemberStatus(
+                        teamId,
+                        detailFor.user_id,
+                        "REMOVED",
+                        `Gỡ ${detailFor.full_name ?? detailFor.email} khỏi nhóm`,
+                      ).then(() => setDetailFor(null));
+                    },
+                  },
+                ]
+              : []),
+          ]}
+        />
+      ) : null}
     </ManagerShell>
   );
 }

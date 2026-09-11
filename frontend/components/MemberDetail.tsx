@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 
 import { Dialog } from "./Dialog";
-import { Alert, Badge, Empty, LoadingRows } from "./ui";
+import { Alert, Badge, Button, Empty, LoadingRows } from "./ui";
 import { api } from "../lib/api";
 import { formatDateTime } from "../lib/geo";
 import { describeError } from "../lib/messages";
@@ -54,7 +54,19 @@ function Detail({ label, children }: { label: string; children: React.ReactNode 
  * What it shows is still cut to this manager's own places — a colleague who
  * shares the person keeps their site data to themselves.
  */
-export function MemberDetail({ member, onClose }: { member: ManagedMember; onClose: () => void }) {
+export function MemberDetail({
+  member,
+  onClose,
+  actions,
+}: {
+  member: ManagedMember;
+  onClose: () => void;
+  /**
+   * What the manager may do to this membership. The roster row used to carry
+   * these buttons; twenty rows of "Tạm ngưng · Gỡ" was most of a phone screen.
+   */
+  actions?: { label: string; tone?: "danger"; onClick: () => void; disabled?: boolean }[];
+}) {
   const [photo, setPhoto] = useState<string | null>(null);
   const [logins, setLogins] = useState<{
     totals: Record<string, number>;
@@ -91,6 +103,22 @@ export function MemberDetail({ member, onClose }: { member: ManagedMember; onClo
     <Dialog title={member.full_name ?? member.email} onClose={onClose}>
       <div className="stack">
         {error ? <Alert tone="danger">{error}</Alert> : null}
+
+        {actions && actions.length > 0 ? (
+          <div className="row">
+            {actions.map((action) => (
+              <Button
+                key={action.label}
+                size="sm"
+                variant={action.tone === "danger" ? "danger" : "secondary"}
+                disabled={action.disabled}
+                onClick={action.onClick}
+              >
+                {action.label}
+              </Button>
+            ))}
+          </div>
+        ) : null}
 
         <div className="profile-head">
           {photo ? (

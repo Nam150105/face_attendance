@@ -97,9 +97,9 @@ Hoặc bạn **Xoá cả ngày công** kèm lý do.
 
 ### Xem thông tin một người
 
-**Quản lý nhóm** → bấm vào nhóm → bấm vào tên người đó trong mục *Người trong nhóm*.
+**Quản lý nhóm** → bấm vào nhóm → bấm vào tên người đó trong mục *Người trong nhóm*. Danh sách này mỗi người một dòng — chấm xanh là đang hoạt động, chấm vàng là tạm ngưng — và có ô lọc khi nhóm đông hơn sáu người.
 
-Một chỗ duy nhất có: ảnh khuôn mặt đã đăng ký, thông tin liên hệ, ngày công gần đây **tại địa điểm của bạn**, và lần đăng nhập gần đây (một chuỗi sai mật khẩu rồi bị chặn là dấu hiệu có người đang thử đoán tài khoản).
+Một chỗ duy nhất có: nút **Tạm ngưng / Mở lại** và **Gỡ khỏi nhóm** (nút ở trên cùng của hộp chi tiết), ảnh khuôn mặt đã đăng ký, thông tin liên hệ, ngày công gần đây **tại địa điểm của bạn**, và lần đăng nhập gần đây (một chuỗi sai mật khẩu rồi bị chặn là dấu hiệu có người đang thử đoán tài khoản).
 
 > Bạn chỉ thấy phần dữ liệu phát sinh tại địa điểm của mình. Nếu người đó từng làm ở nơi của người quản lý khác, phần đó không hiện ở đây — và ngược lại.
 
