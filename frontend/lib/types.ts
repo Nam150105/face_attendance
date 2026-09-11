@@ -223,7 +223,7 @@ export interface ManagerLocation {
   shift_kind: ShiftKind;
 }
 
-/** DAY is the only one the server accepts today; NIGHT is shown as coming. */
+/** DAY starts and ends on one date; NIGHT crosses midnight (22:00 – 06:00). */
 export type ShiftKind = "DAY" | "NIGHT";
 
 export interface LocationInput {

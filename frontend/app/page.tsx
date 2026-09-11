@@ -217,7 +217,7 @@ export default function DashboardPage() {
           checkedIn
             ? "Bạn đã check-in. Hãy check-out khi kết thúc."
             : doneToday
-              ? "Mỗi ngày một phiên. Nút chấm vào mở lại sau 00:00."
+              ? "Mỗi ngày công một phiên. Nút chấm vào mở lại khi sang ngày công mới."
               : "Xác thực bằng khuôn mặt và vị trí để ghi nhận."
         }
         action={

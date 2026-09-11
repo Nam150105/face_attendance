@@ -4,7 +4,7 @@ Tài liệu cho người tiếp nhận, bảo trì hoặc nâng cấp. Mô tả 
 
 > Khác với `02_ARCHITECTURE.md` — tệp đó là đặc tả thiết kế ban đầu. Tệp này mô tả cái đang chạy thật; khi hai bên lệch nhau, tệp này đúng về hiện trạng.
 
-Cập nhật: 2026-09-11 · migration `027_required_hours`
+Cập nhật: 2026-09-11 · migration `028_night_shift`
 
 ---
 
@@ -177,12 +177,12 @@ Access token sống 15 phút, refresh token 90 ngày và **trượt** theo mỗi
 
 Toàn bộ quy tắc vào/ra nằm trong `attendance_days.py` và `_open_state` của `attendance.py`:
 
-- **Phiên khép lúc 00:00 giờ địa phương.** Một lượt vào mở phiên tới khi có lượt ra hoặc hết ngày, tuỳ cái nào đến trước. Quá nửa đêm, "đang trong phiên" đơn giản là không còn đúng nữa — không có job nào chạy, không có bản ghi nào được chèn. Ngày đó chỉ có lượt vào và hiện *Chưa chấm ra* cho tới khi thành viên gửi chỉnh công hoặc người quản lý sửa; sáng hôm sau chấm vào bình thường. (Bản trước dùng cửa sổ 20 tiếng trượt; đổi sang mốc nửa đêm vì "ngày công" phải trùng với ngày trên lịch. Cơ chế cũ hơn nữa chèn một `CHECK_OUT` giả ở toạ độ 0,0 — migration 024 đã xoá mềm những dòng đó.)
+- **Phiên khép khi hết ngày công của ca.** Một lượt vào mở phiên tới khi có lượt ra hoặc hết ngày công, tuỳ cái nào đến trước. Ca ngày cắt lúc 00:00. Ca đêm cắt ở **giữa khoảng nghỉ**: 22:00–06:00 nghỉ từ 06:00 tới 22:00, cắt lúc 14:00 — nên vào 23:00 và ra 06:30 cùng thuộc ngày bắt đầu ca, chấm vào 00:30 là muộn 150 phút chứ không phải "sớm" cho ca tối nay, và người ra lúc 06:30 "đã xong" tới 14:00. Mốc cắt tính bằng `SHIFT_OFFSET_SQL` (SQL) và `shift_offset()` (Python) từ giờ của địa điểm; `WORK_DATE_SQL`/`work_date()` là cách duy nhất để hỏi một lượt thuộc ngày nào. Quá nửa đêm, "đang trong phiên" đơn giản là không còn đúng nữa — không có job nào chạy, không có bản ghi nào được chèn. Ngày đó chỉ có lượt vào và hiện *Chưa chấm ra* cho tới khi thành viên gửi chỉnh công hoặc người quản lý sửa; sáng hôm sau chấm vào bình thường. (Bản trước dùng cửa sổ 20 tiếng trượt; đổi sang mốc nửa đêm vì "ngày công" phải trùng với ngày trên lịch. Cơ chế cũ hơn nữa chèn một `CHECK_OUT` giả ở toạ độ 0,0 — migration 024 đã xoá mềm những dòng đó.)
 - **Lượt ra `WARNING_CONFIRMED` (chấm ra ở nơi khác) cũng đóng phiên.** Trước đây chỉ `SUCCESS` mới đóng, nên ai chấm ra ở nơi khác vẫn "đang làm việc" cả ngày sau.
 - **Một phiên mỗi ngày tính theo lượt vào**: hôm nay đã có lượt vào hợp lệ thì `ALREADY_WORKED_TODAY`; đã ra rồi thì `/attendance/me/state` trả `DONE_FOR_TODAY` và nút chấm vào tắt tới ngày mai. Chấm ra lần nữa → `ALREADY_CHECKED_OUT`.
-- **Mỗi lượt thuộc về ngày dương lịch nó rơi vào.** Một lượt ra sau nửa đêm (chỉ chỉnh công hoặc sửa tay mới đặt được vào đó) là "thiếu lượt vào" của ngày mới, không phải lượt ra của hôm trước.
+- **Mỗi lượt thuộc về ngày công của ca tại địa điểm của nó.** Với ca ngày, một lượt ra sau nửa đêm (chỉ chỉnh công hoặc sửa tay mới đặt được vào đó) là "thiếu lượt vào" của ngày mới; với ca đêm, đó là lượt ra bình thường của hôm trước.
 - Chấm ra cho lượt vào của ngày hôm trước → `SESSION_EXPIRED` (khác với `CHECK_OUT_WITHOUT_CHECK_IN`), câu tiếng Việt chỉ thẳng sang chỉnh công.
-- **Chỉ có ca ngày.** Địa điểm bắt buộc có giờ vào/ra trong cùng một ngày (`HOURS_REQUIRED`, `HOURS_ORDER_INVALID`); cột `shift_kind` đã có nhưng `NIGHT` bị từ chối (`NIGHT_SHIFT_NOT_SUPPORTED`) cho tới khi bộ dựng ngày công đặt được lượt vào và lượt ra lên hai ngày khác nhau. Địa điểm cũ chưa có giờ được migration 027 điền 08:00–17:00.
+- **Hai loại ca.** Địa điểm bắt buộc có giờ vào/ra (`HOURS_REQUIRED`) khớp với `shift_kind`: ca ngày vào < ra (`HOURS_ORDER_INVALID`), ca đêm vào > ra (`NIGHT_HOURS_MUST_CROSS_MIDNIGHT`); ràng buộc `locations_hours_match_shift` (migration 028) chặn ở tầng dữ liệu. Địa điểm cũ chưa có giờ được migration 027 điền 08:00–17:00.
 
 ### Một hàm cho trạng thái ngày
 
@@ -315,7 +315,7 @@ Không có mock. Mọi probe chạy trên hệ thống thật đang chạy.
 | `rbac_probe` (50, chụp bảng phân quyền trước và trả lại đúng như cũ sau khi chạy) | Phân quyền màn hình và hành động, trình duyệt dữ liệu |
 | `isolation_probe` (17) | Phạm vi đọc theo địa điểm; địa điểm theo nhóm |
 | `rules_probe` (11) | Một người một quản lý; một phiên mỗi ngày |
-| `session_rules_probe` (17) | Phiên khép lúc 00:00 không bịa lượt ra; đã ra thì hôm nay xong; ba màn hình một câu trả lời |
+| `session_rules_probe` (22) | Phiên khép hết ngày công không bịa lượt ra; đã ra thì hôm nay xong; ca đêm một ngày công qua nửa đêm, muộn/sớm tính đúng; ba màn hình một câu trả lời |
 | `devices_probe` (14) | Bật tắt một/nhiều thiết bị theo vai trò; trần 10 thiết bị |
 | `delete_day_probe` (12) | Xoá ngày công xoá trọn ngày, đúng phạm vi, xoá mềm |
 | `edit_record_probe` (20) | Sửa từng lượt; tính lại số dẫn xuất; số máy đo không bị viết đè |
@@ -327,7 +327,7 @@ Không có mock. Mọi probe chạy trên hệ thống thật đang chạy.
 | `session_probe` (21) | Một phiên mỗi tài khoản; secret vừa xoay còn dùng được 60 giây |
 | `stay_signed_in_probe` (6) | Năm refresh song song không thành một lần đăng xuất |
 | `portal_probe` (16) | Đổi mật khẩu, liên hệ người quản lý, mã lỗi |
-| `hours_probe` (8) | Quy tắc giờ vào/ra |
+| `hours_probe` (12) | Quy tắc giờ vào/ra |
 | `calendar_probe` (13) | Lịch tháng, múi giờ |
 | `admin_probe` (21) | Quyền quản trị, xoá mềm |
 | `pipeline_probe` (24) | OpenCV + face_recognition trên ảnh thật |
@@ -344,7 +344,6 @@ Giao diện kiểm bằng Playwright chạy Chrome hệ thống, ngoài kho mã.
 | Chưa có retention dữ liệu sinh trắc | Ảnh và vector giữ vô hạn; `07_SECURITY_PRIVACY.md` §6 yêu cầu có thời hạn |
 | Chưa có sao lưu tự động | Script có sẵn nhưng phải chạy tay |
 | `FACE_MATCH_TOLERANCE` chưa đánh giá FAR/FRR | Đang dùng 0.6, mặc định của thư viện |
-| Ca qua đêm | Bộ dựng ngày công cắt ngày lúc 00:00 và ràng buộc `expected_check_in < expected_check_out`; `shift_kind = 'NIGHT'` đã có chỗ nhưng bị từ chối |
 | Frontend chưa có test trong kho mã | Kiểm bằng Playwright ngoài kho |
 
 ---

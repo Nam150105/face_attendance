@@ -274,7 +274,7 @@ export default function AttendancePage() {
       : state?.state === "DONE_FOR_TODAY"
         ? {
             title: "Hôm nay đã chấm đủ vào ra",
-            body: "Mỗi ngày một phiên. Nút chấm vào mở lại sau 00:00; nếu giờ ghi nhận chưa đúng, hãy gửi yêu cầu chỉnh công.",
+            body: "Mỗi ngày công một phiên. Nút chấm vào mở lại khi sang ngày công mới (ca ngày: sau 00:00; ca đêm: đầu giờ chiều). Giờ ghi nhận chưa đúng thì gửi yêu cầu chỉnh công.",
             action: { href: "/corrections", label: "Yêu cầu chỉnh công" },
           }
         : null;

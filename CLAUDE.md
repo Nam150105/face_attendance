@@ -34,6 +34,8 @@ Không sửa file spec trừ khi người dùng yêu cầu rõ ràng.
 
 - **Không giả lập AI.** Nếu model chưa sẵn sàng, trả `FACE_MODEL_NOT_CONFIGURED`. Tuyệt đối không sinh embedding giả, score giả, hay liveness giả.
 - **Không so vector giữa hai engine.** 128 số của dlib và 512 số của ArcFace ở hai không gian khác nhau; so vẫn ra điểm số nhưng là nhiễu. Lệch engine thì trả `FACE_ENGINE_MISMATCH`.
+- **Ngày công cắt theo ca của địa điểm, không phải theo 00:00.** `attendance_days.SHIFT_OFFSET_SQL` / `shift_offset()` là mốc cắt: ca ngày = 00:00, ca đêm = giữa khoảng nghỉ (22:00–06:00 → 14:00). Mọi truy vấn hỏi "hôm nay" hay "ngày công" phải đi qua `WORK_DATE_SQL`/`work_date()`, không tự `::date`.
+- **Ngày công cắt theo ca của địa điểm, không phải theo 00:00.** `attendance_days.SHIFT_OFFSET_SQL` / `shift_offset()` là mốc cắt: ca ngày = 00:00, ca đêm = giữa khoảng nghỉ (22:00–06:00 → 14:00). Mọi truy vấn hỏi "hôm nay" hay "ngày công" phải đi qua `WORK_DATE_SQL`/`work_date()`, không tự `::date`.
 - **Phân quyền và phạm vi dữ liệu là hai câu hỏi tách rời.** `require_screen`/`require_action` quyết định mở được màn hình nào; `_scope()`/`owner_filter()` quyết định thấy dữ liệu của ai. Cấp quyền không bao giờ mở rộng phạm vi.
 - **Server quyết định.** Không tin dữ liệu từ client: `member_id`, khoảng cách GPS, face score, role, URL ảnh. Geofence và face verify luôn tính lại ở backend.
 - **Migration-only.** Không sửa schema bằng SQL tay; luôn thêm file trong `api/migrations/versions/` với số thứ tự kế tiếp.
@@ -121,7 +123,7 @@ Tài khoản demo do migration `002_seed_local_demo` tạo ra chỉ dùng cho m�
 ## 10. Trạng thái hiện tại
 
 - **Xong:** Phase 0–10, cộng các đợt mở rộng sau roadmap: nhận diện bằng OpenCV + face_recognition, phân quyền theo màn hình và hành động, nhóm có mã cho người mới xin vào, duyệt đổi khuôn mặt, mã lỗi tra cứu được, cách ly dữ liệu theo địa điểm, một người một quản lý, một phiên mỗi ngày, và màn hình **Quản lý nhóm** gộp cả duyệt người / địa điểm / chỉnh công / đổi khuôn mặt.
-- **Migration hiện tại:** `027_required_hours`.
+- **Migration hiện tại:** `028_night_shift`.
 - **Tiếp theo:** xem mục 9 và 10 trong `docs/ARCHITECTURE.md`.
 - **Đã deploy:** https://namnangno.click, chạy từ máy dev qua Cloudflare Tunnel (service `tunnel` trong compose).
 - **Nợ kỹ thuật đã biết:** xem mục "Known issues" trong [README.md](README.md).
@@ -129,7 +131,6 @@ Tài khoản demo do migration `002_seed_local_demo` tạo ra chỉ dùng cho m�
 ## 11. Những thứ CHƯA có — đừng giả định là đã có
 
 - Liveness / anti-spoofing: **không có**. Ảnh chụp lại màn hình vẫn qua được. Đang chờ chọn provider thương mại.
-- Ca qua đêm (22:00–06:00): **không lưu được**. Ngày công cắt lúc 00:00 (`attendance_days.py`), ràng buộc `expected_check_in < expected_check_out` vẫn giữ; `shift_kind = 'NIGHT'` có trong schema nhưng service trả `NIGHT_SHIFT_NOT_SUPPORTED`.
 - Bản đồ là MapLibre + OpenFreeMap. MapLibre 6 cần worker phục vụ dưới `/public/maplibre/` (Dockerfile chép vào) và `setWorkerUrl` trong `GeoMap.tsx`; thiếu là bản đồ trống, không báo lỗi.
 - Lịch sao lưu tự động: **chưa có**. Script đã có nhưng phải chạy tay, chưa gắn cron.
 - Tài khoản demo `manager@example.com` / `member@example.com` từ migration 002 **vẫn tồn tại và đang ACTIVE** trên bản deploy công khai (manager@example.com đang quản lý 3 thành viên). Cân nhắc đổi mật khẩu hoặc chuyển sang SUSPENDED.

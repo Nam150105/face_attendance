@@ -216,8 +216,19 @@ def main() -> int:
         check("Người quản lý khác không sửa được bản ghi này", status == 404, f"HTTP {status}")
 
         # --- 5. Everything is written down --------------------------------------
-        status, logs = call("GET", "/manager/audit-logs?action=ATTENDANCE_MANUALLY_ADJUSTED", manager)
-        mine = [row for row in logs.get("items", []) if row.get("entity_id") in {check_in, check_out}]
+        # Read straight from the table: whether a manager may open the audit
+        # screen is the operator's setting (and rbac_probe's business), not
+        # what this probe is checking.
+        with psycopg.connect(DATABASE_URL) as connection:
+            mine = [
+                {"reason": row[0], "before_json": row[1], "after_json": row[2]}
+                for row in connection.execute(
+                    "SELECT a.reason, a.before_json, a.after_json FROM audit_logs a"
+                    " JOIN users u ON u.id = a.actor_user_id"
+                    " WHERE u.email = %s AND a.action = 'ATTENDANCE_MANUALLY_ADJUSTED' AND a.entity_id::text = ANY(%s)",
+                    (manager_email, [check_in, check_out]),
+                ).fetchall()
+            ]
         check("Mỗi lần sửa là một dòng nhật ký có lý do",
               len(mine) >= 4 and all(row.get("reason") for row in mine), f"{len(mine)} dòng")
         check("Nhật ký giữ cả giá trị trước và sau",

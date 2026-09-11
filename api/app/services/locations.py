@@ -46,12 +46,17 @@ def _location(row: tuple) -> dict:
 
 
 def _validate_hours(payload: dict) -> None:
-    """Hours are required, ordered, and — for now — within one day."""
-    if payload.get("shift_kind", "DAY") == "NIGHT":
-        raise HTTPException(status_code=422, detail="NIGHT_SHIFT_NOT_SUPPORTED")
+    """
+    Hours are required and must match the shift: a day shift starts and ends
+    on one date (08:00 < 17:00), a night shift crosses midnight (22:00 > 06:00).
+    """
     if payload.get("expected_check_in") is None or payload.get("expected_check_out") is None:
         raise HTTPException(status_code=422, detail="HOURS_REQUIRED")
-    if payload["expected_check_in"] >= payload["expected_check_out"]:
+    start, end = payload["expected_check_in"], payload["expected_check_out"]
+    if payload.get("shift_kind", "DAY") == "NIGHT":
+        if start <= end:
+            raise HTTPException(status_code=422, detail="NIGHT_HOURS_MUST_CROSS_MIDNIGHT")
+    elif start >= end:
         raise HTTPException(status_code=422, detail="HOURS_ORDER_INVALID")
 
 

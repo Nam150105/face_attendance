@@ -17,7 +17,7 @@ Vào **Quản lý nhóm**, mở một nhóm, mục *Địa điểm chấm công*
 - **Tìm trên bản đồ**: gõ địa chỉ, hoặc mở Google Maps trên điện thoại, chạm giữ vào đúng vị trí, chọn *Chia sẻ* rồi dán liên kết vào ô tìm. Cách này chính xác hơn gõ tên.
 - **Chấm công được trong (mét)**: đứng trong vòng tròn xanh thì chấm công bình thường. Với văn phòng, 50–100m là hợp lý.
 - **Xa hơn mức này thì chặn (mét)**: ở giữa hai vòng thì vẫn chấm công được nhưng phải nêu lý do. Ra ngoài vòng cam thì không chấm công được.
-- **Ca làm việc**: hiện chỉ có *Ca ngày* (ca đêm sắp có). **Giờ vào / giờ ra** là bắt buộc và phải nằm trong cùng một ngày; mặc định 08:00–17:00.
+- **Ca làm việc**: *Ca ngày* (vào và ra trong cùng một ngày, mặc định 08:00–17:00) hoặc *Ca đêm* (vào buổi tối, ra sáng hôm sau, mặc định 22:00–06:00). **Giờ vào / giờ ra** là bắt buộc. Với ca đêm, cả lượt vào lẫn lượt ra tính vào ngày bắt đầu ca; ngày công đổi vào giữa giờ nghỉ (22:00–06:00 thì đổi lúc 14:00).
 - **Số phút đến muộn được chấp nhận**: ví dụ 10 phút — giờ vào 08:00, ai tới 08:07 vẫn chấm công được và màn hình nhắc họ muộn 7 phút.
 - **Muộn quá số phút trên thì không cho chấm công**: bật ô này thì người đến quá muộn bị từ chối; lần thử đó vẫn hiện trong danh sách để bạn biết.
 
@@ -183,7 +183,7 @@ Chấm công xong, màn hình hiện khoảng cách khuôn mặt mà bộ nhận
 
 ## Khi có sai sót
 
-- **Quên chấm ra**: qua 00:00 phiên tự khép — sáng hôm sau nút lại là "Chấm vào", còn ngày cũ hiện *Chưa chấm ra* và chỉ có lượt vào. Hệ thống **không tự ghi giờ ra thay bạn**; muốn có giờ ra thì gửi **Yêu cầu chỉnh công**.
+- **Quên chấm ra**: hết ngày công phiên tự khép (ca ngày: qua 00:00; ca đêm: đầu giờ chiều) — nút lại là "Chấm vào" cho ngày công mới, còn ngày cũ hiện *Chưa chấm ra* và chỉ có lượt vào. Hệ thống **không tự ghi giờ ra thay bạn**; muốn có giờ ra thì gửi **Yêu cầu chỉnh công**.
 - **Đã chấm ra rồi**: hôm nay xong, nút chấm vào tắt tới ngày mai. Giờ ghi nhận chưa đúng thì gửi chỉnh công.
 - **Quên chấm vào**: gửi **Yêu cầu chỉnh công**, nêu rõ giờ thật.
 - **Đổi diện mạo, ảnh cũ nhận không ra**: vào **Chấm công → Xin đổi ảnh khuôn mặt**, chụp ảnh mới và nêu lý do. Người quản lý duyệt thì ảnh mới có hiệu lực; trong lúc chờ bạn vẫn chấm công bằng ảnh cũ.
@@ -219,4 +219,4 @@ Chỉ phần diễn ra tại địa điểm họ quản lý. Nếu bạn từng 
 Không. Mỗi người chỉ có một người quản lý tại một thời điểm. Muốn chuyển sang nhóm khác, người quản lý hiện tại gỡ bạn ra trước, rồi bạn nhập mã nhóm mới.
 
 **Một ngày chấm công được mấy lần?**
-Một lần vào và một lần ra. Hôm nay đã chấm vào rồi thì không mở phiên thứ hai; đã ra rồi thì nút chấm vào tắt tới ngày mai. Nếu quên chấm ra, qua 00:00 phiên tự khép và hôm sau bạn chấm vào bình thường; ngày quên đó hiện "Chưa chấm ra" chờ bạn gửi chỉnh công. Hiện chỉ có ca ngày: chấm ra phải trước 00:00 của ngày chấm vào.
+Một lần vào và một lần ra cho mỗi ngày công. Đã chấm vào rồi thì không mở phiên thứ hai; đã ra rồi thì nút chấm vào tắt tới ngày công mới. Nếu quên chấm ra, hết ngày công phiên tự khép và bạn chấm vào bình thường ở ngày công sau; ngày quên đó hiện "Chưa chấm ra" chờ bạn gửi chỉnh công. Ca đêm thì chấm ra sáng hôm sau vẫn thuộc ngày bạn chấm vào.

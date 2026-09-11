@@ -13,7 +13,21 @@ import { api } from "../../../lib/api";
 import { readPosition } from "../../../lib/geo";
 import { describeError } from "../../../lib/messages";
 import { shortTime } from "../../../lib/member";
-import type { LocationInput, ManagedMember, ManagerLocation } from "../../../lib/types";
+import type { LocationInput, ManagedMember, ManagerLocation, ShiftKind } from "../../../lib/types";
+
+/** Where a night shift's working day is cut: the middle of the off-duty gap. */
+function shiftCut(form: { expected_check_in: string; expected_check_out: string }): string {
+  const minutes = (value: string) => {
+    const [h, m] = value.split(":").map(Number);
+    return (h || 0) * 60 + (m || 0);
+  };
+  const start = minutes(form.expected_check_in || "22:00");
+  const end = minutes(form.expected_check_out || "06:00");
+  const cut = Math.round(end + (start - end) / 2);
+  return `${String(Math.floor(cut / 60)).padStart(2, "0")}:${String(cut % 60).padStart(2, "0")}`;
+}
+
+const SHIFT_LABEL: Record<ShiftKind, string> = { DAY: "Ca ngày", NIGHT: "Ca đêm" };
 
 const EMPTY_FORM: LocationInput = {
   name: "",
@@ -58,6 +72,16 @@ export default function ManagerLocationsPage() {
   const [radiusText, setRadiusText] = useState({ allow: "", warning: "" });
 
   const pickedLocation = (locations ?? []).find((row) => row.id === picked) ?? null;
+
+  /** Switching the shift swaps in hours that fit it; a 08:00–17:00 night shift cannot be saved. */
+  function setShift(kind: ShiftKind) {
+    if (kind === form.shift_kind) return;
+    setForm(
+      kind === "NIGHT"
+        ? { ...form, shift_kind: kind, expected_check_in: "22:00", expected_check_out: "06:00" }
+        : { ...form, shift_kind: kind, expected_check_in: "08:00", expected_check_out: "17:00" },
+    );
+  }
 
   /** From the list to the map: pick the pin and bring the map on screen. */
   function pickOnMap(id: string) {
@@ -178,8 +202,12 @@ export default function ManagerLocationsPage() {
       setFormError("Địa điểm phải có giờ vào và giờ ra.");
       return;
     }
-    if (form.expected_check_in >= form.expected_check_out) {
-      setFormError("Giờ ra phải sau giờ vào. Ca đêm sẽ được hỗ trợ sau.");
+    if (form.shift_kind === "DAY" && form.expected_check_in >= form.expected_check_out) {
+      setFormError("Ca ngày: giờ ra phải sau giờ vào. Ca vắt qua nửa đêm thì chọn Ca đêm.");
+      return;
+    }
+    if (form.shift_kind === "NIGHT" && form.expected_check_in <= form.expected_check_out) {
+      setFormError("Ca đêm phải vắt qua nửa đêm: giờ vào buổi tối, giờ ra sáng hôm sau.");
       return;
     }
     setSaving(true);
@@ -379,8 +407,8 @@ export default function ManagerLocationsPage() {
                     <p className="site-callout__name">{pickedLocation.name}</p>
                     <p className="event__meta">{pickedLocation.address ?? "Chưa có địa chỉ"}</p>
                     <p className="event__meta">
-                      Ca ngày {shortTime(pickedLocation.expected_check_in)} – {shortTime(pickedLocation.expected_check_out)} · chấm được
-                      trong {pickedLocation.allow_radius_meters} m
+                      {SHIFT_LABEL[pickedLocation.shift_kind]} {shortTime(pickedLocation.expected_check_in)} –{" "}
+                      {shortTime(pickedLocation.expected_check_out)} · chấm được trong {pickedLocation.allow_radius_meters} m
                     </p>
                   </div>
                   <Badge tone={pickedLocation.is_active ? "success" : "neutral"}>
@@ -459,7 +487,7 @@ export default function ManagerLocationsPage() {
                     </td>
                     <td data-label="Giờ làm việc">
                       <p className="event__label">
-                        Ca ngày · {shortTime(location.expected_check_in)} – {shortTime(location.expected_check_out)}
+                        {SHIFT_LABEL[location.shift_kind]} · {shortTime(location.expected_check_in)} – {shortTime(location.expected_check_out)}
                       </p>
                       <p className="event__meta">
                         {location.enforce_hours
@@ -556,34 +584,41 @@ export default function ManagerLocationsPage() {
                   role="radio"
                   aria-checked={form.shift_kind === "DAY"}
                   className={form.shift_kind === "DAY" ? "is-active" : undefined}
-                  onClick={() => setForm({ ...form, shift_kind: "DAY" })}
+                  onClick={() => setShift("DAY")}
                 >
                   Ca ngày
                 </button>
-                <button type="button" role="radio" aria-checked={false} disabled title="Sắp có">
-                  Ca đêm · sắp có
+                <button
+                  type="button"
+                  role="radio"
+                  aria-checked={form.shift_kind === "NIGHT"}
+                  className={form.shift_kind === "NIGHT" ? "is-active" : undefined}
+                  onClick={() => setShift("NIGHT")}
+                >
+                  Ca đêm
                 </button>
               </div>
             </div>
             <div className="field-pair">
               <TimeField
-                label="Giờ vào (bắt buộc)"
+                label={form.shift_kind === "NIGHT" ? "Giờ vào (tối)" : "Giờ vào (bắt buộc)"}
                 value={form.expected_check_in}
-                presets={["07:00", "08:00", "08:30", "09:00"]}
+                presets={form.shift_kind === "NIGHT" ? ["20:00", "21:00", "22:00", "23:00"] : ["07:00", "08:00", "08:30", "09:00"]}
                 clearable={false}
                 onChange={(value) => setForm({ ...form, expected_check_in: value ?? "" })}
               />
               <TimeField
-                label="Giờ ra (bắt buộc)"
+                label={form.shift_kind === "NIGHT" ? "Giờ ra (sáng hôm sau)" : "Giờ ra (bắt buộc)"}
                 value={form.expected_check_out}
-                presets={["16:00", "17:00", "17:30", "18:00"]}
+                presets={form.shift_kind === "NIGHT" ? ["05:00", "06:00", "06:30", "07:00"] : ["16:00", "17:00", "17:30", "18:00"]}
                 clearable={false}
                 onChange={(value) => setForm({ ...form, expected_check_out: value ?? "" })}
               />
             </div>
             <p className="field__hint">
-              Ca ngày bắt đầu và kết thúc trong cùng một ngày. Phiên chấm công tự khép lúc 00:00: chưa chấm
-              ra thì ngày đó chỉ có lượt vào, hôm sau chấm vào bình thường.
+              {form.shift_kind === "NIGHT"
+                ? `Ca đêm vắt qua nửa đêm: vào ${form.expected_check_in || "22:00"} tối, ra ${form.expected_check_out || "06:00"} sáng hôm sau, tính là một ngày công của ngày bắt đầu ca. Ngày công đổi lúc ${shiftCut(form)} — chưa chấm ra tới lúc đó thì ngày chỉ có lượt vào.`
+                : "Ca ngày bắt đầu và kết thúc trong cùng một ngày. Phiên chấm công tự khép lúc 00:00: chưa chấm ra thì ngày đó chỉ có lượt vào, hôm sau chấm vào bình thường."}
             </p>
             <Field
               label="Số phút đến muộn được chấp nhận"

@@ -9,11 +9,16 @@ Everything that shows a day now calls `days()` and gets the same answer.
 
 Rules, in one place:
 
-- A day is cut in the organisation's timezone, at midnight. Only day shifts
-  exist for now; a night shift straddling midnight is not representable yet.
-- A check-in is open until it is checked out or the day ends, whichever
-  comes first. Past midnight nothing is invented to close it: the day keeps
-  its check-in only, shows "chưa chấm ra", and the next day starts clean.
+- A day is cut in the organisation's timezone. For a day shift the cut is
+  midnight. For a night shift (22:00–06:00) it is the middle of the off-duty
+  gap — 14:00 for that example — so that a check-in at 23:00 and its
+  check-out at 06:30 land on the same working date, the one the shift
+  started on. `SHIFT_OFFSET_SQL` / `shift_offset()` is that cut, as an
+  offset from midnight, read from the location of the event.
+- A check-in is open until it is checked out or its working day ends,
+  whichever comes first. Past the cut nothing is invented to close it: the
+  day keeps its check-in only, shows "chưa chấm ra", and the next day starts
+  clean.
 - After a check-out the day is done; a second session the same day is refused.
 - Refused attempts are counted and named, never mistaken for attendance.
 """
@@ -21,12 +26,38 @@ Rules, in one place:
 from __future__ import annotations
 
 import uuid
-from datetime import date, datetime, timezone
+from datetime import date, datetime, time, timedelta, timezone
+
 import psycopg
 
 from app.services.member_portal import APP_TIMEZONE, LOCAL_ZONE
 
 VALID = "('SUCCESS', 'WARNING_CONFIRMED')"
+
+# Where a location's working day is cut, as an interval past midnight.
+# Needs the location aliased `l`. Night: end + half the off-duty gap.
+SHIFT_OFFSET_SQL = """
+    CASE WHEN l.shift_kind = 'NIGHT'
+         THEN (l.expected_check_out - TIME '00:00') + (l.expected_check_in - l.expected_check_out) / 2
+         ELSE INTERVAL '0' END
+"""
+
+# The working date of event `e` at location `l`; one %s for the timezone.
+WORK_DATE_SQL = f"((e.server_time AT TIME ZONE %s) - ({SHIFT_OFFSET_SQL}))::date"
+
+
+def shift_offset(shift_kind: str | None, start: time | None, end: time | None) -> timedelta:
+    """Python twin of SHIFT_OFFSET_SQL."""
+    if shift_kind != "NIGHT" or start is None or end is None:
+        return timedelta(0)
+    end_at = timedelta(hours=end.hour, minutes=end.minute)
+    start_at = timedelta(hours=start.hour, minutes=start.minute)
+    return end_at + (start_at - end_at) / 2
+
+
+def work_date(moment: datetime, offset: timedelta = timedelta(0)) -> date:
+    """The working date a moment belongs to, given the location's cut."""
+    return (moment.astimezone(LOCAL_ZONE) - offset).date()
 
 # Which half a refusal blamed. Mirrors face-ai's own codes.
 FACE_FAILURES = {
@@ -89,11 +120,13 @@ def days(
             SELECT e.id, e.member_id, e.event_type::text AS event_type, e.status::text AS status,
                    e.server_time, e.location_id, l.name AS location_name,
                    e.failure_code, e.minutes_late, e.minutes_early_leave, e.source::text AS source,
-                   (e.server_time AT TIME ZONE %s)::date AS work_date
+                   {WORK_DATE_SQL} AS work_date
             FROM attendance_events e
             LEFT JOIN locations l ON l.id = e.location_id
             WHERE {where}
-              AND (e.server_time AT TIME ZONE %s)::date BETWEEN %s AND %s
+              -- A night shift's check-out lands a calendar day after its
+              -- working date; one day of slack on each side keeps it in.
+              AND (e.server_time AT TIME ZONE %s)::date BETWEEN (%s::date - 1) AND (%s::date + 1)
         )
         SELECT
             a.work_date,
@@ -123,10 +156,11 @@ def days(
         FROM a
         JOIN users u ON u.id = a.member_id
         LEFT JOIN member_profiles mp ON mp.user_id = a.member_id
+        WHERE a.work_date BETWEEN %s AND %s
         GROUP BY a.work_date, a.member_id, u.email, mp.full_name
         ORDER BY a.work_date DESC, check_in DESC NULLS LAST, u.email
         """,
-        [APP_TIMEZONE, *parameters, APP_TIMEZONE, date_from, date_to],
+        [APP_TIMEZONE, *parameters, APP_TIMEZONE, date_from, date_to, date_from, date_to],
     ).fetchall()
 
     result = []
@@ -167,6 +201,7 @@ def local_today(now: datetime | None = None) -> date:
     return (now or datetime.now(timezone.utc)).astimezone(LOCAL_ZONE).date()
 
 
-def session_is_open(opened_at: datetime, now: datetime | None = None) -> bool:
-    """A check-in with no check-out is 'open' only until the local day ends."""
-    return opened_at.astimezone(LOCAL_ZONE).date() == local_today(now)
+def session_is_open(opened_at: datetime, now: datetime | None = None, offset: timedelta = timedelta(0)) -> bool:
+    """A check-in with no check-out is 'open' only until its working day ends."""
+    now = now or datetime.now(timezone.utc)
+    return work_date(opened_at, offset) == work_date(now, offset)

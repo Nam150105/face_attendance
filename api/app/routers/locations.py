@@ -36,9 +36,8 @@ class LocationRequest(BaseModel):
     grace_minutes: int = Field(default=10, ge=0, le=240)
     # Off: late arrivals are recorded and reported. On: they are refused.
     enforce_hours: bool = False
-    # DAY is the only shift the day builder understands today. NIGHT is
-    # accepted by the schema but refused by the service until a day can start
-    # on one date and end on the next.
+    # DAY: starts and ends on one date. NIGHT: crosses midnight; its working
+    # day is cut in the middle of the off-duty gap instead of at 00:00.
     shift_kind: str = Field(default="DAY", pattern="^(DAY|NIGHT)$")
 
 

@@ -10,8 +10,8 @@ from fastapi import HTTPException
 from app.auth import CurrentUser, DATABASE_URL
 from app.domain.geofence import haversine_distance_meters
 from app.services.attendance import _minutes_early_leave, _minutes_late
-from app.services.attendance_days import days as build_days
-from app.services.member_portal import APP_TIMEZONE
+from app.services.attendance_days import SHIFT_OFFSET_SQL, WORK_DATE_SQL, days as build_days
+from app.services.member_portal import APP_TIMEZONE, LOCAL_ZONE
 from app.services.permissions import assert_can_see_member, visible_member_ids
 from app.services.storage import PrivateObjectStorage
 
@@ -352,7 +352,7 @@ def manual_adjust(user: CurrentUser, event_id: uuid.UUID, payload: dict) -> dict
         # "muộn 12 phút" from the time it replaced.
         effective_time = new_time or current["server_time"]
         rule = connection.execute(
-            "SELECT expected_check_in, expected_check_out, grace_minutes, enforce_hours"
+            "SELECT expected_check_in, expected_check_out, grace_minutes, enforce_hours, shift_kind"
             " FROM locations WHERE id = %s",
             (after["location_id"],),
         ).fetchone()
@@ -468,14 +468,19 @@ def member_attendance(user: CurrentUser, member_id: uuid.UUID, filters: dict) ->
 
 
 def manager_dashboard(manager_id: uuid.UUID) -> dict:
-    today = date.today()
+    """
+    The overview card counts. Every query here ignores soft-deleted rows —
+    a day the manager just deleted must not still be "2 lượt hôm nay" — and
+    cuts days in the organisation's timezone, the same way the records do.
+    """
+    today = datetime.now(LOCAL_ZONE).date()
     since = today - timedelta(days=6)
     with psycopg.connect(DATABASE_URL) as connection:
         locations = connection.execute(
             "SELECT count(*) FROM locations WHERE manager_user_id = %s AND is_active = true", (manager_id,)
         ).fetchone()[0]
         members = connection.execute(
-            """
+            f"""
             SELECT u.id, u.email, mp.full_name,
                    EXISTS (SELECT 1 FROM face_embeddings f WHERE f.member_id = u.id AND f.revoked_at IS NULL),
                    open_event.server_time,
@@ -485,24 +490,29 @@ def manager_dashboard(manager_id: uuid.UUID) -> dict:
             JOIN users u ON u.id = mm.member_user_id
             LEFT JOIN member_profiles mp ON mp.user_id = u.id
             LEFT JOIN LATERAL (
+                -- "In right now": a valid check-in from today with no valid
+                -- check-out after it. Yesterday's forgotten check-in is not
+                -- somebody at work; the session rule closed it at midnight.
                 SELECT e.server_time FROM attendance_events e
-                WHERE e.member_id = u.id AND e.event_type = 'CHECK_IN'
+                JOIN locations l ON l.id = e.location_id
+                WHERE e.member_id = u.id AND e.event_type = 'CHECK_IN' AND e.deleted_at IS NULL
                   AND e.status IN ('SUCCESS', 'WARNING_CONFIRMED')
+                  AND {WORK_DATE_SQL} = ((now() AT TIME ZONE %s) - ({SHIFT_OFFSET_SQL}))::date
                   AND NOT EXISTS (
                       SELECT 1 FROM attendance_events c
-                      WHERE c.member_id = u.id AND c.event_type = 'CHECK_OUT'
-                        AND c.status = 'SUCCESS' AND c.server_time > e.server_time
+                      WHERE c.member_id = u.id AND c.event_type = 'CHECK_OUT' AND c.deleted_at IS NULL
+                        AND c.status IN ('SUCCESS', 'WARNING_CONFIRMED') AND c.server_time > e.server_time
                   )
                 ORDER BY e.server_time DESC LIMIT 1
             ) open_event ON true
             LEFT JOIN LATERAL (
                 SELECT e.server_time, e.event_type FROM attendance_events e
-                WHERE e.member_id = u.id ORDER BY e.server_time DESC LIMIT 1
+                WHERE e.member_id = u.id AND e.deleted_at IS NULL ORDER BY e.server_time DESC LIMIT 1
             ) last_event ON true
             WHERE mm.manager_user_id = %s AND mm.status = 'ACTIVE'
             ORDER BY open_event.server_time DESC NULLS LAST, u.email
             """,
-            (manager_id,),
+            (APP_TIMEZONE, APP_TIMEZONE, manager_id),
         ).fetchall()
         daily_rows = connection.execute(
             """
@@ -512,18 +522,20 @@ def manager_dashboard(manager_id: uuid.UUID) -> dict:
                    count(*) FILTER (WHERE e.status = 'WARNING_CONFIRMED') AS warnings
             FROM attendance_events e
             JOIN manager_memberships mm ON mm.member_user_id = e.member_id
-            WHERE mm.manager_user_id = %s AND mm.status = 'ACTIVE' AND e.server_time >= %s
+            WHERE mm.manager_user_id = %s AND mm.status = 'ACTIVE' AND e.deleted_at IS NULL
+              AND (e.server_time AT TIME ZONE %s)::date >= %s
             GROUP BY day
             """,
-            (APP_TIMEZONE, manager_id, since),
+            (APP_TIMEZONE, manager_id, APP_TIMEZONE, since),
         ).fetchall()
         events_today = connection.execute(
             """
             SELECT count(*) FROM attendance_events e
             JOIN manager_memberships mm ON mm.member_user_id = e.member_id
-            WHERE mm.manager_user_id = %s AND mm.status = 'ACTIVE' AND e.server_time >= %s
+            WHERE mm.manager_user_id = %s AND mm.status = 'ACTIVE' AND e.deleted_at IS NULL
+              AND (e.server_time AT TIME ZONE %s)::date = %s
             """,
-            (manager_id, today),
+            (manager_id, APP_TIMEZONE, today),
         ).fetchone()[0]
 
     by_day = {row[0]: row for row in daily_rows}

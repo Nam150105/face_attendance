@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 import os
 import uuid
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 
 import httpx
 import psycopg
@@ -11,7 +11,7 @@ from fastapi import HTTPException
 
 from app.auth import CurrentUser, DATABASE_URL
 from app.domain.geofence import GeofencePolicy, GeofenceStatus, evaluate_geofence
-from app.services.attendance_days import session_is_open
+from app.services.attendance_days import SHIFT_OFFSET_SQL, WORK_DATE_SQL, session_is_open, shift_offset, work_date
 from app.services.member_portal import APP_TIMEZONE, LOCAL_ZONE, notify
 from app.services.storage import PrivateObjectStorage
 
@@ -76,20 +76,25 @@ def _location_for_member(connection: psycopg.Connection, member_id: uuid.UUID, l
 
 def _hour_rule(connection: psycopg.Connection, member_id: uuid.UUID, location_id: uuid.UUID) -> tuple | None:
     """
-    The working hours for this place: (start, end, grace_minutes, enforce).
+    The working hours for this place: (start, end, grace_minutes, enforce, shift_kind).
 
     Hours live on the location and nowhere else. Per-member shifts were removed
     because two sources for the same rule meant nobody could say why a given
     arrival counted as late.
     """
     row = connection.execute(
-        "SELECT expected_check_in, expected_check_out, grace_minutes, enforce_hours "
+        "SELECT expected_check_in, expected_check_out, grace_minutes, enforce_hours, shift_kind "
         "FROM locations WHERE id = %s",
         (location_id,),
     ).fetchone()
     if row is None or row[0] is None:
         return None
-    return (row[0], row[1], row[2] or 0, row[3])
+    return (row[0], row[1], row[2] or 0, row[3], row[4])
+
+
+def _shift_anchor(rule: tuple, moment: datetime) -> date:
+    """The working date this moment belongs to under the rule's shift."""
+    return work_date(moment, shift_offset(rule[4] if len(rule) > 4 else "DAY", rule[0], rule[1]))
 
 
 def _minutes_late(rule: tuple | None, moment: datetime) -> int:
@@ -103,7 +108,9 @@ def _minutes_late(rule: tuple | None, moment: datetime) -> int:
     if rule is None or rule[0] is None:
         return 0
     local_moment = moment.astimezone(LOCAL_ZONE)
-    start = datetime.combine(local_moment.date(), rule[0], tzinfo=LOCAL_ZONE)
+    # The shift starts on its working date — for a night shift that is
+    # yesterday's date when somebody clocks in at 00:30.
+    start = datetime.combine(_shift_anchor(rule, moment), rule[0], tzinfo=LOCAL_ZONE)
     delta = (local_moment - start).total_seconds() // 60
     return int(delta) if delta > 0 else 0
 
@@ -118,7 +125,11 @@ def _minutes_early_leave(rule: tuple | None, moment: datetime) -> int:
     if rule is None or rule[1] is None:
         return 0
     local_moment = moment.astimezone(LOCAL_ZONE)
-    expected_end = datetime.combine(local_moment.date(), rule[1], tzinfo=LOCAL_ZONE)
+    anchor = _shift_anchor(rule, moment)
+    # A night shift ends on the calendar day after it started.
+    if len(rule) > 4 and rule[4] == "NIGHT":
+        anchor = anchor + timedelta(days=1)
+    expected_end = datetime.combine(anchor, rule[1], tzinfo=LOCAL_ZONE)
     delta = (expected_end - local_moment).total_seconds() // 60
     return int(delta) if delta > 0 else 0
 
@@ -233,24 +244,29 @@ def _notify_check_out(
 
 
 def _unclosed_check_in(connection: psycopg.Connection, member_id: uuid.UUID) -> tuple | None:
-    """The latest valid check-in with no valid check-out after it, however old."""
+    """
+    The latest valid check-in with no valid check-out after it, however old:
+    (id, location_id, server_time, shift offset of that location).
+    """
     return connection.execute(
-        """
-        SELECT id, location_id, server_time FROM attendance_events
-        WHERE member_id = %s AND deleted_at IS NULL AND event_type = 'CHECK_IN'
-          AND status IN ('SUCCESS', 'WARNING_CONFIRMED')
+        f"""
+        SELECT e.id, e.location_id, e.server_time, {SHIFT_OFFSET_SQL}
+        FROM attendance_events e
+        JOIN locations l ON l.id = e.location_id
+        WHERE e.member_id = %s AND e.deleted_at IS NULL AND e.event_type = 'CHECK_IN'
+          AND e.status IN ('SUCCESS', 'WARNING_CONFIRMED')
           AND NOT EXISTS (
               SELECT 1 FROM attendance_events checkout
-              WHERE checkout.member_id = attendance_events.member_id
+              WHERE checkout.member_id = e.member_id
                 AND checkout.event_type = 'CHECK_OUT'
                 -- A check-out from another site is WARNING_CONFIRMED and still
                 -- a check-out. Counting only SUCCESS left people "at work"
                 -- for a day after they had gone home.
                 AND checkout.status IN ('SUCCESS', 'WARNING_CONFIRMED')
                 AND checkout.deleted_at IS NULL
-                AND checkout.server_time > attendance_events.server_time
+                AND checkout.server_time > e.server_time
           )
-        ORDER BY server_time DESC LIMIT 1
+        ORDER BY e.server_time DESC LIMIT 1
         """,
         (member_id,),
     ).fetchone()
@@ -267,7 +283,7 @@ def _open_state(connection: psycopg.Connection, member_id: uuid.UUID) -> tuple |
     departure, and nothing that lands on tomorrow and blocks it.
     """
     row = _unclosed_check_in(connection, member_id)
-    if row is None or not session_is_open(row[2]):
+    if row is None or not session_is_open(row[2], offset=row[3]):
         return None
     return row
 
@@ -326,14 +342,17 @@ def _checked_in_today(connection: psycopg.Connection, member_id: uuid.UUID) -> b
 
     Counted by check-ins, not check-outs. Counting check-outs meant a departure
     that fell on the next calendar day — after midnight, or invented by the old
-    auto-close — locked that whole next day.
+    auto-close — locked that whole next day. "Today" is the working date of
+    that check-in's shift: a night worker who left at 06:30 is done until the
+    afternoon cut, not until midnight.
     """
     return connection.execute(
-        """
-        SELECT 1 FROM attendance_events
-        WHERE member_id = %s AND deleted_at IS NULL AND event_type = 'CHECK_IN'
-          AND status IN ('SUCCESS', 'WARNING_CONFIRMED')
-          AND (server_time AT TIME ZONE %s)::date = (now() AT TIME ZONE %s)::date
+        f"""
+        SELECT 1 FROM attendance_events e
+        JOIN locations l ON l.id = e.location_id
+        WHERE e.member_id = %s AND e.deleted_at IS NULL AND e.event_type = 'CHECK_IN'
+          AND e.status IN ('SUCCESS', 'WARNING_CONFIRMED')
+          AND {WORK_DATE_SQL} = ((now() AT TIME ZONE %s) - ({SHIFT_OFFSET_SQL}))::date
         LIMIT 1
         """,
         (member_id, APP_TIMEZONE, APP_TIMEZONE),

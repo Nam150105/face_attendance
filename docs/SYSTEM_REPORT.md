@@ -91,7 +91,7 @@ Một giao diện duy nhất cho cả ba: vai trò quyết định màn hình n�
 4. Máy chủ, theo thứ tự: giới hạn tần suất → xác thực ảnh bằng magic byte → **geofence** (khoảng cách haversine tới địa điểm; trong bán kính cho phép thì được, giữa hai vòng thì phải nêu lý do, ngoài vòng cảnh báo thì `OUTSIDE_ALLOWED_ZONE`) → gọi face-ai `/v1/verify` với vector tham chiếu → **so khớp** (khoảng cách Euclid ≤ 0,6) → tính đi muộn / về sớm theo giờ quy định của địa điểm → ghi `attendance_events`.
 5. Kết quả hiện ngay: giờ, khoảng cách tới địa điểm, và **khoảng cách khuôn mặt / ngưỡng** mà bộ nhận diện đã dùng để quyết định.
 
-**Quy tắc phiên** (mục 5): một phiên mỗi ngày tính theo lượt vào; phiên khép lúc 00:00 — chưa ra thì ngày đó chỉ có lượt vào (*Chưa chấm ra*), không bịa lượt ra, hôm sau chấm vào bình thường; đã ra thì nút chấm vào tắt tới ngày mai (`DONE_FOR_TODAY`).
+**Quy tắc phiên** (mục 5): một phiên mỗi ngày công tính theo lượt vào; phiên khép khi hết ngày công của ca (ca ngày: 00:00; ca đêm 22:00–06:00: 14:00 hôm sau) — chưa ra thì ngày đó chỉ có lượt vào (*Chưa chấm ra*), không bịa lượt ra, ngày công sau chấm vào bình thường; đã ra thì nút chấm vào tắt tới ngày công mới (`DONE_FOR_TODAY`).
 
 ### UC4 · Xem bảng công và xin chỉnh công
 
@@ -113,7 +113,7 @@ Người quản lý cũng là một thành viên đầy đủ (có hồ sơ, có
 
 1. *Quản lý nhóm* → gõ tên → **Tạo nhóm**. Hệ thống sinh mã 6 ký tự (bảng chữ bỏ `O/0`, `I/1` vì mã được đọc qua điện thoại). Bấm mã để sao chép.
 2. Bấm tên nhóm để mở tại chỗ: địa điểm của nhóm, người đang chờ, người trong nhóm.
-3. Trang *Địa điểm* mở đầu bằng bản đồ ghim mọi nơi chấm công (bấm ghim hoặc bấm dòng trong danh sách → thẻ thao tác: sửa, gán người, bật tắt, xoá; danh sách chỉ để xem). Tạo địa điểm mới thì ghim tự đặt ở vị trí GPS của người tạo. *Địa điểm* có thể tạo bằng cách tìm địa chỉ, dán liên kết Google Maps (chỉ chấp nhận host trong danh sách cho phép, chống SSRF) hoặc kéo ghim trên bản đồ MapLibre. Mỗi địa điểm có hai bán kính (cho phép / cảnh báo), **ca làm việc** (hiện chỉ ca ngày) với giờ vào / giờ ra **bắt buộc**, số phút muộn chấp nhận.
+3. Trang *Địa điểm* mở đầu bằng bản đồ ghim mọi nơi chấm công (bấm ghim hoặc bấm dòng trong danh sách → thẻ thao tác: sửa, gán người, bật tắt, xoá; danh sách chỉ để xem). Tạo địa điểm mới thì ghim tự đặt ở vị trí GPS của người tạo. *Địa điểm* có thể tạo bằng cách tìm địa chỉ, dán liên kết Google Maps (chỉ chấp nhận host trong danh sách cho phép, chống SSRF) hoặc kéo ghim trên bản đồ MapLibre. Mỗi địa điểm có hai bán kính (cho phép / cảnh báo), **ca làm việc** — *Ca ngày* (vào < ra) hoặc *Ca đêm* vắt qua nửa đêm (ví dụ 22:00 – 06:00) — với giờ vào / giờ ra **bắt buộc**, số phút muộn chấp nhận.
 4. **Gắn địa điểm cho nhóm là một quy tắc**, tính bằng truy vấn: ai vào nhóm là chấm được ở đó ngay, rời nhóm là mất ngay. Không sao chép, nên không bao giờ lệch.
 5. Thêm người đã có tài khoản: dán danh sách email, **mỗi email một dòng**; kết quả nêu rõ từng email chưa thêm được và vì sao.
 
@@ -175,10 +175,11 @@ Mọi dịch vụ chạy bằng Docker Compose; migration Alembic chạy lúc co
 ### 5.2 Vòng đời một ngày công
 
 ```
-CHECK_IN (SUCCESS)  ──── cùng ngày ────►  CHECK_OUT (SUCCESS | WARNING_CONFIRMED)
+CHECK_IN (SUCCESS)  ── cùng ngày công ──►  CHECK_OUT (SUCCESS | WARNING_CONFIRMED)
      │                                            │
-     │  qua 00:00, không có lượt ra               │  hôm nay xong: nút chấm vào tắt
-     ▼                                            ▼   tới ngày mai (DONE_FOR_TODAY)
+     │  hết ngày công, không có lượt ra           │  hôm nay xong: nút chấm vào tắt
+     │  (ca ngày 00:00 · ca đêm giữa giờ nghỉ)    ▼   tới ngày công mới (DONE_FOR_TODAY)
+     ▼
  ngày = "Chưa chấm ra"                        ngày = Đúng giờ / Đi muộn
  trạng thái người = "chưa mở phiên"
  → chỉnh công hoặc quản lý sửa
@@ -186,7 +187,7 @@ CHECK_IN (SUCCESS)  ──── cùng ngày ────►  CHECK_OUT (SUCCESS
 
 Trạng thái ngày được tính **một lần** trong `api/app/services/attendance_days.py` và dùng cho cả ba màn hình (bảng của quản lý, lịch tháng, bảng công cá nhân). Bộ trạng thái: `ON_TIME · LATE · OPEN · NO_CHECK_IN · REJECTED_FACE · REJECTED_PLACE`. Chưa chấm ra ưu tiên hơn đi muộn (số phút muộn vẫn đi kèm).
 
-Không có job nền nào: "đang trong phiên" là thứ **tính ra từ ngày hiện tại**, không phải bản ghi ai đó viết thêm. Chỉ có ca ngày: địa điểm bắt buộc có giờ vào/ra trong cùng một ngày; ca đêm có chỗ trong schema (`shift_kind`) nhưng bị từ chối cho tới khi ngày công đặt được lên hai ngày. Hệ thống từng bịa một lượt ra ở toạ độ 0,0 sau 24 giờ; cơ chế đó đã bỏ và các dòng nó để lại được xoá mềm (migration 024).
+Không có job nền nào: "đang trong phiên" là thứ **tính ra từ ngày công hiện tại**, không phải bản ghi ai đó viết thêm. Ngày công cắt theo ca của địa điểm: ca ngày lúc 00:00; ca đêm ở giữa khoảng nghỉ (22:00–06:00 → 14:00), nên vào 23:00 – ra 06:30 là một ngày công của ngày bắt đầu ca, và chấm vào 00:30 tính muộn so với 22:00 hôm trước. Hệ thống từng bịa một lượt ra ở toạ độ 0,0 sau 24 giờ; cơ chế đó đã bỏ và các dòng nó để lại được xoá mềm (migration 024).
 
 ### 5.3 Bản ghi và trạng thái
 
@@ -274,7 +275,6 @@ Trên ba chân dung phạm vi công cộng (probe `reading_probe`, `pipeline_pro
 | | Ảnh hưởng |
 |---|---|
 | Chưa có liveness | Ảnh chụp lại màn hình vẫn qua |
-| Ca qua đêm | Ngày công cắt lúc 00:00; `shift_kind = 'NIGHT'` có trong schema nhưng bị từ chối — "sắp có" trên form |
 | Retention dữ liệu sinh trắc | Ảnh và vector giữ vô hạn, chưa có job dọn |
 | Sao lưu tự động | Script có, chưa gắn lịch |
 | Ngưỡng nhận diện | 0,6 chưa đánh giá trên dữ liệu thật |

@@ -22,7 +22,7 @@ Người dùng mở web trên điện thoại, chụp một tấm ảnh, hệ th
 - Nhận diện khuôn mặt trên ảnh chụp tại chỗ, không dùng ảnh có sẵn trong máy
 - Camera tự hướng dẫn trước khi chụp: quá xa, quá tối, quá chói, lệch khung — chỉ mở nút chụp khi ảnh chắc chắn dùng được
 - Kiểm tra vị trí theo bán kính quanh địa điểm; ngoài vùng cho phép thì không ghi nhận
-- Giờ làm việc theo từng địa điểm, có mức cho phép đến muộn
+- Giờ làm việc theo từng địa điểm, ca ngày hoặc ca đêm vắt qua nửa đêm, có mức cho phép đến muộn
 - Một ngày một phiên: đã đủ cặp vào–ra thì không mở phiên mới trong ngày
 - Chấm ra ở nơi khác nơi chấm vào được, nhưng phải giải trình và bản ghi giữ lại lý do
 - Quên chấm ra thì phiên tự khép lúc 00:00, không bịa giờ ra; ngày đó chờ chỉnh công
@@ -83,7 +83,6 @@ Xem [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) — kiến trúc, mô hình d
 
 - **Chưa có chống giả mạo (liveness).** Ảnh chụp lại màn hình vẫn có thể qua được. Đang chờ chọn nhà cung cấp.
 - **Chưa có hàng đợi ngoại tuyến.** Mọi lượt chấm công đều cần mạng, vì máy chủ mới là nơi xác thực.
-- **Ca qua đêm** (ví dụ 22:00 – 06:00) chưa cấu hình được; hiện chỉ có ca ngày, giờ vào/ra bắt buộc trong cùng một ngày.
 - **Ngưỡng nhận diện** đang dùng giá trị mặc định của thư viện, chưa đánh giá trên tập dữ liệu thực tế của từng tổ chức.
 
 ---

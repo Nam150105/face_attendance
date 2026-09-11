@@ -175,6 +175,54 @@ def main() -> int:
         check("Đã ra rồi thì chấm ra lần nữa bị từ chối",
               status == 409 and detail == "ALREADY_CHECKED_OUT", f"HTTP {status} {detail}")
 
+        # --- 4b. Night shift: one working date across midnight ------------------
+        wipe(member_id)
+        status, night = call("POST", "/manager/locations", manager, {
+            "name": "Session rules night", "address": None, "latitude": 21.0, "longitude": 105.8,
+            "allow_radius_meters": 500, "warning_radius_meters": 900, "is_active": True,
+            "expected_check_in": "22:00", "expected_check_out": "06:00", "shift_kind": "NIGHT",
+        })
+        night_id = night["id"]
+        call("POST", f"/manager/members/{member_id}/locations", manager, {"location_id": night_id, "is_default": False})
+        # 22:00 yesterday → 06:30 today, both seeded on the night location.
+        seed(member_id, night_id, last_night.astimezone(timezone.utc), "CHECK_IN")
+        seed(member_id, night_id, (last_night + timedelta(hours=8, minutes=30)).astimezone(timezone.utc), "CHECK_OUT")
+        y_rows = day_rows(manager, yesterday)
+        t_rows = day_rows(manager, today)
+        check("Ca đêm: vào 22:00 hôm qua, ra 06:30 hôm nay → một ngày công của hôm qua",
+              len(y_rows) == 1 and y_rows[0]["check_in"] and y_rows[0]["check_out"]
+              and y_rows[0]["status"] == "ON_TIME" and y_rows[0]["worked_minutes"] == 510,
+              f"hôm qua {[(r['status'], r['worked_minutes']) for r in y_rows]}")
+        check("Ca đêm: hôm nay không có lượt ra mồ côi", len(t_rows) == 0, f"{len(t_rows)} dòng")
+
+        wipe(member_id)
+        seed(member_id, night_id, last_night.astimezone(timezone.utc), "CHECK_IN")
+        status, state = call("GET", "/attendance/me/state", member)
+        now_local = datetime.now(LOCAL_ZONE)
+        # Before 14:00 the night shift that started at 22:00 yesterday is still
+        # the current working day; after 14:00 it has lapsed.
+        expected_state = "CHECKED_IN" if now_local.hour < 14 else "NOT_CHECKED_IN"
+        check(f"Ca đêm chưa ra: lúc {now_local.strftime('%H:%M')} trạng thái là {expected_state} (mốc cắt 14:00)",
+              state.get("state") == expected_state, str(state.get("state")))
+
+        wipe(member_id)
+        # A night check-in at 00:30 is 2h30 late for the 22:00 shift that
+        # started the evening before, not "early" for tonight's.
+        after_midnight = datetime.now(LOCAL_ZONE).replace(hour=0, minute=30, second=0, microsecond=0)
+        with psycopg.connect(DATABASE_URL) as connection:
+            row = connection.execute(
+                "SELECT expected_check_in, expected_check_out, grace_minutes, enforce_hours, shift_kind FROM locations WHERE id = %s",
+                (night_id,),
+            ).fetchone()
+        from app.services.attendance import _minutes_early_leave, _minutes_late
+        check("Ca đêm: chấm vào 00:30 là muộn 150 phút so với 22:00 hôm trước",
+              _minutes_late(row, after_midnight.astimezone(timezone.utc)) == 150,
+              str(_minutes_late(row, after_midnight.astimezone(timezone.utc))))
+        check("Ca đêm: chấm ra 05:00 là về sớm 60 phút so với 06:00",
+              _minutes_early_leave(row, (after_midnight + timedelta(hours=4, minutes=30)).astimezone(timezone.utc)) == 60,
+              str(_minutes_early_leave(row, (after_midnight + timedelta(hours=4, minutes=30)).astimezone(timezone.utc))))
+        call("DELETE", f"/manager/locations/{night_id}/permanent", manager)
+
         # --- 5. Three screens, one answer --------------------------------------
         wipe(member_id)
         seed(member_id, location_id, morning.astimezone(timezone.utc), "CHECK_IN", "FAILED")
