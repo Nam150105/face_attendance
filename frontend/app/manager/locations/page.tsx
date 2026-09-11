@@ -1,8 +1,9 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { Dialog } from "../../../components/Dialog";
+import { GeoMap, type MapCircle, type MapMarker } from "../../../components/GeoMap";
 import { LocationPicker } from "../../../components/LocationPicker";
 import { usePermissions } from "../../../lib/permissions";
 import { ManagerShell } from "../../../components/ManagerShell";
@@ -18,13 +19,14 @@ const EMPTY_FORM: LocationInput = {
   address: null,
   latitude: 21.0285,
   longitude: 105.8048,
-  allow_radius_meters: 100,
-  warning_radius_meters: 200,
+  allow_radius_meters: 20,
+  warning_radius_meters: 50,
   is_active: true,
-  expected_check_in: null,
-  expected_check_out: null,
+  expected_check_in: "08:00",
+  expected_check_out: "17:00",
   grace_minutes: 10,
   enforce_hours: false,
+  shift_kind: "DAY",
 };
 
 export default function ManagerLocationsPage() {
@@ -44,6 +46,37 @@ export default function ManagerLocationsPage() {
   const [form, setForm] = useState<LocationInput>(EMPTY_FORM);
   const [formError, setFormError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  // The pin the manager tapped: a card under the map says what it is and
+  // offers the same actions as the row, so the map is a way in, not a picture.
+  const [picked, setPicked] = useState<string | null>(null);
+
+  const pickedLocation = (locations ?? []).find((row) => row.id === picked) ?? null;
+  const siteMarkers = useMemo<MapMarker[]>(
+    () =>
+      (locations ?? []).map((row) => ({
+        id: row.id,
+        point: { latitude: row.latitude, longitude: row.longitude },
+        kind: row.is_active ? "site" : "site-off",
+        label: row.name,
+        active: row.id === picked,
+      })),
+    [locations, picked],
+  );
+  const siteCircles = useMemo<MapCircle[]>(
+    () =>
+      (locations ?? [])
+        .filter((row) => row.is_active)
+        .map((row) => ({
+          center: { latitude: row.latitude, longitude: row.longitude },
+          radiusMeters: row.allow_radius_meters,
+          color: row.id === picked ? "#0c5cab" : "#0e7a55",
+        })),
+    [locations, picked],
+  );
+  const focus = useMemo(
+    () => (pickedLocation ? { latitude: pickedLocation.latitude, longitude: pickedLocation.longitude } : null),
+    [pickedLocation],
+  );
 
   const load = useCallback(async () => {
     try {
@@ -78,6 +111,7 @@ export default function ManagerLocationsPage() {
       expected_check_out: location.expected_check_out,
       grace_minutes: location.grace_minutes,
       enforce_hours: location.enforce_hours,
+      shift_kind: location.shift_kind,
     });
     setEditing(location);
     setCreating(false);
@@ -102,6 +136,14 @@ export default function ManagerLocationsPage() {
     }
     if (form.warning_radius_meters <= form.allow_radius_meters) {
       setFormError("Khoảng cách chặn phải lớn hơn khoảng cách cho phép chấm công.");
+      return;
+    }
+    if (!form.expected_check_in || !form.expected_check_out) {
+      setFormError("Địa điểm phải có giờ vào và giờ ra.");
+      return;
+    }
+    if (form.expected_check_in >= form.expected_check_out) {
+      setFormError("Giờ ra phải sau giờ vào. Ca đêm sẽ được hỗ trợ sau.");
       return;
     }
     setSaving(true);
@@ -153,6 +195,7 @@ export default function ManagerLocationsPage() {
           expected_check_out: location.expected_check_out,
           grace_minutes: location.grace_minutes,
           enforce_hours: location.enforce_hours,
+          shift_kind: location.shift_kind,
         });
       }
       await load();
@@ -281,6 +324,58 @@ export default function ManagerLocationsPage() {
 
       {error ? <Alert tone="danger">{error}</Alert> : null}
 
+      {locations && locations.length > 0 ? (
+        <Card title="Bản đồ địa điểm" subtitle="Mỗi ghim là một nơi chấm công. Bấm ghim để sửa, gán người hoặc bật tắt.">
+          <div className="site-map">
+            <GeoMap
+              circles={siteCircles}
+              markers={siteMarkers}
+              height={380}
+              fit={!picked}
+              focus={focus}
+              onMarkerClick={(id) => setPicked((current) => (current === id ? null : id))}
+            />
+            {pickedLocation ? (
+              <div className="site-callout" role="region" aria-label={`Địa điểm ${pickedLocation.name}`}>
+                <div className="site-callout__head">
+                  <div className="site-callout__text">
+                    <p className="site-callout__name">{pickedLocation.name}</p>
+                    <p className="event__meta">{pickedLocation.address ?? "Chưa có địa chỉ"}</p>
+                    <p className="event__meta">
+                      Ca ngày {shortTime(pickedLocation.expected_check_in)} – {shortTime(pickedLocation.expected_check_out)} · chấm được
+                      trong {pickedLocation.allow_radius_meters} m
+                    </p>
+                  </div>
+                  <Badge tone={pickedLocation.is_active ? "success" : "neutral"}>
+                    {pickedLocation.is_active ? "Đang bật" : "Đã tắt"}
+                  </Badge>
+                </div>
+                <div className="row">
+                  {may.edit ? (
+                    <Button size="sm" onClick={() => openEdit(pickedLocation)}>
+                      Sửa
+                    </Button>
+                  ) : null}
+                  {mayManageMembers.edit ? (
+                    <Button size="sm" variant="secondary" onClick={() => void openAssign(pickedLocation)}>
+                      Gán người
+                    </Button>
+                  ) : null}
+                  {may.edit ? (
+                    <Button size="sm" variant="ghost" onClick={() => void toggleDeactivate(pickedLocation)}>
+                      {pickedLocation.is_active ? "Tắt" : "Bật"}
+                    </Button>
+                  ) : null}
+                  <Button size="sm" variant="ghost" onClick={() => setPicked(null)}>
+                    Đóng
+                  </Button>
+                </div>
+              </div>
+            ) : null}
+          </div>
+        </Card>
+      ) : null}
+
       <Card title="Danh sách địa điểm">
         {locations === null ? (
           <LoadingRows count={3} />
@@ -300,26 +395,22 @@ export default function ManagerLocationsPage() {
               </thead>
               <tbody>
                 {locations.map((location) => (
-                  <tr key={location.id}>
+                  <tr key={location.id} className={location.id === picked ? "is-picked" : undefined}>
                     <td data-label="Địa điểm">
-                      <p className="event__label">{location.name}</p>
+                      <button type="button" className="link-button event__label" onClick={() => setPicked(location.id)}>
+                        {location.name}
+                      </button>
                       <p className="event__meta">{location.address ?? "Chưa có địa chỉ"}</p>
                     </td>
                     <td data-label="Giờ làm việc">
-                      {location.expected_check_in ? (
-                        <>
-                          <p className="event__label">
-                            {shortTime(location.expected_check_in)} – {shortTime(location.expected_check_out)}
-                          </p>
-                          <p className="event__meta">
-                            {location.enforce_hours
-                              ? `Muộn quá ${location.grace_minutes} phút thì không vào được`
-                              : `Muộn quá ${location.grace_minutes} phút vẫn vào được`}
-                          </p>
-                        </>
-                      ) : (
-                        <p className="event__meta">Chưa đặt giờ</p>
-                      )}
+                      <p className="event__label">
+                        Ca ngày · {shortTime(location.expected_check_in)} – {shortTime(location.expected_check_out)}
+                      </p>
+                      <p className="event__meta">
+                        {location.enforce_hours
+                          ? `Muộn quá ${location.grace_minutes} phút thì không vào được`
+                          : `Muộn quá ${location.grace_minutes} phút vẫn vào được`}
+                      </p>
                     </td>
                     <td data-label="Khu vực cho phép">
                       <p className="event__label">Trong {location.allow_radius_meters}m</p>
@@ -401,7 +492,7 @@ export default function ManagerLocationsPage() {
               <Field
                 label="Chấm công được trong (mét)"
                 type="number"
-                min={10}
+                min={1}
                 max={5000}
                 required
                 value={form.allow_radius_meters}
@@ -422,22 +513,42 @@ export default function ManagerLocationsPage() {
               nhưng phải cho biết lý do. Ra ngoài vòng cam thì không chấm công được.
             </p>
 
+            <div className="field">
+              <span className="field__label">Ca làm việc</span>
+              <div className="segmented" role="radiogroup" aria-label="Ca làm việc">
+                <button
+                  type="button"
+                  role="radio"
+                  aria-checked={form.shift_kind === "DAY"}
+                  className={form.shift_kind === "DAY" ? "is-active" : undefined}
+                  onClick={() => setForm({ ...form, shift_kind: "DAY" })}
+                >
+                  Ca ngày
+                </button>
+                <button type="button" role="radio" aria-checked={false} disabled title="Sắp có">
+                  Ca đêm · sắp có
+                </button>
+              </div>
+            </div>
             <div className="field-pair">
               <TimeField
-                label="Giờ vào"
+                label="Giờ vào (bắt buộc)"
                 value={form.expected_check_in}
                 presets={["07:00", "08:00", "08:30", "09:00"]}
-                onChange={(value) => setForm({ ...form, expected_check_in: value })}
+                clearable={false}
+                onChange={(value) => setForm({ ...form, expected_check_in: value ?? "" })}
               />
               <TimeField
-                label="Giờ ra"
+                label="Giờ ra (bắt buộc)"
                 value={form.expected_check_out}
                 presets={["16:00", "17:00", "17:30", "18:00"]}
-                onChange={(value) => setForm({ ...form, expected_check_out: value })}
+                clearable={false}
+                onChange={(value) => setForm({ ...form, expected_check_out: value ?? "" })}
               />
             </div>
             <p className="field__hint">
-              Để trống nếu nơi này không có giờ cố định.
+              Ca ngày bắt đầu và kết thúc trong cùng một ngày. Phiên chấm công tự khép lúc 00:00: chưa chấm
+              ra thì ngày đó chỉ có lượt vào, hôm sau chấm vào bình thường.
             </p>
             <Field
               label="Số phút đến muộn được chấp nhận"

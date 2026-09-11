@@ -221,6 +221,7 @@ Sau khi tắt máy và bật lại, Docker Desktop tự khởi động các cont
 | Máy ì, RAM đầy | WSL chưa giới hạn bộ nhớ | Xem mục 1, tạo `.wslconfig` |
 | Người dùng báo một mã sáu ký tự | Hệ thống gặp lỗi và đã ghi lại | Vào **Sự cố hệ thống**, dán mã vào ô tìm |
 | Quên mật khẩu quản trị | | Chạy lại đoạn ở mục 6 với email khác, rồi dùng tài khoản mới đặt lại mật khẩu cho tài khoản cũ |
+| Bản đồ chỉ có nền trống | Trình duyệt không tới được `tiles.openfreemap.org`, hoặc image frontend thiếu `public/maplibre/` | Kiểm tra mạng ra ngoài; dựng lại `docker compose build frontend` (Dockerfile chép worker của MapLibre vào đó) |
 
 ---
 

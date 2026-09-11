@@ -94,6 +94,29 @@ def main() -> int:
               status_third == 200 and status_fourth == 200,
               f"HTTP {status_third} / {status_fourth}")
 
+        # --- 3b. Many is not unlimited: the stalest device is retired ----------
+        # Ten more logins on top of the two above: the oldest ones must go, the
+        # newest ten stay, and the count never exceeds the ceiling.
+        for _ in range(10):
+            sign_in(member_email)
+        with psycopg.connect(DATABASE_URL) as connection:
+            open_sessions = connection.execute(
+                "SELECT count(*) FROM refresh_sessions s JOIN users u ON u.id = s.user_id"
+                " WHERE u.email = %s AND s.revoked_at IS NULL",
+                (member_email,),
+            ).fetchone()[0]
+            retired = connection.execute(
+                "SELECT count(*) FROM refresh_sessions s JOIN users u ON u.id = s.user_id"
+                " WHERE u.email = %s AND s.revoked_reason = 'DEVICE_LIMIT'",
+                (member_email,),
+            ).fetchone()[0]
+        check("Nhiều thiết bị vẫn có trần: giữ đúng 10 phiên mới nhất",
+              open_sessions == 10, f"{open_sessions} phiên đang mở")
+        status_third, _ = call("GET", "/members/me", third)
+        check("Phiên cũ nhất bị thu hồi, không phải phiên đang dùng",
+              status_third == 401 and retired >= 2, f"HTTP {status_third}, {retired} phiên thu hồi")
+        fourth = sign_in(member_email)
+
         # --- 4. Turning it back on closes the extra session now ----------------
         status, summary = call("PUT", "/admin/session-policy", admin,
                                {"role": "MEMBER", "allow_multiple_devices": False})

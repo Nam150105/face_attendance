@@ -95,6 +95,7 @@ def main() -> int:
         status, location = call("POST", "/manager/locations", manager, {
             "name": "Hours probe", "address": None, "latitude": 21.0, "longitude": 105.8,
             "allow_radius_meters": 500, "warning_radius_meters": 900, "is_active": True,
+            "expected_check_in": "08:00", "expected_check_out": "17:00",
         })
         location_id = location.get("id") if status == 201 else None
         if not (member_id and location_id):
@@ -103,9 +104,27 @@ def main() -> int:
         call("POST", f"/manager/members/{member_id}/locations", manager,
              {"location_id": location_id, "is_default": True})
 
-        # A place with no hours at all must never gate anyone.
+        # Hours are required now: a place cannot be saved without them, and a
+        # night shift is refused until the day builder can hold one.
+        status, refused = call("PUT", f"/manager/locations/{location_id}", manager, {
+            "name": "Hours probe", "address": None, "latitude": 21.0, "longitude": 105.8,
+            "allow_radius_meters": 500, "warning_radius_meters": 900, "is_active": True,
+        })
+        check("Không có giờ thì không lưu được địa điểm", status == 422, f"HTTP {status}")
+        status, refused = save_hours(manager, location_id, "22:00", "06:00", grace=10, enforce=False)
+        check("Giờ ra trước giờ vào bị từ chối (ca đêm chưa hỗ trợ)",
+              status == 422 and refused.get("detail") == "HOURS_ORDER_INVALID", f"HTTP {status} {refused.get('detail')}")
+        status, refused = call("PUT", f"/manager/locations/{location_id}", manager, {
+            "name": "Hours probe", "address": None, "latitude": 21.0, "longitude": 105.8,
+            "allow_radius_meters": 500, "warning_radius_meters": 900, "is_active": True,
+            "expected_check_in": "08:00", "expected_check_out": "17:00", "shift_kind": "NIGHT",
+        })
+        check("Chọn ca đêm bị từ chối với mã riêng",
+              status == 422 and refused.get("detail") == "NIGHT_SHIFT_NOT_SUPPORTED", f"HTTP {status} {refused.get('detail')}")
+        # With enforcement off, hours never gate anyone.
+        save_hours(manager, location_id, "00:00", "23:59", grace=240, enforce=False)
         code, detail = attempt(member, location_id)
-        check("Không đặt giờ thì không ai bị chặn", code == 409 and detail == "FACE_NOT_ENROLLED",
+        check("Chưa bật chặn thì không ai bị chặn", code == 409 and detail == "FACE_NOT_ENROLLED",
               f"HTTP {code} {detail}")
 
         # Hours saved on the location, read back unchanged.
@@ -150,6 +169,7 @@ def main() -> int:
             "name": "Hijacked", "latitude": 21.0, "longitude": 105.8,
             "allow_radius_meters": 500, "warning_radius_meters": 900,
             "grace_minutes": 240, "enforce_hours": False,
+            "expected_check_in": "08:00", "expected_check_out": "17:00",
         })
         check("Thành viên không tự sửa được giờ của địa điểm", status == 403, f"HTTP {status}")
 

@@ -63,6 +63,7 @@ def make_location(token: str, name: str) -> str:
     status, row = call("POST", "/manager/locations", token, {
         "name": name, "address": None, "latitude": 21.0, "longitude": 105.8,
         "allow_radius_meters": 500, "warning_radius_meters": 900, "is_active": True,
+        "expected_check_in": "08:00", "expected_check_out": "17:00",
     })
     if status != 201:
         raise SystemExit(f"cannot create location: {status} {row}")

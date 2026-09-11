@@ -65,6 +65,7 @@ def main() -> int:
         status, location = call("POST", "/manager/locations", manager, {
             "name": "Calendar probe", "address": None, "latitude": 21.0, "longitude": 105.8,
             "allow_radius_meters": 500, "warning_radius_meters": 900, "is_active": True,
+            "expected_check_in": "08:00", "expected_check_out": "17:00",
         })
         location_id = location.get("id") if status == 201 else None
         if not (member_id and location_id):
@@ -154,6 +155,32 @@ def main() -> int:
         check("Bản ghi đã xoá biến khỏi lịch",
               day_of(after, late_day.isoformat()) is None,
               "vẫn còn" if day_of(after, late_day.isoformat()) else "")
+
+        # --- Roll call: the roster first, the records second -------------------
+        # A second member who never checks in must still be on the list, and
+        # be the first line of it.
+        absent_email, _ = register("MEMBER", created)
+        call("POST", "/manager/members/add-by-email", manager, {"email": absent_email})
+        today_local = datetime.now(LOCAL_ZONE).replace(hour=8, minute=15, second=0, microsecond=0)
+        seed(member_id, location_id, today_local.astimezone(ZoneInfo("UTC")), "CHECK_IN", minutes_late=15)
+        status, roll = call("GET", f"/manager/attendance/roll-call?date={today_local.date().isoformat()}", manager)
+        people = roll.get("people", []) if status == 200 else []
+        by_email = {person["member_email"]: person for person in people}
+        check("Điểm danh liệt kê cả người chưa chấm công",
+              status == 200 and absent_email in by_email and by_email[absent_email]["status"] == "ABSENT",
+              f"HTTP {status} {[p['status'] for p in people]}")
+        check("Người chưa chấm đứng đầu danh sách",
+              bool(people) and people[0]["member_email"] == absent_email,
+              str([p["member_email"][:12] for p in people]))
+        check("Người vào muộn, chưa ra → LATE với số phút",
+              member_email in by_email and by_email[member_email]["status"] == "LATE" and by_email[member_email]["minutes_late"] == 15,
+              str(by_email.get(member_email)))
+        summary = roll.get("summary", {})
+        check("Tổng điểm danh đếm đúng: 2 dự kiến, 1 có mặt, 1 muộn, 1 chưa chấm",
+              (summary.get("expected"), summary.get("present"), summary.get("late"), summary.get("absent")) == (2, 1, 1, 1),
+              str(summary))
+        status, _ = call("GET", f"/manager/attendance/roll-call?date={today_local.date().isoformat()}", member)
+        check("Thành viên không gọi được điểm danh", status == 403, f"HTTP {status}")
 
         call("DELETE", f"/manager/locations/{location_id}/permanent", manager)
     finally:

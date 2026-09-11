@@ -12,12 +12,12 @@ Làm đúng thứ tự này thì mọi thứ sau đó chạy trơn.
 
 ### Bước 1 — Tạo địa điểm
 
-Vào **Quản lý nhóm**, mở một nhóm, mục *Địa điểm chấm công* → **Tạo địa điểm mới**.
+Vào **Quản lý nhóm**, mở một nhóm, mục *Địa điểm chấm công* → **Quản lý địa điểm**. Trang *Địa điểm* mở đầu bằng **bản đồ mọi nơi chấm công**: mỗi ghim một địa điểm (ghim xám là nơi đã tắt), bấm ghim thì thẻ dưới bản đồ hiện tên, giờ, bán kính và các nút *Sửa · Gán người · Tắt/Bật*; bấm tên trong danh sách thì bản đồ bay tới nơi đó.
 
 - **Tìm trên bản đồ**: gõ địa chỉ, hoặc mở Google Maps trên điện thoại, chạm giữ vào đúng vị trí, chọn *Chia sẻ* rồi dán liên kết vào ô tìm. Cách này chính xác hơn gõ tên.
 - **Chấm công được trong (mét)**: đứng trong vòng tròn xanh thì chấm công bình thường. Với văn phòng, 50–100m là hợp lý.
 - **Xa hơn mức này thì chặn (mét)**: ở giữa hai vòng thì vẫn chấm công được nhưng phải nêu lý do. Ra ngoài vòng cam thì không chấm công được.
-- **Giờ vào / giờ ra**: để trống nếu nơi này không có giờ cố định.
+- **Ca làm việc**: hiện chỉ có *Ca ngày* (ca đêm sắp có). **Giờ vào / giờ ra** là bắt buộc và phải nằm trong cùng một ngày; mặc định 08:00–17:00.
 - **Số phút đến muộn được chấp nhận**: ví dụ 10 phút — giờ vào 08:00, ai tới 08:07 vẫn chấm công được và màn hình nhắc họ muộn 7 phút.
 - **Muộn quá số phút trên thì không cho chấm công**: bật ô này thì người đến quá muộn bị từ chối; lần thử đó vẫn hiện trong danh sách để bạn biết.
 
@@ -49,26 +49,32 @@ Chưa duyệt thì họ chưa chấm công được ở đâu cả.
 
 ### Xem ai đã tới
 
-**Bản ghi** là một tấm lịch tháng. Mỗi ngày hiện chồng người kèm chấm màu: xanh là đúng giờ, vàng là chưa chấm ra, đỏ là đi muộn.
+**Bản ghi** mở ra với một thanh công cụ: chọn tháng, bốn con số của tháng (*lượt · người đi làm · chưa ra ca · đi muộn*), ô tìm theo tên hoặc email, ba cách xem và nút làm mới.
 
-Bấm vào một ngày, danh sách ngày đó hiện ngay bên dưới: **mỗi người một dòng** — tên, giờ vào → giờ ra, tổng thời gian có mặt, nơi chấm công, và một nhãn tình trạng: *Đủ vào ra · Đi muộn · Chưa chấm ra · Thiếu lượt vào · Khuôn mặt không khớp · Địa điểm không khớp*. Lịch tháng và bảng công của thành viên dùng đúng cách tính này, nên ba nơi không bao giờ nói khác nhau về một ngày. Bấm vào dòng để mở chi tiết. Trên điện thoại, mười người vẫn nằm gọn trong một màn hình rưỡi. Bấm **Xuất CSV** để lấy đúng ngày đang xem.
+- **Lịch**: mỗi ngày ghi số lượt, "*2 người · 1 muộn · 1 chưa ra ca*" và một chấm màu cho mỗi người — xanh đúng giờ, vàng chưa ra ca, đỏ đi muộn, xám bị từ chối (chỉ hiện khi bật *Hiện cả lượt không hợp lệ*). Hôm nay có vòng tròn xanh. Trên điện thoại chỉ còn chấm màu.
+- **Bảng**: cả tháng thành từng dòng — ngày, người, vào, ra, có mặt, nơi, tình trạng. Tiện khi cần kiểm một lời khai "hôm mùng 7 tôi có đi".
+- **Điểm danh**: hôm nay, theo danh sách nhóm — ai **chưa chấm công đứng đầu**, rồi đi muộn, đang làm, đủ vào ra.
+
+Bấm vào một ngày, một **ngăn kéo** trượt ra bên phải (trên điện thoại là cả màn hình), lịch vẫn ở đó: đầu ngăn ghi *Thứ Sáu · 2 lượt · 2 người · 1 muộn*, rồi **mỗi người một dòng** — ảnh đại diện, tên, "Vào 08:00 · chưa ra ca", nơi, và nhãn *Đúng giờ · Muộn 43' · Về sớm 12' · Chưa ra ca*. Lịch, bảng và bảng công của thành viên dùng đúng cách tính này, nên không nơi nào nói khác nhau về một ngày. Bấm **Xuất CSV** để lấy đúng ngày đang xem.
 
 Mặc định chỉ hiện những lượt hợp lệ. Muốn xem cả lượt bị từ chối thì tích **Hiện cả lượt không hợp lệ**.
 
 ### Xem chi tiết một lượt
 
-Bấm vào một dòng. Bạn thấy:
+Bấm vào một dòng, ngăn kéo chuyển sang trang của người đó (mũi tên ← để quay lại danh sách ngày). Bạn thấy:
 
-- Ảnh đã đăng ký, ảnh lúc vào, ảnh lúc ra — **xếp ngang cạnh nhau** ở mọi khổ màn hình để đối chiếu trong một tầm mắt
-- Một dải số: giờ vào, giờ ra, tổng thời gian có mặt, khoảng cách khuôn mặt
-- Thành viên, địa điểm, tình trạng, khoảng cách tới địa điểm
+- Tên, email và nhãn của ngày ở đầu
+- **Thẻ ngày**: *Vào 08:43 ——— 9 giờ 40 phút ——— Ra 18:05*, hoặc *Ra: Chưa ra ca* màu vàng
+- Ảnh đã đăng ký, ảnh lúc vào, ảnh lúc ra — **xếp ngang cạnh nhau** để đối chiếu trong một tầm mắt
+- **Bản đồ vị trí chấm công**: hai vòng của địa điểm (xanh: chấm được, cam nét đứt: chặn), ghim xanh nơi đứng lúc vào, ghim cam nơi đứng lúc ra, địa chỉ và khoảng cách bên dưới
+- Tình trạng, thời điểm, địa điểm, khoảng cách tới địa điểm, độ khớp khuôn mặt
 - Lý do nếu lượt đó không hợp lệ, hoặc giải trình của thành viên
 
 Toạ độ, sai số định vị, mã bản ghi và thư viện nhận diện nằm trong mục **Thông tin kỹ thuật** — mở ra khi cần đối chất, còn lại thì gấp gọn.
 
 ### Sửa một lượt
 
-Một ngày công có hai lượt, và bạn sửa **từng lượt một**: bấm **Lượt vào** hoặc **Lượt ra** ở giữa hộp chi tiết, form bên dưới chuyển theo.
+Một ngày công có hai lượt, và bạn sửa **từng lượt một**: bấm **Lượt vào** hoặc **Lượt ra** ở giữa ngăn kéo, rồi **Sửa bản ghi** để mở form.
 
 Sửa được mọi thứ trên lượt đó:
 
@@ -177,7 +183,8 @@ Chấm công xong, màn hình hiện khoảng cách khuôn mặt mà bộ nhận
 
 ## Khi có sai sót
 
-- **Quên chấm ra**: sau 20 tiếng kể từ lúc chấm vào, phiên tự khép — nút trở lại "Chấm vào" cho ngày mới, còn ngày cũ hiện *Chưa chấm ra*. Hệ thống **không tự ghi giờ ra thay bạn**; muốn có giờ ra thì gửi **Yêu cầu chỉnh công**.
+- **Quên chấm ra**: qua 00:00 phiên tự khép — sáng hôm sau nút lại là "Chấm vào", còn ngày cũ hiện *Chưa chấm ra* và chỉ có lượt vào. Hệ thống **không tự ghi giờ ra thay bạn**; muốn có giờ ra thì gửi **Yêu cầu chỉnh công**.
+- **Đã chấm ra rồi**: hôm nay xong, nút chấm vào tắt tới ngày mai. Giờ ghi nhận chưa đúng thì gửi chỉnh công.
 - **Quên chấm vào**: gửi **Yêu cầu chỉnh công**, nêu rõ giờ thật.
 - **Đổi diện mạo, ảnh cũ nhận không ra**: vào **Chấm công → Xin đổi ảnh khuôn mặt**, chụp ảnh mới và nêu lý do. Người quản lý duyệt thì ảnh mới có hiệu lực; trong lúc chờ bạn vẫn chấm công bằng ảnh cũ.
 - **Không biết hỏi ai**: vào **Hồ sơ**, mục *Người quản lý của bạn* có tên, email và số điện thoại, bấm là gọi hoặc gửi mail được ngay.
@@ -200,7 +207,7 @@ Không. Ảnh nằm trong kho lưu trữ riêng của tổ chức bạn, không 
 Không. Đăng nhập một lần là ở lại, miễn là bạn mở app ít nhất một lần mỗi 90 ngày. Nếu bạn từng bị đẩy ra sau khoảng 15 phút mà không làm gì, đó là lỗi đã sửa ngày 11/09.
 
 **Tôi đăng nhập ở máy khác thì máy cũ ra sao?**
-Tuỳ cài đặt của tổ chức bạn. Quản trị hệ thống chọn từng vai trò được dùng một thiết bị hay nhiều thiết bị; nếu đang giới hạn một thiết bị thì mở máy mới là máy cũ bị đẩy ra ngay.
+Tuỳ cài đặt của tổ chức bạn. Quản trị hệ thống chọn từng vai trò được dùng một thiết bị hay nhiều thiết bị; nếu đang giới hạn một thiết bị thì mở máy mới là máy cũ bị đẩy ra ngay. Được nhiều thiết bị thì cũng tối đa 10 máy: đăng nhập máy thứ 11, máy lâu không dùng nhất sẽ phải đăng nhập lại.
 
 **Tôi thấy một mã sáu ký tự khi bị lỗi?**
 Đó là mã sự cố. Đọc lại cho quản trị viên, họ tra được chuyện gì đã xảy ra.
@@ -212,4 +219,4 @@ Chỉ phần diễn ra tại địa điểm họ quản lý. Nếu bạn từng 
 Không. Mỗi người chỉ có một người quản lý tại một thời điểm. Muốn chuyển sang nhóm khác, người quản lý hiện tại gỡ bạn ra trước, rồi bạn nhập mã nhóm mới.
 
 **Một ngày chấm công được mấy lần?**
-Một lần vào và một lần ra. Hôm nay đã chấm vào rồi thì không mở phiên thứ hai. Nếu quên chấm ra, sau 20 tiếng phiên tự khép và hôm sau bạn chấm vào bình thường; ngày quên đó hiện "Chưa chấm ra" chờ bạn gửi chỉnh công. Về sau nửa đêm thì lượt ra vẫn tính cho ngày bạn đã vào.
+Một lần vào và một lần ra. Hôm nay đã chấm vào rồi thì không mở phiên thứ hai; đã ra rồi thì nút chấm vào tắt tới ngày mai. Nếu quên chấm ra, qua 00:00 phiên tự khép và hôm sau bạn chấm vào bình thường; ngày quên đó hiện "Chưa chấm ra" chờ bạn gửi chỉnh công. Hiện chỉ có ca ngày: chấm ra phải trước 00:00 của ngày chấm vào.

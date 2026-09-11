@@ -336,9 +336,9 @@ export default function TeamsPage() {
   }
 
   const queues: { key: Queue; label: string; count: number; visible: boolean }[] = [
-    { key: "join", label: "Yêu cầu vào nhóm", count: joins.length, visible: mayJoin.view },
-    { key: "face", label: "Đổi khuôn mặt", count: faces.length, visible: mayFace.view },
-    { key: "correction", label: "Chỉnh công", count: corrections.length, visible: mayCorrect.view },
+    { key: "join", label: "Y/C vào nhóm", count: joins.length, visible: mayJoin.view },
+    { key: "face", label: "Y/C Đổi khuôn mặt", count: faces.length, visible: mayFace.view },
+    { key: "correction", label: "Y/C Chỉnh công", count: corrections.length, visible: mayCorrect.view },
   ];
 
   return (
@@ -694,7 +694,7 @@ export default function TeamsPage() {
                               Gắn
                             </Button>
                             <Link className="link" href="/manager/locations">
-                              Tạo địa điểm mới
+                              Quản lý địa điểm
                             </Link>
                           </div>
                         ) : null}

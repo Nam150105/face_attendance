@@ -195,6 +195,8 @@ def issue_tokens(
     enforce = _holds_one_device(connection, role)
     if enforce:
         revoke_user_sessions(connection, user_id, "NEW_DEVICE_LOGIN")
+    else:
+        _retire_beyond_device_limit(connection, user_id)
 
     session_id = uuid.uuid4()
     access_token = create_access_token(str(user_id), role, str(session_id))
@@ -218,6 +220,29 @@ def issue_tokens(
     )
     connection.commit()
     return TokenResponse(access_token=access_token, refresh_token=refresh_token)
+
+
+# "Many devices" is not "every device ever". Sessions last 90 days sliding, so
+# without a ceiling one account collected a new row for every browser it ever
+# touched. The least recently used ones go first, the way a phone's "where
+# you're logged in" list works.
+MAX_DEVICES_PER_USER = int(os.environ.get("MAX_DEVICES_PER_USER", "10"))
+
+
+def _retire_beyond_device_limit(connection: psycopg.Connection, user_id: uuid.UUID) -> int:
+    """Make room for one more session by closing the stalest ones."""
+    return connection.execute(
+        """
+        UPDATE refresh_sessions SET revoked_at = now(), revoked_reason = 'DEVICE_LIMIT'
+        WHERE id IN (
+            SELECT id FROM refresh_sessions
+            WHERE user_id = %s AND revoked_at IS NULL
+            ORDER BY COALESCE(last_active_at, created_at) DESC
+            OFFSET %s
+        )
+        """,
+        (user_id, max(MAX_DEVICES_PER_USER - 1, 0)),
+    ).rowcount
 
 
 def lock_user(connection: psycopg.Connection, user_id: uuid.UUID) -> None:

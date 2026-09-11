@@ -69,6 +69,7 @@ def main() -> int:
         status, location = call("POST", "/manager/locations", manager, {
             "name": "Admin probe", "address": None, "latitude": 21.0, "longitude": 105.8,
             "allow_radius_meters": 100, "warning_radius_meters": 200, "is_active": True,
+            "expected_check_in": "08:00", "expected_check_out": "17:00",
         })
         location_id = location.get("id")
 

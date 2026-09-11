@@ -211,6 +211,7 @@ def main() -> int:
             "name": "Probe location", "address": None,
             "latitude": 21.0, "longitude": 105.8,
             "allow_radius_meters": 100, "warning_radius_meters": 200, "is_active": True,
+            "expected_check_in": "08:00", "expected_check_out": "17:00",
         })
         location_id = location.get("id") if status in (200, 201) else None
         if location_id:
@@ -218,6 +219,7 @@ def main() -> int:
                 "name": "Hijacked", "address": None,
                 "latitude": 0.0, "longitude": 0.0,
                 "allow_radius_meters": 100, "warning_radius_meters": 200, "is_active": True,
+                "expected_check_in": "08:00", "expected_check_out": "17:00",
             })
             check("IDOR: Manager B không sửa được địa điểm của Manager A",
                   status in (403, 404), f"HTTP {status}")

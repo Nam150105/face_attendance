@@ -1,18 +1,16 @@
 "use client";
 
-import "leaflet/dist/leaflet.css";
-
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 
 import { api } from "../lib/api";
 import { readPosition } from "../lib/geo";
+import type { GeoPoint } from "../lib/map";
+import { MAP_FALLBACK } from "../lib/map";
 import { describeError } from "../lib/messages";
+import { GeoMap } from "./GeoMap";
 import { Alert, Button } from "./ui";
 
-export interface PickedPoint {
-  latitude: number;
-  longitude: number;
-}
+export type PickedPoint = GeoPoint;
 
 interface LocationPickerProps {
   point: PickedPoint;
@@ -24,8 +22,6 @@ interface LocationPickerProps {
   warningRadiusMeters: number;
 }
 
-const FALLBACK: PickedPoint = { latitude: 21.0285, longitude: 105.8048 };
-
 export function LocationPicker({
   point,
   onPointChange,
@@ -33,122 +29,21 @@ export function LocationPicker({
   allowRadiusMeters,
   warningRadiusMeters,
 }: LocationPickerProps) {
-  const containerRef = useRef<HTMLDivElement | null>(null);
-  const mapRef = useRef<import("leaflet").Map | null>(null);
-  const markerRef = useRef<import("leaflet").Marker | null>(null);
-  const allowRef = useRef<import("leaflet").Circle | null>(null);
-  const warningRef = useRef<import("leaflet").Circle | null>(null);
-  const pointChangeRef = useRef(onPointChange);
-  pointChangeRef.current = onPointChange;
-
   const [notice, setNotice] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState<"search" | "gps" | null>(null);
   // Transient: used only to look a place up, never stored on the location.
   const [query, setQuery] = useState("");
-  const [ready, setReady] = useState(false);
 
-  useEffect(() => {
-    let cancelled = false;
-
-    void (async () => {
-      const leaflet = (await import("leaflet")).default;
-      if (cancelled || !containerRef.current || mapRef.current) {
-        return;
-      }
-      const start: PickedPoint = point.latitude ? point : FALLBACK;
-      const map = leaflet.map(containerRef.current, { zoomControl: true });
-      map.setView([start.latitude, start.longitude], point.latitude ? 17 : 12);
-      
-      leaflet
-        .tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
-          maxZoom: 19,
-          attribution: "© OpenStreetMap",
-        })
-        .addTo(map);
-
-      warningRef.current = leaflet
-        .circle([start.latitude, start.longitude], {
-          radius: warningRadiusMeters,
-          color: "#f59e0b",
-          weight: 1.5,
-          fillColor: "#f59e0b",
-          fillOpacity: 0.1,
-          dashArray: "4, 4",
-        })
-        .addTo(map);
-
-      allowRef.current = leaflet
-        .circle([start.latitude, start.longitude], {
-          radius: allowRadiusMeters,
-          color: "#10b981",
-          weight: 2,
-          fillColor: "#10b981",
-          fillOpacity: 0.18,
-        })
-        .addTo(map);
-
-      const marker = leaflet
-        .marker([start.latitude, start.longitude], {
-          draggable: true,
-          icon: leaflet.divIcon({
-            className: "",
-            html: '<span class="map__pin"><span class="map__pin-dot"></span></span>',
-            iconSize: [26, 34],
-            iconAnchor: [13, 34],
-          }),
-        })
-        .addTo(map);
-
-      function push(latitude: number, longitude: number) {
-        pointChangeRef.current({
-          latitude: Number(latitude.toFixed(7)),
-          longitude: Number(longitude.toFixed(7)),
-        });
-      }
-
-      marker.on("dragend", () => {
-        const position = marker.getLatLng();
-        push(position.lat, position.lng);
-      });
-      map.on("click", (event: import("leaflet").LeafletMouseEvent) => {
-        marker.setLatLng(event.latlng);
-        push(event.latlng.lat, event.latlng.lng);
-      });
-
-      mapRef.current = map;
-      markerRef.current = marker;
-      setReady(true);
-      window.setTimeout(() => map.invalidateSize(), 150);
-    })();
-
-    return () => {
-      cancelled = true;
-      mapRef.current?.remove();
-      mapRef.current = null;
-      markerRef.current = null;
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  useEffect(() => {
-    if (!ready || !markerRef.current || !mapRef.current) {
-      return;
-    }
-    const current = markerRef.current.getLatLng();
-    allowRef.current?.setLatLng([point.latitude, point.longitude]);
-    warningRef.current?.setLatLng([point.latitude, point.longitude]);
-    if (Math.abs(current.lat - point.latitude) < 1e-7 && Math.abs(current.lng - point.longitude) < 1e-7) {
-      return;
-    }
-    markerRef.current.setLatLng([point.latitude, point.longitude]);
-    mapRef.current.setView([point.latitude, point.longitude], Math.max(mapRef.current.getZoom(), 16));
-  }, [ready, point.latitude, point.longitude]);
-
-  useEffect(() => {
-    allowRef.current?.setRadius(allowRadiusMeters);
-    warningRef.current?.setRadius(warningRadiusMeters);
-  }, [allowRadiusMeters, warningRadiusMeters]);
+  const centre = point.latitude ? point : MAP_FALLBACK;
+  const circles = useMemo(
+    () => [
+      { center: centre, radiusMeters: warningRadiusMeters, color: "#b45309", dashed: true },
+      { center: centre, radiusMeters: allowRadiusMeters, color: "#0e7a55" },
+    ],
+    [centre, allowRadiusMeters, warningRadiusMeters],
+  );
+  const markers = useMemo(() => [{ point: centre, kind: "site" as const, draggable: true }], [centre]);
 
   const search = useCallback(async () => {
     if (!query.trim()) {
@@ -233,17 +128,7 @@ export function LocationPicker({
       {notice ? <Alert tone="success">{notice}</Alert> : null}
       {error ? <Alert tone="danger">{error}</Alert> : null}
 
-      <div
-        ref={containerRef}
-        style={{
-          width: "100%",
-          height: "260px",
-          borderRadius: "var(--radius-lg)",
-          overflow: "hidden",
-          border: "1px solid var(--border-medium)",
-          boxShadow: "var(--shadow-panel)",
-        }}
-      />
+      <GeoMap circles={circles} markers={markers} onPick={onPointChange} height={280} />
 
       <div className="picker-legend">
         <span className="picker-legend__item">

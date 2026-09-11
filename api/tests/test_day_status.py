@@ -1,7 +1,7 @@
 import unittest
 from datetime import datetime, timedelta, timezone
 
-from app.services.attendance_days import SESSION_MAX_HOURS, day_status, session_is_open
+from app.services.attendance_days import day_status, local_today, session_is_open
 from app.services.member_portal import LOCAL_ZONE, local_date
 
 
@@ -52,16 +52,17 @@ class DayStatusTests(unittest.TestCase):
 
 
 class SessionWindowTests(unittest.TestCase):
-    def test_open_inside_the_window(self) -> None:
-        now = utc(2026, 9, 1, 12)
-        self.assertTrue(session_is_open(now - timedelta(hours=SESSION_MAX_HOURS - 1), now))
+    # Asia/Ho_Chi_Minh is UTC+7: local midnight is 17:00 UTC the day before.
+    def test_open_while_it_is_still_the_same_local_day(self) -> None:
+        now = utc(2026, 9, 1, 12)  # 19:00 local on the 1st
+        self.assertTrue(session_is_open(utc(2026, 8, 31, 18), now))  # 01:00 local on the 1st
 
-    def test_closed_once_the_window_has_passed(self) -> None:
+    def test_closed_once_local_midnight_has_passed(self) -> None:
         now = utc(2026, 9, 1, 12)
-        self.assertFalse(session_is_open(now - timedelta(hours=SESSION_MAX_HOURS), now))
+        self.assertFalse(session_is_open(utc(2026, 8, 31, 16), now))  # 23:00 local on the 31st
 
-    def test_window_is_twenty_hours_by_default(self) -> None:
-        self.assertEqual(SESSION_MAX_HOURS, 20)
+    def test_local_today_follows_the_organisation_timezone(self) -> None:
+        self.assertEqual(local_today(utc(2026, 8, 31, 18)).isoformat(), "2026-09-01")
 
 
 class LocalDateTests(unittest.TestCase):

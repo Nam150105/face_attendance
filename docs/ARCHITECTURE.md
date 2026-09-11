@@ -4,7 +4,7 @@ Tài liệu cho người tiếp nhận, bảo trì hoặc nâng cấp. Mô tả 
 
 > Khác với `02_ARCHITECTURE.md` — tệp đó là đặc tả thiết kế ban đầu. Tệp này mô tả cái đang chạy thật; khi hai bên lệch nhau, tệp này đúng về hiện trạng.
 
-Cập nhật: 2026-09-11 · migration `026_drop_my_locations`
+Cập nhật: 2026-09-11 · migration `027_required_hours`
 
 ---
 
@@ -157,7 +157,7 @@ Nên: lần đầu áp dụng ngay (không có gì để so, và cửa vào đã
 
 ### Một thiết bị hay nhiều thiết bị, do quản trị hệ thống chọn
 
-Bảng `session_policies (role, allow_multiple_devices)` quyết định từng vai trò có bị giữ ở một thiết bị hay không; màn hình **Phân quyền** là nơi bật tắt. Trước đây quy tắc nằm trong biến môi trường `SINGLE_SESSION_ROLES`, tức là muốn đổi phải sửa tệp và khởi động lại — đó là quyết định vận hành, không phải quyết định triển khai.
+Bảng `session_policies (role, allow_multiple_devices)` quyết định từng vai trò có bị giữ ở một thiết bị hay không; màn hình **Phân quyền** là nơi bật tắt. Trước đây quy tắc nằm trong biến môi trường `SINGLE_SESSION_ROLES`, tức là muốn đổi phải sửa tệp và khởi động lại — đó là quyết định vận hành, không phải quyết định triển khai. *Nhiều thiết bị* vẫn có trần: mỗi tài khoản giữ tối đa `MAX_DEVICES_PER_USER` (mặc định 10) phiên đang mở, đăng nhập thêm thì phiên ít dùng nhất bị thu hồi với lý do `DEVICE_LIMIT` — phiên trượt 90 ngày mà không có trần thì một tài khoản gom một dòng cho mỗi trình duyệt từng chạm vào.
 
 Cột `refresh_sessions.enforce_single_session` vẫn là thứ chỉ số duy nhất từng phần dựa vào, nên tắt bật không đụng gì tới ràng buộc cũ. Bật giới hạn có hiệu lực **ngay**: mỗi người giữ phiên mới nhất, các phiên còn lại đóng với lý do `DEVICE_POLICY_CHANGED`. Tắt thì không ai bị đăng xuất.
 
@@ -173,15 +173,16 @@ Access token sống 15 phút, refresh token 90 ngày và **trượt** theo mỗi
 
 `refresh_sessions` có chỉ mục unit một phần trên phiên đang hoạt động. Mọi request đều kiểm tra trạng thái phiên trong CSDL, không chỉ chữ ký JWT — nếu chỉ tin chữ ký thì thu hồi phiên không có tác dụng cho tới khi token hết hạn.
 
-### Phiên: mở theo thời gian, không bịa lượt ra
+### Phiên: một ngày là một ngày, không bịa lượt ra
 
 Toàn bộ quy tắc vào/ra nằm trong `attendance_days.py` và `_open_state` của `attendance.py`:
 
-- **Phiên mở tối đa `SESSION_MAX_HOURS` = 20 tiếng** kể từ lượt vào. Quá đó, "đang trong phiên" đơn giản là không còn đúng nữa — không có job nào chạy, không có bản ghi nào được chèn. Ngày đó hiện *Chưa chấm ra* cho tới khi thành viên gửi chỉnh công hoặc người quản lý sửa. Cơ chế cũ chèn một `CHECK_OUT` giả ở toạ độ 0,0 lúc giờ vào + 24h — tức rơi sang ngày hôm sau và khoá luôn ngày hôm sau; migration 024 đánh dấu và xoá mềm những dòng đó.
+- **Phiên khép lúc 00:00 giờ địa phương.** Một lượt vào mở phiên tới khi có lượt ra hoặc hết ngày, tuỳ cái nào đến trước. Quá nửa đêm, "đang trong phiên" đơn giản là không còn đúng nữa — không có job nào chạy, không có bản ghi nào được chèn. Ngày đó chỉ có lượt vào và hiện *Chưa chấm ra* cho tới khi thành viên gửi chỉnh công hoặc người quản lý sửa; sáng hôm sau chấm vào bình thường. (Bản trước dùng cửa sổ 20 tiếng trượt; đổi sang mốc nửa đêm vì "ngày công" phải trùng với ngày trên lịch. Cơ chế cũ hơn nữa chèn một `CHECK_OUT` giả ở toạ độ 0,0 — migration 024 đã xoá mềm những dòng đó.)
 - **Lượt ra `WARNING_CONFIRMED` (chấm ra ở nơi khác) cũng đóng phiên.** Trước đây chỉ `SUCCESS` mới đóng, nên ai chấm ra ở nơi khác vẫn "đang làm việc" cả ngày sau.
-- **Một phiên mỗi ngày tính theo lượt vào**: hôm nay đã có lượt vào hợp lệ thì `ALREADY_WORKED_TODAY`. Tính theo lượt ra như cũ thì một lượt ra rơi sang ngày mới (sau nửa đêm, hoặc do máy bịa) khoá cả ngày mới.
-- **Lượt ra thuộc về ngày của lượt vào nó đóng** (trong cửa sổ 20 tiếng), không thuộc về ngày dương lịch nó rơi vào. Vào 22:00, ra 00:30 là một ngày công của hôm trước, không phải "hôm trước chưa ra + hôm sau có lượt ra mồ côi".
-- Chấm ra khi phiên đã quá 20 tiếng → `SESSION_EXPIRED` (khác với `CHECK_OUT_WITHOUT_CHECK_IN`), câu tiếng Việt chỉ thẳng sang chỉnh công.
+- **Một phiên mỗi ngày tính theo lượt vào**: hôm nay đã có lượt vào hợp lệ thì `ALREADY_WORKED_TODAY`; đã ra rồi thì `/attendance/me/state` trả `DONE_FOR_TODAY` và nút chấm vào tắt tới ngày mai. Chấm ra lần nữa → `ALREADY_CHECKED_OUT`.
+- **Mỗi lượt thuộc về ngày dương lịch nó rơi vào.** Một lượt ra sau nửa đêm (chỉ chỉnh công hoặc sửa tay mới đặt được vào đó) là "thiếu lượt vào" của ngày mới, không phải lượt ra của hôm trước.
+- Chấm ra cho lượt vào của ngày hôm trước → `SESSION_EXPIRED` (khác với `CHECK_OUT_WITHOUT_CHECK_IN`), câu tiếng Việt chỉ thẳng sang chỉnh công.
+- **Chỉ có ca ngày.** Địa điểm bắt buộc có giờ vào/ra trong cùng một ngày (`HOURS_REQUIRED`, `HOURS_ORDER_INVALID`); cột `shift_kind` đã có nhưng `NIGHT` bị từ chối (`NIGHT_SHIFT_NOT_SUPPORTED`) cho tới khi bộ dựng ngày công đặt được lượt vào và lượt ra lên hai ngày khác nhau. Địa điểm cũ chưa có giờ được migration 027 điền 08:00–17:00.
 
 ### Một hàm cho trạng thái ngày
 
@@ -203,7 +204,9 @@ Thông báo do **ứng dụng tự viết** (ví dụ "Bạn đã từ chối qu
 
 ### Menu ngắn, màn hình gộp
 
-Người quản lý có bốn mục: Tổng quan nhóm, Bản ghi, Quản lý nhóm, Nhật ký. Ba khoá quyền — yêu cầu vào nhóm, đổi khuôn mặt, duyệt chỉnh công — không còn trang riêng: các trang mồ côi đã xoá, khoá vẫn giữ vì máy chủ chặn endpoint theo chúng và bảng phân quyền cần một dòng để bật tắt (`hidden: true` trong `screens.ts`, trỏ về `/manager/teams`). Trang `/manager/locations` còn lại làm trình sửa địa điểm có bản đồ, đi tới từ Quản lý nhóm. Duyệt người và giao việc cho người là một việc; tách ra bốn màn hình là cách để quên mất một trong bốn.
+Người quản lý có bốn mục: Tổng quan nhóm, Bản ghi, Quản lý nhóm, Nhật ký. Ba khoá quyền — yêu cầu vào nhóm, đổi khuôn mặt, duyệt chỉnh công — không còn trang riêng: các trang mồ côi đã xoá, khoá vẫn giữ vì máy chủ chặn endpoint theo chúng và bảng phân quyền cần một dòng để bật tắt (`hidden: true` trong `screens.ts`, trỏ về `/manager/teams`). Trang `/manager/locations` còn lại làm trình sửa địa điểm có bản đồ, đi tới từ Quản lý nhóm. **Bản ghi** là một thanh công cụ (tháng, bốn con số, tìm, ba cách xem *Lịch · Bảng · Điểm danh*, làm mới) và một **ngăn kéo bên phải** — mở một ngày thì thấy từng người, bấm người thì thấy ba ảnh, hai giờ, bản đồ vị trí chấm và form sửa; lịch không bao giờ bị che. *Điểm danh* đi từ danh sách nhóm chứ không từ bản ghi, nên người chưa chấm công là dòng đầu tiên chứ không phải một khoảng trống (`GET /manager/attendance/roll-call`).
+
+Bản đồ dùng **MapLibre GL** với vector tile của OpenFreeMap (không key, không hạn mức); `components/GeoMap.tsx` là bản đồ duy nhất, nhận danh sách vòng geofence và ghim. MapLibre 6 tìm worker theo `import.meta.url`, thứ một chunk đã đóng gói không có, nên Dockerfile chép `maplibre-gl-worker.mjs` + `maplibre-gl-shared.mjs` vào `public/maplibre/` và `GeoMap` gọi `setWorkerUrl`. Không có bước đó bản đồ hiện nền trống mà không báo lỗi. Duyệt người và giao việc cho người là một việc; tách ra bốn màn hình là cách để quên mất một trong bốn.
 
 ### Một dòng một người, phần còn lại nằm sau cú chạm
 
@@ -289,9 +292,13 @@ frontend/
   components/
     Shell.tsx           khung dùng chung cho mọi vai trò
     SelectableTable.tsx bảng chọn nhiều dòng + thao tác hàng loạt
-    AttendanceCalendar.tsx lịch tháng; trả ngày được chọn về cho trang
+    Drawer.tsx          ngăn kéo bên phải, dùng cho Bản ghi
+    GeoMap.tsx          bản đồ MapLibre duy nhất: vòng geofence + ghim, kéo được khi cần
+    records/            Lịch · Bảng · Điểm danh · trang một người (ảnh, giờ, bản đồ, sửa)
   lib/
     screens.ts    danh sách màn hình, nhóm menu, thứ tự theo vai trò
+    records.ts    từ vựng và phép tính chung của mọi cách xem bản ghi
+    map.ts        style OpenFreeMap, đa giác vòng tròn theo mét
     permissions.ts ẩn nút theo quyền (chỉ là phép lịch sự — backend mới là chốt)
 ```
 
@@ -305,11 +312,11 @@ Không có mock. Mọi probe chạy trên hệ thống thật đang chạy.
 |---|---|
 | `unittest` (36) | Geofence, quy tắc giờ, trạng thái ngày, kiểm tra ảnh tải lên |
 | `security_probe` (37) | Phân tách dữ liệu, SSRF, replay, XSS, rate limit |
-| `rbac_probe` (50) | Phân quyền màn hình và hành động, trình duyệt dữ liệu |
+| `rbac_probe` (50, chụp bảng phân quyền trước và trả lại đúng như cũ sau khi chạy) | Phân quyền màn hình và hành động, trình duyệt dữ liệu |
 | `isolation_probe` (17) | Phạm vi đọc theo địa điểm; địa điểm theo nhóm |
 | `rules_probe` (11) | Một người một quản lý; một phiên mỗi ngày |
-| `session_rules_probe` (14) | Phiên khép sau 20 tiếng không bịa lượt ra; ra sau nửa đêm thuộc ngày vào; ba màn hình một câu trả lời |
-| `devices_probe` (12) | Bật tắt một/nhiều thiết bị theo vai trò |
+| `session_rules_probe` (17) | Phiên khép lúc 00:00 không bịa lượt ra; đã ra thì hôm nay xong; ba màn hình một câu trả lời |
+| `devices_probe` (14) | Bật tắt một/nhiều thiết bị theo vai trò; trần 10 thiết bị |
 | `delete_day_probe` (12) | Xoá ngày công xoá trọn ngày, đúng phạm vi, xoá mềm |
 | `edit_record_probe` (20) | Sửa từng lượt; tính lại số dẫn xuất; số máy đo không bị viết đè |
 | `correction_probe` (15) | Duyệt chỉnh công ghi vào bảng công; chặn chấm công khi chưa đủ điều kiện |
@@ -337,7 +344,7 @@ Giao diện kiểm bằng Playwright chạy Chrome hệ thống, ngoài kho mã.
 | Chưa có retention dữ liệu sinh trắc | Ảnh và vector giữ vô hạn; `07_SECURITY_PRIVACY.md` §6 yêu cầu có thời hạn |
 | Chưa có sao lưu tự động | Script có sẵn nhưng phải chạy tay |
 | `FACE_MATCH_TOLERANCE` chưa đánh giá FAR/FRR | Đang dùng 0.6, mặc định của thư viện |
-| Ca qua đêm | Ràng buộc `expected_check_in < expected_check_out` chặn ca 22:00–06:00 |
+| Ca qua đêm | Bộ dựng ngày công cắt ngày lúc 00:00 và ràng buộc `expected_check_in < expected_check_out`; `shift_kind = 'NIGHT'` đã có chỗ nhưng bị từ chối |
 | Frontend chưa có test trong kho mã | Kiểm bằng Playwright ngoài kho |
 
 ---

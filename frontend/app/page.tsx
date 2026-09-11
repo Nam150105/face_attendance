@@ -170,6 +170,8 @@ export default function DashboardPage() {
   const state = data.state as AttendanceState;
   const face = data.face as FaceEnrollmentStatus;
   const checkedIn = state.state === "CHECKED_IN";
+  // In and out already: the day is done and the button rests until tomorrow.
+  const doneToday = state.state === "DONE_FOR_TODAY";
   const memberName = displayName(data.profile, data.user.email);
   // One source of truth for "can this person check in", handed down by the API.
   const blocked = state.can_check_in ? null : BLOCKED_TEXT[state.blocked_reason ?? ""] ?? null;
@@ -182,8 +184,8 @@ export default function DashboardPage() {
           <h1 className="page-title">{getGreeting(memberName)}</h1>
           <p className="page-lead">Ghi nhận hiện diện bằng nhận diện khuôn mặt và định vị GPS.</p>
         </div>
-        <Badge tone={checkedIn ? "success" : "neutral"}>
-          {checkedIn ? "● Đang trong phiên" : "○ Chưa mở phiên"}
+        <Badge tone={checkedIn ? "success" : doneToday ? "info" : "neutral"}>
+          {checkedIn ? "● Đang trong phiên" : doneToday ? "✓ Hôm nay đã xong" : "○ Chưa mở phiên"}
         </Badge>
       </div>
 
@@ -210,11 +212,13 @@ export default function DashboardPage() {
       {/* Main Shift Status Card with Live Timer */}
       <Card
         glow={checkedIn}
-        title={checkedIn ? "Phiên đang mở" : "Bắt đầu một phiên mới"}
+        title={checkedIn ? "Phiên đang mở" : doneToday ? "Hôm nay đã chấm đủ vào ra" : "Bắt đầu một phiên mới"}
         subtitle={
           checkedIn
             ? "Bạn đã check-in. Hãy check-out khi kết thúc."
-            : "Xác thực bằng khuôn mặt và vị trí để ghi nhận."
+            : doneToday
+              ? "Mỗi ngày một phiên. Nút chấm vào mở lại sau 00:00."
+              : "Xác thực bằng khuôn mặt và vị trí để ghi nhận."
         }
         action={
           checkedIn && elapsed ? (
@@ -257,8 +261,12 @@ export default function DashboardPage() {
                       (data.locations.length > 1 ? " (chọn nơi khác khi chấm công)" : ""),
               },
               {
-                key: "Thời điểm check-in",
-                value: state.open_check_in_time ? formatDateTime(state.open_check_in_time) : "Chưa check-in",
+                key: doneToday ? "Hôm nay" : "Thời điểm check-in",
+                value: state.open_check_in_time
+                  ? formatDateTime(state.open_check_in_time)
+                  : doneToday && state.last_event
+                    ? `Đã chấm ra lúc ${formatDateTime(state.last_event.server_time)}`
+                    : "Chưa check-in",
               },
             ]}
           />
@@ -267,7 +275,7 @@ export default function DashboardPage() {
             <Button
               size="lg"
               variant={checkedIn ? "secondary" : "primary"}
-              disabled={blocked !== null && state.blocked_reason !== "NO_FACE"}
+              disabled={(blocked !== null && state.blocked_reason !== "NO_FACE") || (doneToday && face.enrolled)}
               onClick={() => router.push(face.enrolled ? "/attendance" : "/enroll")}
               icon={
                 <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -277,7 +285,13 @@ export default function DashboardPage() {
               }
               block
             >
-              {face.enrolled ? (checkedIn ? "Check-out — kết thúc phiên" : "Check-in — bắt đầu phiên") : "Đăng ký khuôn mặt"}
+              {face.enrolled
+                ? checkedIn
+                  ? "Check-out — kết thúc phiên"
+                  : doneToday
+                    ? "Đã chấm ra hôm nay"
+                    : "Check-in — bắt đầu phiên"
+                : "Đăng ký khuôn mặt"}
             </Button>
           </div>
 

@@ -29,12 +29,17 @@ class LocationRequest(BaseModel):
     allow_radius_meters: int = Field(default=100, gt=0)
     warning_radius_meters: int = Field(default=200, gt=0)
     is_active: bool = True
-    # The only source of working hours; there is no per-member override.
-    expected_check_in: time | None = None
-    expected_check_out: time | None = None
+    # The only source of working hours; there is no per-member override, and a
+    # place without hours cannot exist: lateness would mean nothing there.
+    expected_check_in: time
+    expected_check_out: time
     grace_minutes: int = Field(default=10, ge=0, le=240)
     # Off: late arrivals are recorded and reported. On: they are refused.
     enforce_hours: bool = False
+    # DAY is the only shift the day builder understands today. NIGHT is
+    # accepted by the schema but refused by the service until a day can start
+    # on one date and end on the next.
+    shift_kind: str = Field(default="DAY", pattern="^(DAY|NIGHT)$")
 
 
 class AssignmentRequest(BaseModel):

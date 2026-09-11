@@ -271,7 +271,13 @@ export default function AttendancePage() {
   const gate =
     state && !state.can_check_in && !checkedIn
       ? BLOCKED_TEXT[state.blocked_reason ?? ""] ?? null
-      : null;
+      : state?.state === "DONE_FOR_TODAY"
+        ? {
+            title: "Hôm nay đã chấm đủ vào ra",
+            body: "Mỗi ngày một phiên. Nút chấm vào mở lại sau 00:00; nếu giờ ghi nhận chưa đúng, hãy gửi yêu cầu chỉnh công.",
+            action: { href: "/corrections", label: "Yêu cầu chỉnh công" },
+          }
+        : null;
 
   return (
     <AppShell email={user?.email}>
@@ -286,7 +292,7 @@ export default function AttendancePage() {
           </p>
         </div>
         <Badge tone={checkedIn ? "success" : "info"}>
-          {checkedIn ? "Đang trong phiên" : "Chưa mở phiên"}
+          {checkedIn ? "Đang trong phiên" : state?.state === "DONE_FOR_TODAY" ? "Hôm nay đã xong" : "Chưa mở phiên"}
         </Badge>
       </div>
 

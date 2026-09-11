@@ -9,28 +9,22 @@ Everything that shows a day now calls `days()` and gets the same answer.
 
 Rules, in one place:
 
-- A day is cut in the organisation's timezone.
-- A valid check-out belongs to the day of the check-in it closes, not to the
-  calendar date it happened to fall on. Leaving at 00:30 ends yesterday.
-- A check-in that is never closed stays a check-in; nothing is invented to
-  close it. After SESSION_MAX_HOURS it is simply no longer open, and the day
-  shows "chưa chấm ra" until somebody corrects it.
+- A day is cut in the organisation's timezone, at midnight. Only day shifts
+  exist for now; a night shift straddling midnight is not representable yet.
+- A check-in is open until it is checked out or the day ends, whichever
+  comes first. Past midnight nothing is invented to close it: the day keeps
+  its check-in only, shows "chưa chấm ra", and the next day starts clean.
+- After a check-out the day is done; a second session the same day is refused.
 - Refused attempts are counted and named, never mistaken for attendance.
 """
 
 from __future__ import annotations
 
-import os
 import uuid
 from datetime import date, datetime, timezone
-
 import psycopg
 
-from app.services.member_portal import APP_TIMEZONE
-
-# How long a check-in stays open with no check-out. Long enough for any real
-# shift, short enough that tomorrow is never blocked by today.
-SESSION_MAX_HOURS = int(os.environ.get("SESSION_MAX_HOURS", "20"))
+from app.services.member_portal import APP_TIMEZONE, LOCAL_ZONE
 
 VALID = "('SUCCESS', 'WARNING_CONFIRMED')"
 
@@ -49,10 +43,10 @@ def day_status(check_in: datetime | None, check_out: datetime | None,
     ON_TIME · LATE · OPEN · NO_CHECK_IN · REJECTED_FACE · REJECTED_PLACE.
 
     OPEN covers both "still working" and "forgot to check out": whether the
-    person can still close it is a question about *now*, answered by the
-    check-in service, not a property of the day. NO_CHECK_IN is the mirror
-    image — a departure with no arrival it belongs to, which happens when the
-    arrival was more than SESSION_MAX_HOURS earlier.
+    person can still close it is a question about *now* — is it still the
+    same day — answered by the check-in service, not a property of the day.
+    NO_CHECK_IN is the mirror image: a departure with no arrival on that day,
+    which only a correction or a manual edit can produce.
     """
     if check_in is None and check_out is not None:
         return "NO_CHECK_IN"
@@ -91,36 +85,15 @@ def days(
 
     rows = connection.execute(
         f"""
-        WITH events AS (
+        WITH a AS (
             SELECT e.id, e.member_id, e.event_type::text AS event_type, e.status::text AS status,
                    e.server_time, e.location_id, l.name AS location_name,
                    e.failure_code, e.minutes_late, e.minutes_early_leave, e.source::text AS source,
-                   (e.server_time AT TIME ZONE %s)::date AS own_date
+                   (e.server_time AT TIME ZONE %s)::date AS work_date
             FROM attendance_events e
             LEFT JOIN locations l ON l.id = e.location_id
             WHERE {where}
-              -- One day of slack on each side so a check-out just after
-              -- midnight is fetched together with the check-in it closes.
-              AND (e.server_time AT TIME ZONE %s)::date BETWEEN (%s::date - 1) AND (%s::date + 1)
-        ),
-        assigned AS (
-            SELECT ev.*,
-                   CASE
-                       WHEN ev.event_type = 'CHECK_OUT' AND ev.status IN {VALID} THEN COALESCE((
-                           SELECT (ci.server_time AT TIME ZONE %s)::date
-                           FROM attendance_events ci
-                           WHERE ci.member_id = ev.member_id
-                             AND ci.event_type = 'CHECK_IN'
-                             AND ci.status IN {VALID}
-                             AND ci.deleted_at IS NULL
-                             AND ci.server_time < ev.server_time
-                             AND ci.server_time > ev.server_time - make_interval(hours => %s)
-                           ORDER BY ci.server_time DESC
-                           LIMIT 1
-                       ), ev.own_date)
-                       ELSE ev.own_date
-                   END AS work_date
-            FROM events ev
+              AND (e.server_time AT TIME ZONE %s)::date BETWEEN %s AND %s
         )
         SELECT
             a.work_date,
@@ -145,15 +118,15 @@ def days(
                 'id', a.id, 'event_type', a.event_type, 'status', a.status,
                 'server_time', a.server_time, 'location_name', a.location_name,
                 'failure_code', a.failure_code, 'source', a.source
-            ) ORDER BY a.server_time) AS attempts
-        FROM assigned a
+            ) ORDER BY a.server_time) AS attempts,
+            (array_agg(a.location_id ORDER BY a.server_time) FILTER (WHERE a.status IN {VALID}))[1] AS location_id
+        FROM a
         JOIN users u ON u.id = a.member_id
         LEFT JOIN member_profiles mp ON mp.user_id = a.member_id
-        WHERE a.work_date BETWEEN %s AND %s
         GROUP BY a.work_date, a.member_id, u.email, mp.full_name
         ORDER BY a.work_date DESC, check_in DESC NULLS LAST, u.email
         """,
-        [APP_TIMEZONE, *parameters, APP_TIMEZONE, date_from, date_to, APP_TIMEZONE, SESSION_MAX_HOURS, date_from, date_to],
+        [APP_TIMEZONE, *parameters, APP_TIMEZONE, date_from, date_to],
     ).fetchall()
 
     result = []
@@ -185,11 +158,15 @@ def days(
             "check_out_id": row[14] if check_out is not None else None,
             "status": day_status(check_in, check_out, minutes_late, list(row[11] or [])),
             "attempts": row[15],
+            "location_id": row[16],
         })
     return result
 
 
+def local_today(now: datetime | None = None) -> date:
+    return (now or datetime.now(timezone.utc)).astimezone(LOCAL_ZONE).date()
+
+
 def session_is_open(opened_at: datetime, now: datetime | None = None) -> bool:
-    """A check-in with no check-out is 'open' only for SESSION_MAX_HOURS."""
-    now = now or datetime.now(timezone.utc)
-    return (now - opened_at).total_seconds() < SESSION_MAX_HOURS * 3600
+    """A check-in with no check-out is 'open' only until the local day ends."""
+    return opened_at.astimezone(LOCAL_ZONE).date() == local_today(now)

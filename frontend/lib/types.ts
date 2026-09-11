@@ -125,7 +125,9 @@ export interface AttendanceEvent {
 }
 
 export interface AttendanceState {
-  state: "NOT_CHECKED_IN" | "CHECKED_IN";
+  /** DONE_FOR_TODAY: checked in and out already; the button stays off until tomorrow. */
+  state: "NOT_CHECKED_IN" | "CHECKED_IN" | "DONE_FOR_TODAY";
+  done_for_today: boolean;
   face_enrolled: boolean;
   location_count: number;
   has_manager: boolean;
@@ -214,11 +216,15 @@ export interface ManagerLocation {
   created_at: string;
   updated_at: string;
   is_default?: boolean;
-  expected_check_in: string | null;
-  expected_check_out: string | null;
+  expected_check_in: string;
+  expected_check_out: string;
   grace_minutes: number;
   enforce_hours: boolean;
+  shift_kind: ShiftKind;
 }
+
+/** DAY is the only one the server accepts today; NIGHT is shown as coming. */
+export type ShiftKind = "DAY" | "NIGHT";
 
 export interface LocationInput {
   name: string;
@@ -228,10 +234,11 @@ export interface LocationInput {
   allow_radius_meters: number;
   warning_radius_meters: number;
   is_active: boolean;
-  expected_check_in: string | null;
-  expected_check_out: string | null;
+  expected_check_in: string;
+  expected_check_out: string;
   grace_minutes: number;
   enforce_hours: boolean;
+  shift_kind: ShiftKind;
 }
 
 export type CalendarDayStatus = "ON_TIME" | "LATE" | "OPEN" | "NO_CHECK_IN" | "REJECTED_FACE" | "REJECTED_PLACE";
@@ -266,6 +273,57 @@ export interface AttendanceCalendar {
     rejected: number;
   };
   days: CalendarDay[];
+}
+
+/** One person, one day, folded from every event that day. */
+export interface DaySession {
+  work_date: string;
+  member_id: string;
+  member_email: string;
+  member_name: string | null;
+  check_in: string | null;
+  check_out: string | null;
+  minutes_late: number;
+  minutes_early_leave: number;
+  rejected: number;
+  location_name: string | null;
+  location_id: string | null;
+  check_in_id: string | null;
+  check_out_id: string | null;
+  status: CalendarDayStatus;
+  /** Every event of that day, refused attempts included. */
+  attempts: {
+    id: string;
+    event_type: "CHECK_IN" | "CHECK_OUT";
+    status: AttendanceStatus;
+    server_time: string;
+    location_name: string | null;
+    failure_code: string | null;
+    source: string;
+  }[];
+}
+
+export type RollCallStatus = "PRESENT" | "LATE" | "OPEN" | "ABSENT";
+
+export interface RollCallPerson {
+  member_id: string;
+  member_email: string;
+  member_name: string | null;
+  team_name: string | null;
+  status: RollCallStatus;
+  check_in: string | null;
+  check_out: string | null;
+  minutes_late: number;
+  minutes_early_leave: number;
+  location_name: string | null;
+  check_in_id: string | null;
+  check_out_id: string | null;
+}
+
+export interface RollCall {
+  date: string;
+  summary: { expected: number; present: number; late: number; open: number; absent: number };
+  people: RollCallPerson[];
 }
 
 export interface LoginAttempt {

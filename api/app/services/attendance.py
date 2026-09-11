@@ -260,11 +260,11 @@ def _open_state(connection: psycopg.Connection, member_id: uuid.UUID) -> tuple |
     """
     The session this person can still check out of, or None.
 
-    Open is a matter of time, not of a row somebody wrote: a check-in stays
-    open for SESSION_MAX_HOURS and then simply is not. Nothing is inserted to
-    close it — the day shows "chưa chấm ra" and a person fixes it — so there
-    is no job to run, no fake departure at coordinates 0,0, and nothing that
-    lands on tomorrow and blocks it.
+    Open is a matter of the calendar, not of a row somebody wrote: a check-in
+    is open until it is checked out or the local day ends at midnight. Nothing
+    is inserted to close it — the day keeps its check-in only, shows "chưa
+    chấm ra", and a person fixes it — so there is no job to run, no fake
+    departure, and nothing that lands on tomorrow and blocks it.
     """
     row = _unclosed_check_in(connection, member_id)
     if row is None or not session_is_open(row[2]):
@@ -502,8 +502,11 @@ def check_out(
         connection.execute("SELECT id FROM users WHERE id = %s FOR UPDATE", (user.id,)).fetchone()
         open_event = _open_state(connection, user.id)
         if open_event is None:
-            # Two different situations, two different messages: never checked
-            # in, or checked in so long ago that the session has lapsed.
+            # Three different situations, three different messages: already
+            # checked out today, checked in on an earlier day that has since
+            # ended, or never checked in at all.
+            if _checked_in_today(connection, user.id):
+                raise _reject(409, "ALREADY_CHECKED_OUT")
             stale = _unclosed_check_in(connection, user.id)
             raise _reject(409, "SESSION_EXPIRED" if stale is not None else "CHECK_OUT_WITHOUT_CHECK_IN")
         opened_at = open_event[1]
@@ -630,6 +633,9 @@ MY_EVENT_COLUMNS = """
 def my_state(user: CurrentUser) -> dict:
     with psycopg.connect(DATABASE_URL) as connection:
         open_event = _open_state(connection, user.id)
+        # Checked in and out already: the day is done and the button stays off
+        # until tomorrow. Decided here so the portal never has to guess.
+        done_for_today = open_event is None and _checked_in_today(connection, user.id)
         enrolled = connection.execute(
             "SELECT 1 FROM face_embeddings WHERE member_id = %s AND revoked_at IS NULL LIMIT 1", (user.id,)
         ).fetchone()
@@ -665,8 +671,15 @@ def my_state(user: CurrentUser) -> dict:
     elif enrolled is None:
         blocked = "NO_FACE"
 
+    if open_event is not None:
+        state = "CHECKED_IN"
+    elif done_for_today:
+        state = "DONE_FOR_TODAY"
+    else:
+        state = "NOT_CHECKED_IN"
     return {
-        "state": "CHECKED_IN" if open_event is not None else "NOT_CHECKED_IN",
+        "state": state,
+        "done_for_today": done_for_today,
         "face_enrolled": enrolled is not None,
         "location_count": place_count,
         "has_manager": has_manager,

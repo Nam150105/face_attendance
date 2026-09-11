@@ -619,6 +619,73 @@ def attendance_calendar(user: CurrentUser, month: str, include_invalid: bool = F
         "days": [{"date": day, "people": people} for day, people in sorted(days.items())],
     }
 
+def roll_call(user: CurrentUser, day: date) -> dict:
+    """
+    Everybody expected on one day, with what they did — including the people
+    who did nothing, which the calendar cannot show because it only knows
+    about rows that exist. A manager's roster is their active memberships;
+    the super admin's is every active membership in the system.
+    """
+    with psycopg.connect(DATABASE_URL) as connection:
+        if user.role == "SUPER_ADMIN":
+            roster_sql, roster_params = "mm.status = 'ACTIVE'", []
+        else:
+            roster_sql, roster_params = "mm.status = 'ACTIVE' AND mm.manager_user_id = %s", [user.id]
+        roster = connection.execute(
+            f"""
+            SELECT DISTINCT ON (u.id) u.id, u.email, mp.full_name, t.name
+            FROM manager_memberships mm
+            JOIN users u ON u.id = mm.member_user_id AND u.status = 'ACTIVE'
+            LEFT JOIN member_profiles mp ON mp.user_id = u.id
+            LEFT JOIN teams t ON t.id = mm.team_id
+            WHERE {roster_sql}
+            ORDER BY u.id, mm.created_at DESC
+            """,
+            roster_params,
+        ).fetchall()
+        scope, scope_params = _scope(connection, user)
+        rows = build_days(connection, scope, list(scope_params), day, day, False)
+
+    by_member = {row["member_id"]: row for row in rows}
+    people = []
+    for member_id, email, full_name, team_name in roster:
+        row = by_member.get(member_id)
+        if row is None or row["check_in"] is None:
+            status = "ABSENT"
+        elif row["check_out"] is None:
+            status = "LATE" if row["minutes_late"] > 0 else "OPEN"
+        else:
+            status = "LATE" if row["minutes_late"] > 0 else "PRESENT"
+        people.append({
+            "member_id": member_id,
+            "member_email": email,
+            "member_name": full_name,
+            "team_name": team_name,
+            "status": status,
+            "check_in": row["check_in"] if row else None,
+            "check_out": row["check_out"] if row else None,
+            "minutes_late": row["minutes_late"] if row else 0,
+            "minutes_early_leave": row["minutes_early_leave"] if row else 0,
+            "location_name": row["location_name"] if row else None,
+            "check_in_id": row["check_in_id"] if row else None,
+            "check_out_id": row["check_out_id"] if row else None,
+        })
+    # Absentees first when the day is under way: they are the ones to call.
+    order = {"ABSENT": 0, "LATE": 1, "OPEN": 2, "PRESENT": 3}
+    people.sort(key=lambda item: (order[item["status"]], (item["member_name"] or item["member_email"]).lower()))
+    return {
+        "date": day.isoformat(),
+        "summary": {
+            "expected": len(people),
+            "present": sum(1 for item in people if item["status"] != "ABSENT"),
+            "late": sum(1 for item in people if item["minutes_late"] > 0),
+            "open": sum(1 for item in people if item["status"] in ("OPEN", "LATE") and item["check_out"] is None),
+            "absent": sum(1 for item in people if item["status"] == "ABSENT"),
+        },
+        "people": people,
+    }
+
+
 def delete_attendance_day(
     user: CurrentUser, member_id: uuid.UUID, work_date: date, reason: str
 ) -> dict:

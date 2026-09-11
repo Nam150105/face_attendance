@@ -91,7 +91,7 @@ Một giao diện duy nhất cho cả ba: vai trò quyết định màn hình n�
 4. Máy chủ, theo thứ tự: giới hạn tần suất → xác thực ảnh bằng magic byte → **geofence** (khoảng cách haversine tới địa điểm; trong bán kính cho phép thì được, giữa hai vòng thì phải nêu lý do, ngoài vòng cảnh báo thì `OUTSIDE_ALLOWED_ZONE`) → gọi face-ai `/v1/verify` với vector tham chiếu → **so khớp** (khoảng cách Euclid ≤ 0,6) → tính đi muộn / về sớm theo giờ quy định của địa điểm → ghi `attendance_events`.
 5. Kết quả hiện ngay: giờ, khoảng cách tới địa điểm, và **khoảng cách khuôn mặt / ngưỡng** mà bộ nhận diện đã dùng để quyết định.
 
-**Quy tắc phiên** (mục 5): một phiên mỗi ngày tính theo lượt vào; phiên mở tối đa 20 tiếng; quá đó không chấm ra được (`SESSION_EXPIRED`), ngày hiện *Chưa chấm ra*, không bịa lượt ra.
+**Quy tắc phiên** (mục 5): một phiên mỗi ngày tính theo lượt vào; phiên khép lúc 00:00 — chưa ra thì ngày đó chỉ có lượt vào (*Chưa chấm ra*), không bịa lượt ra, hôm sau chấm vào bình thường; đã ra thì nút chấm vào tắt tới ngày mai (`DONE_FOR_TODAY`).
 
 ### UC4 · Xem bảng công và xin chỉnh công
 
@@ -113,7 +113,7 @@ Người quản lý cũng là một thành viên đầy đủ (có hồ sơ, có
 
 1. *Quản lý nhóm* → gõ tên → **Tạo nhóm**. Hệ thống sinh mã 6 ký tự (bảng chữ bỏ `O/0`, `I/1` vì mã được đọc qua điện thoại). Bấm mã để sao chép.
 2. Bấm tên nhóm để mở tại chỗ: địa điểm của nhóm, người đang chờ, người trong nhóm.
-3. *Địa điểm* có thể tạo bằng cách tìm địa chỉ hoặc dán liên kết Google Maps (chỉ chấp nhận host trong danh sách cho phép, chống SSRF). Mỗi địa điểm có hai bán kính (cho phép / cảnh báo), giờ vào ra, số phút muộn chấp nhận.
+3. Trang *Địa điểm* mở đầu bằng bản đồ ghim mọi nơi chấm công (bấm ghim → sửa, gán người, bật tắt). *Địa điểm* có thể tạo bằng cách tìm địa chỉ, dán liên kết Google Maps (chỉ chấp nhận host trong danh sách cho phép, chống SSRF) hoặc kéo ghim trên bản đồ MapLibre. Mỗi địa điểm có hai bán kính (cho phép / cảnh báo), **ca làm việc** (hiện chỉ ca ngày) với giờ vào / giờ ra **bắt buộc**, số phút muộn chấp nhận.
 4. **Gắn địa điểm cho nhóm là một quy tắc**, tính bằng truy vấn: ai vào nhóm là chấm được ở đó ngay, rời nhóm là mất ngay. Không sao chép, nên không bao giờ lệch.
 5. Thêm người đã có tài khoản: dán danh sách email, **mỗi email một dòng**; kết quả nêu rõ từng email chưa thêm được và vì sao.
 
@@ -123,13 +123,19 @@ Ba ô ở đầu *Quản lý nhóm* đếm việc chờ: *Yêu cầu vào nhóm 
 
 ### UC8 · Theo dõi ngày công
 
-*Bản ghi* là một tấm lịch tháng: mỗi ngày có chồng ảnh đại diện kèm chấm màu (xanh đúng giờ, vàng chưa ra, đỏ muộn); trên điện thoại chỉ hiện số lượt để mọi tuần cao bằng nhau. Bấm một ngày → danh sách **mỗi người một dòng** ngay bên dưới: tên, vào → ra, tổng giờ, nơi, nhãn. Bật *Hiện cả lượt không hợp lệ* thì từng lần thử bị từ chối hiện thành dòng phụ riêng. Xuất CSV đúng ngày đang xem.
+*Bản ghi* có một thanh công cụ — tháng, bốn con số (*lượt · người đi làm · chưa ra ca · đi muộn*), ô tìm, ba cách xem, làm mới — và ba cách xem:
+
+- **Lịch**: tấm lịch cả chiều ngang; mỗi ngày ghi *N lượt*, dòng "*N người · N muộn · N chưa ra ca*" và một chấm màu cho mỗi người (xanh đúng giờ, vàng chưa ra ca, đỏ muộn, xám bị từ chối). Hôm nay có vòng tròn xanh.
+- **Bảng**: cả tháng thành dòng — ngày, người, vào, ra, có mặt, nơi, tình trạng — để đối chiếu một lời khai.
+- **Điểm danh**: hôm nay, đi từ **danh sách nhóm**: ai chưa chấm công đứng đầu, rồi muộn, đang làm, đủ vào ra.
+
+Bấm một ngày → **ngăn kéo bên phải** mở (không che lịch): *Thứ Sáu · N lượt · N người · N muộn · N chưa ra ca*, rồi mỗi người một dòng với ảnh đại diện, "Vào 08:00 · chưa ra ca", nhãn. Bật *Hiện cả lượt không hợp lệ* thì từng lần thử bị từ chối hiện thành dòng phụ. Xuất CSV đúng ngày đang xem.
 
 **Phạm vi dữ liệu**: người quản lý chỉ thấy bản ghi phát sinh **tại địa điểm của mình**. Hai người quản lý từng chung một người không thấy dữ liệu tại nơi của nhau.
 
 ### UC9 · Xem chi tiết một lượt
 
-Bấm dòng: ba ảnh **xếp ngang** — ảnh đã đăng ký, ảnh lúc vào, ảnh lúc ra — để đối chiếu bằng mắt; dải số *Vào · Ra · Có mặt · Khoảng cách khuôn mặt*; thông tin cốt lõi; mục *Thông tin kỹ thuật* gập lại (toạ độ, sai số GPS, thư viện nhận diện, mã bản ghi, nguồn bản ghi: thiết bị / chỉnh công / người nhập).
+Bấm dòng → ngăn kéo chuyển sang trang người (mũi tên quay lại ở đầu): tên, email, nhãn; **thẻ ngày** với hai giờ to *Vào 08:43 ——— Ra Chưa ra ca* và tổng thời gian ở giữa; ba ảnh **xếp ngang** — ảnh đã đăng ký, ảnh lúc vào, ảnh lúc ra — để đối chiếu bằng mắt; **bản đồ vị trí chấm công** (MapLibre) với hai vòng geofence của địa điểm và ghim nơi người đó đứng lúc vào (xanh) / lúc ra (cam), kèm địa chỉ và khoảng cách; thông tin cốt lõi; mục *Thông tin kỹ thuật* gập lại (toạ độ, sai số GPS, thư viện nhận diện, mã bản ghi, nguồn bản ghi: thiết bị / chỉnh công / người nhập).
 
 ### UC10 · Sửa và xoá
 
@@ -154,11 +160,14 @@ Bấm dòng: ba ảnh **xếp ngang** — ảnh đã đăng ký, ảnh lúc vào
 Điện thoại / máy tính
         │  HTTPS (Cloudflare Tunnel → Caddy)
         ▼
-   frontend (Next.js)  ──►  api (FastAPI)  ──►  PostgreSQL 16 + pgvector
-                                 │                 (tài khoản, nhóm, địa điểm, bản ghi, vector khuôn mặt)
-                                 ├──►  face-ai (FastAPI + OpenCV + face_recognition)   mạng nội bộ, không lộ ra ngoài
-                                 ├──►  MinIO (ảnh đăng ký, ảnh chấm công)              riêng tư, truy cập qua API
-                                 └──►  Redis (giới hạn tần suất, cửa sổ làm mới token)
+   frontend (Next.js + MapLibre GL, tile OpenFreeMap)
+        │
+        ▼
+   api (FastAPI)  ──►  PostgreSQL 16 + pgvector
+        │                 (tài khoản, nhóm, địa điểm, bản ghi, vector khuôn mặt)
+        ├──►  face-ai (FastAPI + OpenCV + face_recognition)   mạng nội bộ, không lộ ra ngoài
+        ├──►  MinIO (ảnh đăng ký, ảnh chấm công)              riêng tư, truy cập qua API
+        └──►  Redis (giới hạn tần suất, cửa sổ làm mới token)
 ```
 
 Mọi dịch vụ chạy bằng Docker Compose; migration Alembic chạy lúc container API khởi động.
@@ -166,18 +175,18 @@ Mọi dịch vụ chạy bằng Docker Compose; migration Alembic chạy lúc co
 ### 5.2 Vòng đời một ngày công
 
 ```
-CHECK_IN (SUCCESS)  ──── ≤ 20 tiếng ────►  CHECK_OUT (SUCCESS | WARNING_CONFIRMED)
+CHECK_IN (SUCCESS)  ──── cùng ngày ────►  CHECK_OUT (SUCCESS | WARNING_CONFIRMED)
      │                                            │
-     │  quá 20 tiếng, không có lượt ra            │  lượt ra thuộc ngày của lượt vào
-     ▼                                            ▼   (về sau nửa đêm vẫn tính hôm trước)
- ngày = "Chưa chấm ra"                        ngày = Đủ vào ra / Đi muộn
+     │  qua 00:00, không có lượt ra               │  hôm nay xong: nút chấm vào tắt
+     ▼                                            ▼   tới ngày mai (DONE_FOR_TODAY)
+ ngày = "Chưa chấm ra"                        ngày = Đúng giờ / Đi muộn
  trạng thái người = "chưa mở phiên"
  → chỉnh công hoặc quản lý sửa
 ```
 
 Trạng thái ngày được tính **một lần** trong `api/app/services/attendance_days.py` và dùng cho cả ba màn hình (bảng của quản lý, lịch tháng, bảng công cá nhân). Bộ trạng thái: `ON_TIME · LATE · OPEN · NO_CHECK_IN · REJECTED_FACE · REJECTED_PLACE`. Chưa chấm ra ưu tiên hơn đi muộn (số phút muộn vẫn đi kèm).
 
-Không có job nền nào: "đang trong phiên" là thứ **tính ra từ thời gian hiện tại**, không phải bản ghi ai đó viết thêm. Hệ thống từng bịa một lượt ra ở toạ độ 0,0 sau 24 giờ; cơ chế đó đã bỏ và các dòng nó để lại được xoá mềm (migration 024).
+Không có job nền nào: "đang trong phiên" là thứ **tính ra từ ngày hiện tại**, không phải bản ghi ai đó viết thêm. Chỉ có ca ngày: địa điểm bắt buộc có giờ vào/ra trong cùng một ngày; ca đêm có chỗ trong schema (`shift_kind`) nhưng bị từ chối cho tới khi ngày công đặt được lên hai ngày. Hệ thống từng bịa một lượt ra ở toạ độ 0,0 sau 24 giờ; cơ chế đó đã bỏ và các dòng nó để lại được xoá mềm (migration 024).
 
 ### 5.3 Bản ghi và trạng thái
 
@@ -188,7 +197,7 @@ Mỗi lượt là một dòng `attendance_events`: loại (vào/ra), trạng th�
 - Ảnh khuôn mặt và ảnh chấm công nằm trong MinIO riêng tư; mọi truy cập qua API có kiểm quyền và kiểm loại tệp bằng magic byte.
 - Vector khuôn mặt lưu kèm tên engine; hai engine khác nhau **không bao giờ so với nhau** (`FACE_ENGINE_MISMATCH`).
 - Giới hạn tần suất bằng Redis cho đăng nhập (theo IP và email), đăng ký, chấm công, nhận diện, dẫn hướng camera.
-- Mỗi tài khoản: quản trị chọn *một thiết bị* hay *nhiều thiết bị* cho từng vai trò. Phiên đăng nhập 90 ngày, trượt theo mỗi lần dùng; làm mới token có cửa sổ 60 giây để nhiều thẻ của cùng trình duyệt không đá nhau ra.
+- Mỗi tài khoản: quản trị chọn *một thiết bị* hay *nhiều thiết bị* cho từng vai trò. Phiên đăng nhập 90 ngày, trượt theo mỗi lần dùng, tối đa 10 thiết bị một tài khoản (thiết bị ít dùng nhất bị đăng xuất khi thêm máy thứ 11); làm mới token có cửa sổ 60 giây để nhiều thẻ của cùng trình duyệt không đá nhau ra.
 - Mọi sửa/xoá/phân quyền vào `audit_logs` kèm người thực hiện, giá trị trước và sau, lý do.
 - Lỗi không lường trước sinh một mã 6 ký tự cho người dùng đọc lại; quản trị tra tại *Sự cố hệ thống* để thấy traceback.
 
@@ -265,7 +274,7 @@ Trên ba chân dung phạm vi công cộng (probe `reading_probe`, `pipeline_pro
 | | Ảnh hưởng |
 |---|---|
 | Chưa có liveness | Ảnh chụp lại màn hình vẫn qua |
-| Ca qua đêm | Ràng buộc `expected_check_in < expected_check_out` chặn ca 22:00–06:00 |
+| Ca qua đêm | Ngày công cắt lúc 00:00; `shift_kind = 'NIGHT'` có trong schema nhưng bị từ chối — "sắp có" trên form |
 | Retention dữ liệu sinh trắc | Ảnh và vector giữ vô hạn, chưa có job dọn |
 | Sao lưu tự động | Script có, chưa gắn lịch |
 | Ngưỡng nhận diện | 0,6 chưa đánh giá trên dữ liệu thật |

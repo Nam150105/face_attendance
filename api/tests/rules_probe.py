@@ -121,6 +121,7 @@ def main() -> int:
         status, location = call("POST", "/manager/locations", bob, {
             "name": "Rules probe", "address": None, "latitude": 21.0, "longitude": 105.8,
             "allow_radius_meters": 500, "warning_radius_meters": 900, "is_active": True,
+            "expected_check_in": "08:00", "expected_check_out": "17:00",
         })
         location_id = location["id"]
         call("POST", f"/manager/members/{member_id}/locations", bob,

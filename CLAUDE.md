@@ -93,6 +93,7 @@ Xem `docs/13_OPERATIONS_RUNBOOK.md`. Tóm tắt:
 - **Upload ảnh** xác thực bằng magic byte, không tin `Content-Type` của client. Ảnh trả về luôn qua `safe_image_content_type()`; nếu bỏ bước này thì một tệp HTML tải lên sẽ được phục vụ lại từ origin của API và thành stored XSS.
 - **Link bản đồ** chỉ được fetch nếu host nằm trong allowlist ở `places.py`, kiểm lại từng bước redirect. Bỏ ra là mở lại SSRF vào mạng nội bộ.
 - **Idempotency key** phải lọc kèm `member_id`; cột này unique toàn cục nên truy vấn không lọc sẽ trả bản ghi của người khác.
+- **Probe không được để lại dấu vết cấu hình.** `rbac_probe` từng gọi `/admin/permissions/reset` rồi thôi — mỗi lần chạy là bảng phân quyền của quản trị viên bị trả về mặc định. Probe nào đụng cấu hình toàn hệ thống (phân quyền, chính sách thiết bị) phải chụp trước và trả lại đúng như cũ trong `finally`.
 - Chạy lại bộ kiểm bảo mật:
   ```powershell
   docker compose run --rm -v "D:ace-attendancepi:/src:ro" -w /src -e PROBE_BASE_URL=http://api:8000/api/v1 api python -m tests.security_probe
@@ -120,7 +121,7 @@ Tài khoản demo do migration `002_seed_local_demo` tạo ra chỉ dùng cho m�
 ## 10. Trạng thái hiện tại
 
 - **Xong:** Phase 0–10, cộng các đợt mở rộng sau roadmap: nhận diện bằng OpenCV + face_recognition, phân quyền theo màn hình và hành động, nhóm có mã cho người mới xin vào, duyệt đổi khuôn mặt, mã lỗi tra cứu được, cách ly dữ liệu theo địa điểm, một người một quản lý, một phiên mỗi ngày, và màn hình **Quản lý nhóm** gộp cả duyệt người / địa điểm / chỉnh công / đổi khuôn mặt.
-- **Migration hiện tại:** `026_drop_my_locations`.
+- **Migration hiện tại:** `027_required_hours`.
 - **Tiếp theo:** xem mục 9 và 10 trong `docs/ARCHITECTURE.md`.
 - **Đã deploy:** https://namnangno.click, chạy từ máy dev qua Cloudflare Tunnel (service `tunnel` trong compose).
 - **Nợ kỹ thuật đã biết:** xem mục "Known issues" trong [README.md](README.md).
@@ -128,7 +129,8 @@ Tài khoản demo do migration `002_seed_local_demo` tạo ra chỉ dùng cho m�
 ## 11. Những thứ CHƯA có — đừng giả định là đã có
 
 - Liveness / anti-spoofing: **không có**. Ảnh chụp lại màn hình vẫn qua được. Đang chờ chọn provider thương mại.
-- Ca qua đêm (22:00–06:00): **không lưu được**, do ràng buộc `expected_check_in < expected_check_out`.
+- Ca qua đêm (22:00–06:00): **không lưu được**. Ngày công cắt lúc 00:00 (`attendance_days.py`), ràng buộc `expected_check_in < expected_check_out` vẫn giữ; `shift_kind = 'NIGHT'` có trong schema nhưng service trả `NIGHT_SHIFT_NOT_SUPPORTED`.
+- Bản đồ là MapLibre + OpenFreeMap. MapLibre 6 cần worker phục vụ dưới `/public/maplibre/` (Dockerfile chép vào) và `setWorkerUrl` trong `GeoMap.tsx`; thiếu là bản đồ trống, không báo lỗi.
 - Lịch sao lưu tự động: **chưa có**. Script đã có nhưng phải chạy tay, chưa gắn cron.
 - Tài khoản demo `manager@example.com` / `member@example.com` từ migration 002 **vẫn tồn tại và đang ACTIVE** trên bản deploy công khai (manager@example.com đang quản lý 3 thành viên). Cân nhắc đổi mật khẩu hoặc chuyển sang SUSPENDED.
 - Retention dữ liệu sinh trắc học: **chưa có**. `07_SECURITY_PRIVACY.md` §6 yêu cầu thời hạn lưu cấu hình được và không giữ vô hạn — hiện ảnh bằng chứng và embedding được giữ mãi, chưa có job dọn.

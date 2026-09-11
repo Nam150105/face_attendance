@@ -14,13 +14,13 @@ from app.domain.geofence import GeofencePolicy, evaluate_geofence
 LOCATION_COLUMNS = """
     id, manager_user_id, name, address, latitude, longitude,
     allow_radius_meters, warning_radius_meters, is_active,
-    created_at, updated_at, expected_check_in, expected_check_out, grace_minutes, enforce_hours
+    created_at, updated_at, expected_check_in, expected_check_out, grace_minutes, enforce_hours, shift_kind
 """
 
 LOCATION_JOIN_COLUMNS = """
     l.id, l.manager_user_id, l.name, l.address, l.latitude, l.longitude,
     l.allow_radius_meters, l.warning_radius_meters, l.is_active,
-    l.created_at, l.updated_at, l.expected_check_in, l.expected_check_out, l.grace_minutes, l.enforce_hours
+    l.created_at, l.updated_at, l.expected_check_in, l.expected_check_out, l.grace_minutes, l.enforce_hours, l.shift_kind
 """
 
 
@@ -41,7 +41,18 @@ def _location(row: tuple) -> dict:
         "expected_check_out": row[12].isoformat() if row[12] else None,
         "grace_minutes": row[13],
         "enforce_hours": row[14],
+        "shift_kind": row[15],
     }
+
+
+def _validate_hours(payload: dict) -> None:
+    """Hours are required, ordered, and — for now — within one day."""
+    if payload.get("shift_kind", "DAY") == "NIGHT":
+        raise HTTPException(status_code=422, detail="NIGHT_SHIFT_NOT_SUPPORTED")
+    if payload.get("expected_check_in") is None or payload.get("expected_check_out") is None:
+        raise HTTPException(status_code=422, detail="HOURS_REQUIRED")
+    if payload["expected_check_in"] >= payload["expected_check_out"]:
+        raise HTTPException(status_code=422, detail="HOURS_ORDER_INVALID")
 
 
 def _validate_coordinates(latitude: float, longitude: float, accuracy: float | None = None) -> None:
@@ -77,6 +88,7 @@ def create_location(user: CurrentUser, payload: dict) -> dict:
     # hand it over, which beats leaving an ownerless row nobody can manage.
     manager_id = user.id
     _validate_coordinates(payload["latitude"], payload["longitude"])
+    _validate_hours(payload)
     if payload["allow_radius_meters"] <= 0 or payload["warning_radius_meters"] <= payload["allow_radius_meters"]:
         raise HTTPException(status_code=422, detail="warning_radius_meters must be greater than allow_radius_meters")
     with psycopg.connect(DATABASE_URL) as connection:
@@ -84,10 +96,10 @@ def create_location(user: CurrentUser, payload: dict) -> dict:
             f"""
             INSERT INTO locations (manager_user_id, name, address, latitude, longitude,
                                    allow_radius_meters, warning_radius_meters,
-                                   expected_check_in, expected_check_out, grace_minutes, enforce_hours)
+                                   expected_check_in, expected_check_out, grace_minutes, enforce_hours, shift_kind)
             VALUES (%(manager_user_id)s, %(name)s, %(address)s, %(latitude)s, %(longitude)s,
                     %(allow_radius_meters)s, %(warning_radius_meters)s,
-                    %(expected_check_in)s, %(expected_check_out)s, %(grace_minutes)s, %(enforce_hours)s)
+                    %(expected_check_in)s, %(expected_check_out)s, %(grace_minutes)s, %(enforce_hours)s, %(shift_kind)s)
             RETURNING {LOCATION_COLUMNS}
             """,
             {"manager_user_id": manager_id, **payload},
@@ -106,6 +118,7 @@ def update_location(user: CurrentUser, location_id: uuid.UUID, payload: dict) ->
     manager_id = user.id
     where, scope = owner_filter(managed_by(user))
     _validate_coordinates(payload["latitude"], payload["longitude"])
+    _validate_hours(payload)
     if payload["allow_radius_meters"] <= 0 or payload["warning_radius_meters"] <= payload["allow_radius_meters"]:
         raise HTTPException(status_code=422, detail="warning_radius_meters must be greater than allow_radius_meters")
     with psycopg.connect(DATABASE_URL) as connection:
@@ -121,7 +134,8 @@ def update_location(user: CurrentUser, location_id: uuid.UUID, payload: dict) ->
                 longitude = %(longitude)s, allow_radius_meters = %(allow_radius_meters)s,
                 warning_radius_meters = %(warning_radius_meters)s, is_active = %(is_active)s,
                 expected_check_in = %(expected_check_in)s, expected_check_out = %(expected_check_out)s,
-                grace_minutes = %(grace_minutes)s, enforce_hours = %(enforce_hours)s, updated_at = now()
+                grace_minutes = %(grace_minutes)s, enforce_hours = %(enforce_hours)s,
+                shift_kind = %(shift_kind)s, updated_at = now()
             WHERE id = %(location_id)s
             RETURNING {LOCATION_COLUMNS}
             """,

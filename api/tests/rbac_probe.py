@@ -63,11 +63,49 @@ def seed_event(member_id: str, location_id: str) -> str:
     return str(row[0])
 
 
+ACTIONS = ("view", "create", "edit", "delete")
+
+
+def grid_cells(grid: dict) -> dict[tuple[str, str, str], bool]:
+    """{(role, screen, action): allowed} from GET /admin/permissions."""
+    cells = {}
+    for role, screens in grid.get("roles", {}).items():
+        for screen, flags in screens.items():
+            for action in ACTIONS:
+                if action in flags:
+                    cells[(role, screen, action)] = bool(flags[action])
+    return cells
+
+
+def put_back(admin: str, snapshot: dict[tuple[str, str, str], bool]) -> int:
+    """
+    Return the live grid to exactly what it was before the probe ran.
+
+    The probe flips ticks and calls the reset endpoint; restoring "the
+    defaults" afterwards is not restoring — the operator's own choices are
+    not the defaults, and every run of this probe used to quietly undo them.
+    """
+    status, grid = call("GET", "/admin/permissions", admin)
+    if status != 200:
+        return 0
+    changed = 0
+    for key, wanted in snapshot.items():
+        if grid_cells(grid).get(key) != wanted:
+            role, screen, action = key
+            grant(admin, role, screen, wanted, action)
+            changed += 1
+    return changed
+
+
 def main() -> int:
     created: list[str] = []
     restore: list[tuple[str, str, bool, str]] = []
+    snapshot: dict[tuple[str, str, str], bool] = {}
+    admin = ""
     try:
         admin_email, admin = make_admin(created)
+        status, grid = call("GET", "/admin/permissions", admin)
+        snapshot = grid_cells(grid) if status == 200 else {}
         manager_email, manager = register("MANAGER", created)
         member_email, member = register("MEMBER", created)
         other_email, other_member = register("MEMBER", created)
@@ -81,6 +119,7 @@ def main() -> int:
         status, location = call("POST", "/manager/locations", manager, {
             "name": "RBAC probe", "address": None, "latitude": 21.0, "longitude": 105.8,
             "allow_radius_meters": 500, "warning_radius_meters": 900, "is_active": True,
+            "expected_check_in": "08:00", "expected_check_out": "17:00",
         })
         location_id = location.get("id") if status == 201 else None
         if not (member_id and other_id and location_id):
@@ -99,11 +138,16 @@ def main() -> int:
               "records" in screens.get("screens", []) and "admin-users" not in screens.get("screens", []))
 
         status, screens = call("GET", "/auth/me/screens", admin)
-        check("Quản trị hệ thống thấy mọi màn hình", len(screens.get("screens", [])) == len(SCREENS),
-              f"{len(screens.get('screens', []))}/{len(SCREENS)} màn hình")
+        # "Every screen" means every screen the live grid grants the role —
+        # the operator may have switched some off, and that is their call.
+        admin_expected = {screen for (role, screen, action), allowed in snapshot.items()
+                          if role == "SUPER_ADMIN" and action == "view" and allowed}
+        check("Quản trị hệ thống thấy đúng những màn hình bảng phân quyền đang cấp",
+              status == 200 and set(screens.get("screens", [])) == admin_expected,
+              f"{len(screens.get('screens', []))}/{len(admin_expected)} màn hình")
         permissions = screens.get("permissions", {})
         check("Bản đồ quyền theo hành động được trả kèm",
-              permissions.get("locations", {}).get("delete") is True,
+              permissions.get("locations", {}).get("delete") is snapshot.get(("SUPER_ADMIN", "locations", "delete"), True),
               str(permissions.get("locations")))
 
         # --- 2. A screen nobody granted stays shut ----------------------------
@@ -262,6 +306,7 @@ def main() -> int:
         status, _ = call("PUT", f"/manager/locations/{location_id}", manager, {
             "name": "RBAC probe", "latitude": 21.0, "longitude": 105.8,
             "allow_radius_meters": 500, "warning_radius_meters": 900,
+            "expected_check_in": "08:00", "expected_check_out": "17:00",
         })
         check("Mất quyền xoá không đụng tới quyền sửa", status == 200, f"HTTP {status}")
         grant(admin, "MANAGER", "locations", True, "delete")
@@ -287,6 +332,7 @@ def main() -> int:
         status, edited = call("PUT", f"/manager/locations/{location_id}", admin, {
             "name": "RBAC probe (admin sửa)", "latitude": 21.0, "longitude": 105.8,
             "allow_radius_meters": 400, "warning_radius_meters": 800,
+            "expected_check_in": "08:00", "expected_check_out": "17:00",
         })
         check("Quản trị hệ thống sửa được địa điểm của người khác",
               status == 200 and edited.get("name") == "RBAC probe (admin sửa)", f"HTTP {status}")
@@ -316,6 +362,7 @@ def main() -> int:
         status, created_place = call("POST", "/manager/locations", admin, {
             "name": "Admin tu tao", "address": None, "latitude": 21.1, "longitude": 105.9,
             "allow_radius_meters": 100, "warning_radius_meters": 200, "is_active": True,
+            "expected_check_in": "08:00", "expected_check_out": "17:00",
         })
         check("Quản trị hệ thống tạo được địa điểm", status == 201, f"HTTP {status}")
         if status == 201:
@@ -339,11 +386,13 @@ def main() -> int:
 
         call("DELETE", f"/manager/locations/{location_id}/permanent", manager)
     finally:
-        for role, screen, value, action in restore:
-            try:
-                grant(admin, role, screen, value, action)
-            except Exception:
-                pass
+        # The operator's grid, not the shipped one, is what comes back.
+        try:
+            if admin and snapshot:
+                put_back(admin, snapshot)
+        except Exception:
+            pass
+        del restore
         cleanup(created)
 
     passed = sum(1 for ok, _, _ in results if ok)

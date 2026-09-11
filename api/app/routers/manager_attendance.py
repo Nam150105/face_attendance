@@ -20,6 +20,7 @@ from app.services.manager_attendance import (
     login_history,
     manual_adjust,
     member_attendance,
+    roll_call,
 )
 
 
@@ -109,6 +110,14 @@ def attendance_month(
     user: CurrentUser = Depends(require_screen("records")),
 ) -> dict:
     return attendance_calendar(user, month, include_invalid)
+
+
+@router.get("/attendance/roll-call")
+def attendance_roll_call(
+    day: date = Query(alias="date"),
+    user: CurrentUser = Depends(require_screen("records")),
+) -> dict:
+    return roll_call(user, day)
 
 
 @router.get("/attendance/{event_id}")

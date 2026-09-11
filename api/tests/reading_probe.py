@@ -96,6 +96,7 @@ def main() -> int:
         status, location = call("POST", "/manager/locations", manager, {
             "name": "Reading probe", "address": None, "latitude": 21.0, "longitude": 105.8,
             "allow_radius_meters": 500, "warning_radius_meters": 900, "is_active": True,
+            "expected_check_in": "08:00", "expected_check_out": "17:00",
         })
         location_id = location["id"]
         call("POST", f"/manager/members/{member_id}/locations", manager,
@@ -130,6 +131,7 @@ def main() -> int:
         status, second = call("POST", "/manager/locations", manager, {
             "name": "Reading probe 2", "address": None, "latitude": 21.0, "longitude": 105.8,
             "allow_radius_meters": 500, "warning_radius_meters": 900, "is_active": True,
+            "expected_check_in": "08:00", "expected_check_out": "17:00",
         })
         second_id = second["id"]
         call("POST", f"/manager/members/{member_id}/locations", manager,

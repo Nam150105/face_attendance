@@ -1,229 +1,88 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
-import { AttendanceCalendar } from "../../../components/AttendanceCalendar";
-import { Dialog } from "../../../components/Dialog";
-import { usePermissions } from "../../../lib/permissions";
+import { Drawer } from "../../../components/Drawer";
 import { ManagerShell } from "../../../components/ManagerShell";
-import {
-  Alert,
-  Badge,
-  Button,
-  Card,
-  DataList,
-  Empty,
-  Field,
-  LoadingRows,
-  SelectField,
-  TextAreaField,
-} from "../../../components/ui";
+import { PersonPanel } from "../../../components/records/PersonPanel";
+import { RecordsCalendar } from "../../../components/records/RecordsCalendar";
+import { RecordsTable } from "../../../components/records/RecordsTable";
+import { RollCallView } from "../../../components/records/RollCallView";
+import { Alert, Badge, Button, Empty, LoadingRows } from "../../../components/ui";
 import { api } from "../../../lib/api";
-import { formatDateTime } from "../../../lib/geo";
 import { describeError, describeFailure } from "../../../lib/messages";
-import { describeMinutes } from "../../../lib/member";
-import type { AttendanceStatus, ManagerAttendanceEvent, ManagerLocation } from "../../../lib/types";
+import { usePermissions } from "../../../lib/permissions";
+import {
+  DAY_STATUS,
+  EVENT_STATUS,
+  clock,
+  exportSessionsCsv,
+  initials,
+  localDateKey,
+  longDate,
+  monthKey,
+  summariseDay,
+  timingPill,
+} from "../../../lib/records";
+import type { AttendanceCalendar, CalendarPerson, DaySession, ManagerLocation } from "../../../lib/types";
 
 /** A day of one manager's people fits on one screen; there is nothing to page. */
 const DAY_LIMIT = 200;
 
-const STATUS_TONE: Record<AttendanceStatus, "success" | "warning" | "danger"> = {
-  SUCCESS: "success",
-  WARNING_CONFIRMED: "warning",
-  BLOCKED: "danger",
-  FAILED: "danger",
-};
+type View = "calendar" | "table" | "roll";
 
-// The same four words the edit form uses, so a badge and the dropdown never
-// describe one record two ways.
-const STATUS_LABELS: Record<AttendanceStatus, string> = {
-  SUCCESS: "Hợp lệ",
-  WARNING_CONFIRMED: "Hợp lệ có lý do",
-  BLOCKED: "Địa điểm không khớp",
-  FAILED: "Khuôn mặt không khớp",
-};
-
-function exportSessions(day: string, sessions: Session[]) {
-  const headers = ["Ngày", "Họ và tên", "Email", "Giờ vào", "Giờ ra", "Đi muộn (phút)", "Về sớm (phút)", "Nơi", "Tình trạng"];
-  const rows = sessions.map((session) => [
-    session.work_date,
-    session.member_name ?? "",
-    session.member_email,
-    session.check_in ? new Date(session.check_in).toLocaleTimeString("vi-VN") : "",
-    session.check_out ? new Date(session.check_out).toLocaleTimeString("vi-VN") : "",
-    String(session.minutes_late),
-    String(session.minutes_early_leave),
-    session.location_name ?? "",
-    SESSION_LABEL[session.status],
-  ]);
-  // The BOM is what makes Excel read Vietnamese instead of mojibake.
-  const csv =
-    "﻿" +
-    [headers, ...rows]
-      .map((row) => row.map((cell) => `"${cell.replace(/"/g, '""')}"`).join(","))
-      .join("\n");
-  const url = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8;" }));
-  const link = document.createElement("a");
-  link.href = url;
-  link.download = `cham-cong-${day}.csv`;
-  document.body.appendChild(link);
-  link.click();
-  document.body.removeChild(link);
-  URL.revokeObjectURL(url);
-}
-
-interface Session {
-  work_date: string;
-  member_id: string;
-  member_email: string;
-  member_name: string | null;
-  check_in: string | null;
-  check_out: string | null;
-  minutes_late: number;
-  minutes_early_leave: number;
-  rejected: number;
-  location_name: string | null;
-  check_in_id: string | null;
-  check_out_id: string | null;
-  status: "ON_TIME" | "LATE" | "OPEN" | "NO_CHECK_IN" | "REJECTED_FACE" | "REJECTED_PLACE";
-  /** Every event of that day, refused attempts included. */
-  attempts: {
-    id: string;
-    event_type: "CHECK_IN" | "CHECK_OUT";
-    status: AttendanceStatus;
-    server_time: string;
-    location_name: string | null;
-    failure_code: string | null;
-    source: string;
-  }[];
-}
-
-const SESSION_LABEL: Record<Session["status"], string> = {
-  ON_TIME: "Đủ vào ra",
-  LATE: "Đi muộn",
-  OPEN: "Chưa chấm ra",
-  NO_CHECK_IN: "Thiếu lượt vào",
-  REJECTED_FACE: "Khuôn mặt không khớp",
-  REJECTED_PLACE: "Địa điểm không khớp",
-};
-
-const SOURCE_LABEL: Record<string, string> = {
-  DEVICE: "Thiết bị chấm công",
-  CORRECTION: "Chỉnh công đã duyệt",
-  MANUAL: "Người quản lý nhập",
-};
-
-const SESSION_TONE: Record<Session["status"], "success" | "warning" | "danger" | "neutral"> = {
-  ON_TIME: "success",
-  LATE: "danger",
-  OPEN: "warning",
-  NO_CHECK_IN: "warning",
-  REJECTED_FACE: "neutral",
-  REJECTED_PLACE: "neutral",
-};
-
-/** Time between arriving and leaving; nothing yet if the day is still open. */
-function presenceOf(session: Session): string {
-  if (!session.check_in || !session.check_out) {
-    return "Chưa chấm ra";
-  }
-  const minutes = Math.round(
-    (new Date(session.check_out).getTime() - new Date(session.check_in).getTime()) / 60000,
-  );
-  return minutes > 0 ? describeMinutes(minutes) : "0 phút";
-}
-
-function clockOf(value: string | null): string {
-  return value
-    ? new Date(value).toLocaleTimeString("vi-VN", { hour: "2-digit", minute: "2-digit" })
-    : "—";
-}
-
-function shortClock(value: string | null): string {
-  if (!value) {
-    return "—";
-  }
-  return new Date(value).toLocaleTimeString("vi-VN", { hour: "2-digit", minute: "2-digit" });
-}
-
-/**
- * The verdict of a record, as one choice.
- *
- * It used to be three controls — a status dropdown and two switches for the
- * face and the place — which could contradict each other: "khuôn mặt không
- * khớp" sitting next to "Hợp lệ" left the reader to guess which one counted.
- * One list, four answers, and the record says the same thing everywhere.
- */
-type Verdict = "VALID" | "EXCUSED" | "FACE" | "PLACE";
-
-const VERDICTS: { key: Verdict; status: string; failure: string | null; label: string }[] = [
-  { key: "VALID", status: "SUCCESS", failure: null, label: "Hợp lệ" },
-  { key: "EXCUSED", status: "WARNING_CONFIRMED", failure: null, label: "Hợp lệ có lý do" },
-  { key: "FACE", status: "FAILED", failure: "FACE_NOT_MATCHED", label: "Khuôn mặt không khớp" },
-  { key: "PLACE", status: "BLOCKED", failure: "OUTSIDE_ALLOWED_ZONE", label: "Địa điểm không khớp" },
+const VIEWS: { key: View; label: string; icon: string }[] = [
+  { key: "calendar", label: "Lịch", icon: "▦" },
+  { key: "table", label: "Bảng", icon: "☰" },
+  { key: "roll", label: "Điểm danh", icon: "✓" },
 ];
-
-function verdictOf(event: ManagerAttendanceEvent): Verdict {
-  if (event.status === "SUCCESS") return "VALID";
-  if (event.status === "WARNING_CONFIRMED") return "EXCUSED";
-  return event.status === "BLOCKED" ? "PLACE" : "FACE";
-}
-
-function verdictLabel(verdict: Verdict): string {
-  return VERDICTS.find((item) => item.key === verdict)!.label;
-}
-
-/** A timestamp in the shape <input type="datetime-local"> wants, in local time. */
-function toLocalInput(iso: string): string {
-  const at = new Date(iso);
-  const pad = (value: number) => String(value).padStart(2, "0");
-  return `${at.getFullYear()}-${pad(at.getMonth() + 1)}-${pad(at.getDate())}T${pad(at.getHours())}:${pad(at.getMinutes())}`;
-}
 
 export default function ManagerAttendancePage() {
   const may = usePermissions("records");
+  const [view, setView] = useState<View>("calendar");
+  const [month, setMonth] = useState(() => monthKey(new Date()));
   const [search, setSearch] = useState("");
   // Refused attempts are not attendance; they are shown only when asked for.
   const [includeInvalid, setIncludeInvalid] = useState(false);
   const [refreshToken, setRefreshToken] = useState(0);
-  // One calendar. A day is a thing you click, not a second view of the same
-  // data behind a tab — the month tells you where to look, the day tells you
-  // what happened there.
-  const [day, setDay] = useState<string | null>(null);
-  const [sessions, setSessions] = useState<Session[] | null>(null);
+  const [data, setData] = useState<AttendanceCalendar | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  const [selected, setSelected] = useState<ManagerAttendanceEvent | null>(null);
-  const [faceUrl, setFaceUrl] = useState<string | null>(null);
-  const [faceError, setFaceError] = useState<string | null>(null);
-  const [pairFor, setPairFor] = useState<Session | null>(null);
-  // The two evidence photos belong to the day, not to whichever half is being
-  // edited, so they are fetched once and stay put while the form switches.
-  const [entryUrl, setEntryUrl] = useState<string | null>(null);
-  const [exitUrl, setExitUrl] = useState<string | null>(null);
-  const [half, setHalf] = useState<"in" | "out">("in");
+  // The drawer: a day, then optionally one person of that day.
+  const [day, setDay] = useState<string | null>(null);
+  const [sessions, setSessions] = useState<DaySession[] | null>(null);
+  const [person, setPerson] = useState<{ memberId: string; attemptId: string | null } | null>(null);
   const [locations, setLocations] = useState<ManagerLocation[]>([]);
   // A manager explains every change to the people it affects; the system
   // administrator is who those explanations go to, so they may skip it.
   const [isAdmin, setIsAdmin] = useState(false);
 
-  // The edit form. Every field starts at what the record currently says, so
-  // saving without touching anything changes nothing.
-  const [editTime, setEditTime] = useState("");
-  const [editLocation, setEditLocation] = useState("");
-  const [editVerdict, setEditVerdict] = useState<Verdict>("VALID");
-  const [editNote, setEditNote] = useState("");
-  const [adjustReason, setAdjustReason] = useState("");
-  const [adjustError, setAdjustError] = useState<string | null>(null);
-  const [adjustNotice, setAdjustNotice] = useState<string | null>(null);
-  const [adjusting, setAdjusting] = useState(false);
-  const [deleteReason, setDeleteReason] = useState("");
-  const [deleting, setDeleting] = useState(false);
+  useEffect(() => {
+    let live = true;
+    setData(null);
+    api
+      .managerAttendanceCalendar(month, includeInvalid)
+      .then((result) => {
+        if (live) {
+          setData(result);
+          setError(null);
+        }
+      })
+      .catch((cause) => {
+        if (live) setError(describeError(cause));
+      });
+    return () => {
+      live = false;
+    };
+  }, [month, includeInvalid, refreshToken]);
 
-  const load = useCallback(async () => {
-    if (!day) {
-      return;
-    }
+  useEffect(() => {
+    api.me().then((me) => setIsAdmin(me.role === "SUPER_ADMIN")).catch(() => setIsAdmin(false));
+    api.managerLocations().then(setLocations).catch(() => setLocations([]));
+  }, []);
+
+  const loadDay = useCallback(async () => {
+    if (!day) return;
     setSessions(null);
     try {
       const result = await api.managerAttendanceSessions({
@@ -234,7 +93,6 @@ export default function ManagerAttendancePage() {
         offset: 0,
       });
       setSessions(result.items);
-      setError(null);
     } catch (cause) {
       setError(describeError(cause));
       setSessions([]);
@@ -242,617 +100,299 @@ export default function ManagerAttendancePage() {
   }, [day, includeInvalid]);
 
   useEffect(() => {
-    void load();
-  }, [load]);
+    void loadDay();
+  }, [loadDay, refreshToken]);
 
-  useEffect(() => {
-    api
-      .me()
-      .then((me) => setIsAdmin(me.role === "SUPER_ADMIN"))
-      .catch(() => setIsAdmin(false));
-  }, []);
-
-  useEffect(() => {
-    return () => {
-      if (entryUrl) {
-        URL.revokeObjectURL(entryUrl);
-      }
-    };
-  }, [entryUrl]);
-
-  useEffect(() => {
-    return () => {
-      if (exitUrl) {
-        URL.revokeObjectURL(exitUrl);
-      }
-    };
-  }, [exitUrl]);
-
-  useEffect(() => {
-    return () => {
-      if (faceUrl) {
-        URL.revokeObjectURL(faceUrl);
-      }
-    };
-  }, [faceUrl]);
-
-  async function openPair(session: Session) {
-    const first = session.check_in_id ? "in" : "out";
-    const id = session.check_in_id ?? session.check_out_id;
-    if (!id) {
-      return;
-    }
-    setPairFor(session);
-    setHalf(first);
-    setEntryUrl(null);
-    setExitUrl(null);
-    setFaceUrl(null);
-    setFaceError(null);
-    setDeleteReason("");
-    try {
-      const event = await api.managerAttendanceDetail(id);
-      loadForm(event);
-      // Both photos, once. Whichever half is being corrected, the manager is
-      // looking at the same pair of faces.
-      if (session.check_in_id) {
-        setEntryUrl(await api.managerAttendanceImage(session.check_in_id).catch(() => null));
-      }
-      if (session.check_out_id) {
-        setExitUrl(await api.managerAttendanceImage(session.check_out_id).catch(() => null));
-      }
-      if (event.has_enrollment_photo) {
-        setFaceUrl(await api.memberFacePhoto(event.member_id).catch(() => null));
-      }
-      if (locations.length === 0) {
-        setLocations(await api.managerLocations().catch(() => []));
-      }
-    } catch (cause) {
-      setError(describeError(cause));
-    }
-  }
-
-  /** Open one refused attempt on its own. */
-  async function openAttempt(session: Session, eventId: string) {
-    setPairFor(session);
-    setHalf("in");
-    setEntryUrl(null);
-    setExitUrl(null);
-    setFaceUrl(null);
-    setDeleteReason("");
-    try {
-      const event = await api.managerAttendanceDetail(eventId);
-      loadForm(event);
-      if (event.has_image) {
-        setEntryUrl(await api.managerAttendanceImage(eventId).catch(() => null));
-      }
-      if (event.has_enrollment_photo) {
-        setFaceUrl(await api.memberFacePhoto(event.member_id).catch(() => null));
-      }
-      if (locations.length === 0) {
-        setLocations(await api.managerLocations().catch(() => []));
-      }
-    } catch (cause) {
-      setError(describeError(cause));
-    }
-  }
-
-  /** Point the form at one half of the day. */
-  async function switchHalf(next: "in" | "out") {
-    const id = next === "in" ? pairFor?.check_in_id : pairFor?.check_out_id;
-    if (!id || next === half) {
-      return;
-    }
-    setHalf(next);
-    try {
-      loadForm(await api.managerAttendanceDetail(id));
-    } catch (cause) {
-      setAdjustError(describeError(cause));
-    }
-  }
-
-  function loadForm(event: ManagerAttendanceEvent) {
-    setSelected(event);
-    setEditVerdict(verdictOf(event));
-    setEditTime(toLocalInput(event.server_time));
-    setEditLocation(event.location_id);
-    setEditNote(event.reason ?? "");
-    setAdjustReason("");
-    setAdjustError(null);
-    setAdjustNotice(null);
-  }
-
-  async function removeRecord() {
-    if (!selected) {
-      return;
-    }
-    setDeleting(true);
-    setAdjustError(null);
-    try {
-      // The row this dialog was opened from is a working day, so that is what
-      // gets deleted: arrival, departure, and anything refused in between.
-      // Deleting one event used to leave the other half behind, and the day
-      // came back looking like a record nobody made.
-      if (pairFor) {
-        await api.deleteAttendanceDay(pairFor.member_id, pairFor.work_date, deleteReason.trim());
-      } else {
-        await api.deleteAttendanceRecord(selected.id, deleteReason.trim());
-      }
-      setSelected(null);
-      setPairFor(null);
-      setExitUrl(null);
-      setDeleteReason("");
-      await load();
-    } catch (cause) {
-      setAdjustError(describeError(cause));
-    } finally {
-      setDeleting(false);
-    }
-  }
-
-  async function submitAdjust() {
-    if (!selected) {
-      return;
-    }
-    setAdjusting(true);
-    setAdjustError(null);
-    setAdjustNotice(null);
-    try {
-      const chosen = VERDICTS.find((item) => item.key === editVerdict)!;
-      const updated = await api.manualAdjust(selected.id, {
-        status: chosen.status,
-        // Only when the verdict itself changed: a record refused for
-        // FACE_NOT_FOUND keeps that reason instead of being rewritten to the
-        // nearest of the four choices.
-        ...(editVerdict === verdictOf(selected) || chosen.failure === null
-          ? {}
-          : { failure_code: chosen.failure }),
-        server_time: new Date(editTime).toISOString(),
-        location_id: editLocation,
-        note: editNote.trim(),
-        reason: adjustReason.trim(),
-      });
-      loadForm(updated);
-      setAdjustNotice("Đã lưu và ghi vào nhật ký hoạt động.");
-      await load();
-    } catch (cause) {
-      setAdjustError(describeError(cause));
-    } finally {
-      setAdjusting(false);
-    }
-  }
-
-  const dayLabel = day ? day.split("-").reverse().join("/") : "";
   const needle = search.trim().toLowerCase();
-  const shownSessions = (sessions ?? []).filter(
-    (session) =>
-      !needle ||
-      (session.member_name ?? "").toLowerCase().includes(needle) ||
-      session.member_email.toLowerCase().includes(needle),
+  const matches = useCallback(
+    (item: { member_name: string | null; member_email: string }) =>
+      !needle || (item.member_name ?? "").toLowerCase().includes(needle) || item.member_email.toLowerCase().includes(needle),
+    [needle],
   );
+
+  const byDate = useMemo(() => {
+    const map = new Map<string, CalendarPerson[]>();
+    for (const item of data?.days ?? []) {
+      const people = item.people.filter(matches);
+      if (people.length > 0) map.set(item.date, people);
+    }
+    return map;
+  }, [data, matches]);
+
+  // Counters follow the search: "how many of the people I typed".
+  const counters = useMemo(() => {
+    const all = [...byDate.values()].flat();
+    const summary = summariseDay(all);
+    const events = all.reduce((n, p) => n + (p.check_in ? 1 : 0) + (p.check_out ? 1 : 0) + p.rejected, 0);
+    return { events, ...summary };
+  }, [byDate]);
+
+  const [year, monthIndex] = month.split("-").map(Number);
+  function shiftMonth(step: number) {
+    setMonth(monthKey(new Date(year, monthIndex - 1 + step, 1)));
+  }
+
+  function refresh() {
+    setRefreshToken((n) => n + 1);
+  }
+
+  function openDay(date: string) {
+    setPerson(null);
+    setDay(date);
+  }
+
+  function openPerson(date: string, memberId: string, attemptId: string | null = null) {
+    setDay(date);
+    setPerson({ memberId, attemptId });
+  }
+
+  function closeDrawer() {
+    setPerson(null);
+    setDay(null);
+  }
+
+  const shownSessions = (sessions ?? []).filter(matches);
+  const current = person ? shownSessions.find((row) => row.member_id === person.memberId) ?? (sessions ?? []).find((row) => row.member_id === person.memberId) ?? null : null;
+  const daySummary = summariseDay(shownSessions);
+  const today = localDateKey(new Date());
 
   return (
     <ManagerShell>
-      <div className="page-header">
-        <div>
-          <h1 className="page-title">Bản ghi</h1>
-          <p className="page-lead">
-            Cả tháng trên một màn hình. Bấm vào một ngày để xem ai vào ra ngày đó.
-          </p>
-        </div>
-        <Button variant="ghost" size="sm" onClick={() => {
-          setRefreshToken((n) => n + 1);
-          void load();
-        }}>
-          Làm mới
-        </Button>
-      </div>
+      <div className="records">
+        <header className="records__bar">
+          <div className="records__nav" role="group" aria-label="Chọn tháng">
+            <Button variant="ghost" size="sm" onClick={() => shiftMonth(-1)} aria-label="Tháng trước">
+              ‹
+            </Button>
+            <span className="records__month">
+              Tháng {monthIndex}/{year}
+            </span>
+            <Button variant="ghost" size="sm" onClick={() => shiftMonth(1)} aria-label="Tháng sau">
+              ›
+            </Button>
+          </div>
 
-      {error ? <Alert tone="danger">{error}</Alert> : null}
+          <div className="records__counters" aria-live="polite">
+            <span>
+              <strong>{counters.events}</strong> lượt
+            </span>
+            <span>
+              <strong>{counters.people}</strong> người đi làm
+            </span>
+            <span className={counters.open > 0 ? "is-open" : undefined}>
+              <strong>{counters.open}</strong> chưa ra ca
+            </span>
+            <span className={counters.late > 0 ? "is-late" : undefined}>
+              <strong>{counters.late}</strong> đi muộn
+            </span>
+          </div>
 
-      <Card>
-        <div className="filter-row">
-          <Field
-            label="Tìm theo tên hoặc email"
-            placeholder="Lọc nhanh những người hiện trên lịch"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-          />
+          <div className="records__tools">
+            <label className="records__search">
+              <span className="visually-hidden">Tìm theo tên hoặc email</span>
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
+                <circle cx="11" cy="11" r="7" />
+                <path d="m20 20-3.5-3.5" />
+              </svg>
+              <input className="input" placeholder="Tìm theo tên hoặc email…" value={search} onChange={(e) => setSearch(e.target.value)} />
+            </label>
+            <div className="segmented" role="tablist" aria-label="Cách xem">
+              {VIEWS.map((item) => (
+                <button
+                  key={item.key}
+                  type="button"
+                  role="tab"
+                  aria-selected={view === item.key}
+                  className={view === item.key ? "is-active" : undefined}
+                  onClick={() => setView(item.key)}
+                >
+                  <span aria-hidden="true">{item.icon}</span> {item.label}
+                </button>
+              ))}
+            </div>
+            <Button variant="secondary" size="sm" onClick={refresh} aria-label="Làm mới" title="Làm mới">
+              ⟳
+            </Button>
+          </div>
+        </header>
+
+        <div className="records__sub">
           <label className="checkbox">
-            <input
-              type="checkbox"
-              checked={includeInvalid}
-              onChange={(event) => setIncludeInvalid(event.target.checked)}
-            />
+            <input type="checkbox" checked={includeInvalid} onChange={(event) => setIncludeInvalid(event.target.checked)} />
             <span>Hiện cả lượt không hợp lệ</span>
           </label>
+          <div className="records__legend">
+            {(["ON_TIME", "OPEN", "LATE"] as const).map((key) => (
+              <span key={key}>
+                <i style={{ background: DAY_STATUS[key].dot }} aria-hidden="true" />
+                {DAY_STATUS[key].label}
+              </span>
+            ))}
+            {includeInvalid ? (
+              <span>
+                <i style={{ background: DAY_STATUS.REJECTED_FACE.dot }} aria-hidden="true" />
+                Bị từ chối
+              </span>
+            ) : null}
+          </div>
         </div>
-        <AttendanceCalendar
-          search={search}
-          refreshToken={refreshToken}
-          includeInvalid={includeInvalid}
-          selectedDate={day}
-          onPickDay={(picked) => setDay((current) => (current === picked ? null : picked))}
-        />
-      </Card>
+
+        {error ? <Alert tone="danger">{error}</Alert> : null}
+
+        {view === "roll" ? (
+          <RollCallView date={today} refreshToken={refreshToken} search={search} onPick={(memberId) => openPerson(today, memberId)} />
+        ) : data === null ? (
+          <LoadingRows count={6} />
+        ) : view === "calendar" ? (
+          <RecordsCalendar month={month} byDate={byDate} selected={day} onPick={openDay} />
+        ) : (
+          <RecordsTable byDate={byDate} onPick={openPerson} />
+        )}
+      </div>
 
       {day ? (
-        <Card
-          title={`Ngày ${dayLabel}`}
-          subtitle={sessions ? `${shownSessions.length} ngày công` : undefined}
-          action={
-            <div className="row">
-              <Button
-                variant="secondary"
-                size="sm"
-                onClick={() => exportSessions(day, shownSessions)}
-                disabled={shownSessions.length === 0}
-              >
-                Xuất CSV
-              </Button>
-              <Button variant="ghost" size="sm" onClick={() => setDay(null)}>
-                Đóng
-              </Button>
-            </div>
+        <Drawer
+          title={person && current ? (current.member_name ?? current.member_email) : `Chấm công ngày ${day.split("-").reverse().join("/")}`}
+          subtitle={
+            person && current ? (
+              current.member_email
+            ) : sessions ? (
+              <>
+                {longDate(day).split(",")[0]} · <strong>{counters.events > 0 || shownSessions.length > 0 ? shownSessions.reduce((n, s) => n + (s.check_in ? 1 : 0) + (s.check_out ? 1 : 0), 0) : 0}</strong> lượt ·{" "}
+                <strong>{daySummary.people}</strong> người
+                {daySummary.late > 0 ? (
+                  <>
+                    {" "}
+                    · <span className="is-late"><strong>{daySummary.late}</strong> muộn</span>
+                  </>
+                ) : null}
+                {daySummary.open > 0 ? (
+                  <>
+                    {" "}
+                    · <span className="is-open"><strong>{daySummary.open}</strong> chưa ra ca</span>
+                  </>
+                ) : null}
+              </>
+            ) : undefined
+          }
+          onClose={closeDrawer}
+          onBack={person ? () => setPerson(null) : undefined}
+          header={
+            person && current ? (
+              <div className="person-head">
+                <span className="avatar avatar--lg" aria-hidden="true">
+                  {initials(current.member_name, current.member_email)}
+                </span>
+                <div className="person-head__text">
+                  <h2 className="drawer__title">{current.member_name ?? current.member_email}</h2>
+                  <p className="drawer__subtitle">{current.member_email}</p>
+                </div>
+                <Badge tone={timingPill(current).tone}>{timingPill(current).label}</Badge>
+              </div>
+            ) : undefined
           }
         >
-          {sessions === null ? (
+          {person ? (
+            current ? (
+              <PersonPanel
+                session={current}
+                attemptId={person.attemptId}
+                locations={locations}
+                canEdit={may.edit}
+                canDelete={may.delete}
+                isAdmin={isAdmin}
+                onChanged={async () => {
+                  refresh();
+                }}
+                onDeleted={async () => {
+                  setPerson(null);
+                  refresh();
+                }}
+              />
+            ) : sessions === null ? (
+              <LoadingRows count={4} />
+            ) : (
+              <Empty>Người này không có bản ghi trong ngày đã chọn.</Empty>
+            )
+          ) : sessions === null ? (
             <LoadingRows count={4} />
           ) : shownSessions.length === 0 ? (
             <Empty>Không ai chấm công ngày này.</Empty>
           ) : (
             <div className="stack stack--tight">
-              {shownSessions.map((session) => {
-                // With refused attempts switched on, each one gets its own line.
-                // Folded into the day they were invisible: four failed tries and
-                // one success looked exactly like one success.
-                const extra = includeInvalid
-                  ? (session.attempts ?? []).filter(
-                      (attempt) =>
-                        attempt.id !== session.check_in_id && attempt.id !== session.check_out_id,
-                    )
-                  : [];
-                return (
-                  <div key={`${session.member_id}-${session.work_date}`}>
-                    <button
-                      type="button"
-                      className="day-line"
-                      onClick={() => void openPair(session)}
-                      disabled={!session.check_in_id && !session.check_out_id}
-                    >
-                      <span className="day-line__who">
-                        <span className="person__name">{session.member_name ?? session.member_email}</span>
-                        <span className="event__meta">
-                          {shortClock(session.check_in)} →{" "}
-                          {session.check_out ? shortClock(session.check_out) : "chưa ra"}
-                          {session.check_out ? ` · ${presenceOf(session)}` : ""}
-                          {session.location_name ? ` · ${session.location_name}` : ""}
-                        </span>
-                      </span>
-                      <Badge tone={SESSION_TONE[session.status]}>{SESSION_LABEL[session.status]}</Badge>
-                    </button>
-
-                    {extra.map((attempt) => (
-                      <button
-                        type="button"
-                        className="day-line day-line--attempt"
-                        key={attempt.id}
-                        onClick={() => void openAttempt(session, attempt.id)}
-                      >
-                        <span className="day-line__who">
-                          <span className="event__meta">
-                            {shortClock(attempt.server_time)} ·{" "}
-                            {attempt.event_type === "CHECK_IN" ? "thử vào" : "thử ra"}
-                            {attempt.failure_code ? ` · ${describeFailure(attempt.failure_code)}` : ""}
-                          </span>
-                        </span>
-                        <Badge tone={STATUS_TONE[attempt.status]}>
-                          {STATUS_LABELS[attempt.status] ?? attempt.status}
-                        </Badge>
-                      </button>
-                    ))}
-                  </div>
-                );
-              })}
-            </div>
-          )}
-        </Card>
-      ) : null}
-
-      {/* One day's evidence, and the form that corrects it */}
-      {selected && pairFor ? (
-        <Dialog
-          title="Chi tiết lượt chấm công"
-          onClose={() => {
-            setSelected(null);
-            setPairFor(null);
-            setEntryUrl(null);
-            setExitUrl(null);
-          }}
-        >
-          <div className="stack">
-            <div className="face-compare">
-              <div className="face-compare__cell">
-                <span className="face-compare__label">Ảnh đã đăng ký</span>
-                <div className="face-compare__frame">
-                  {faceUrl ? (
-                    <img src={faceUrl} alt="Ảnh khuôn mặt đã đăng ký" />
-                  ) : faceError ? (
-                    <p className="face-compare__missing">{faceError}</p>
-                  ) : selected.has_enrollment_photo ? (
-                    <span className="spinner" />
-                  ) : (
-                    <p className="face-compare__missing">Không có ảnh gốc để đối chiếu.</p>
-                  )}
-                </div>
-              </div>
-              {pairFor.check_in_id ? (
-                <div className="face-compare__cell">
-                  <span className="face-compare__label">Ảnh lúc vào</span>
-                  <div className="face-compare__frame">
-                    {entryUrl ? (
-                      <img src={entryUrl} alt="Ảnh chụp lúc chấm vào" />
-                    ) : (
-                      <p className="face-compare__missing">Lượt vào không có ảnh kèm theo.</p>
-                    )}
-                  </div>
-                </div>
-              ) : null}
-              {pairFor.check_out_id ? (
-                <div className="face-compare__cell">
-                  <span className="face-compare__label">Ảnh lúc ra</span>
-                  <div className="face-compare__frame">
-                    {exitUrl ? (
-                      <img src={exitUrl} alt="Ảnh chụp lúc chấm ra" />
-                    ) : (
-                      <p className="face-compare__missing">Lượt ra không có ảnh kèm theo.</p>
-                    )}
-                  </div>
-                </div>
-              ) : null}
-            </div>
-
-            <div className="face-metric">
-              <div>
-                <p className="face-metric__label">Vào</p>
-                <p className="face-metric__value">{clockOf(pairFor.check_in)}</p>
-              </div>
-              <div>
-                <p className="face-metric__label">Ra</p>
-                <p className="face-metric__value">{clockOf(pairFor.check_out)}</p>
-              </div>
-              <div>
-                <p className="face-metric__label">Có mặt</p>
-                <p className="face-metric__value">{presenceOf(pairFor)}</p>
-              </div>
-              {selected.face_distance !== null || selected.face_match_score !== null ? (
-                <div>
-                  <p className="face-metric__label">Khuôn mặt</p>
-                  <p className="face-metric__value">
-                    {selected.face_distance !== null ? selected.face_distance.toFixed(3) : "—"}
-                    {selected.face_match_score !== null
-                      ? ` · ${(selected.face_match_score * 100).toFixed(0)}%`
-                      : ""}
-                  </p>
-                </div>
-              ) : null}
-            </div>
-
-            {/* Which half of the day is on the form. A day is two records, and
-                correcting one of them should not mean opening a second screen. */}
-            {pairFor.check_in_id && pairFor.check_out_id ? (
-              <div className="segmented" role="tablist" aria-label="Lượt cần xem">
-                <button
-                  type="button"
-                  role="tab"
-                  aria-selected={half === "in"}
-                  className={half === "in" ? "is-active" : undefined}
-                  onClick={() => void switchHalf("in")}
-                >
-                  Lượt vào
-                </button>
-                <button
-                  type="button"
-                  role="tab"
-                  aria-selected={half === "out"}
-                  className={half === "out" ? "is-active" : undefined}
-                  onClick={() => void switchHalf("out")}
-                >
-                  Lượt ra
-                </button>
-              </div>
-            ) : null}
-
-            <DataList
-              rows={[
-                { key: "Thành viên", value: selected.member_name ?? selected.member_email },
-                { key: "Địa điểm", value: selected.location_name },
-                {
-                  key: "Trạng thái",
-                  value: (
-                    <Badge tone={STATUS_TONE[selected.status]}>
-                      {STATUS_LABELS[selected.status] ?? selected.status}
-                    </Badge>
-                  ),
-                },
-                {
-                  key: "Cách địa điểm",
-                  value:
-                    selected.distance_meters === null
-                      ? "Không đo (bản ghi do người nhập)"
-                      : `${selected.distance_meters.toFixed(1)} m`,
-                },
-                ...(selected.failure_code
-                  ? [
-                      {
-                        key: "Vì sao không hợp lệ",
-                        value: (
-                          <span style={{ color: "var(--color-danger)" }}>
-                            {describeFailure(selected.failure_code)}
-                          </span>
-                        ),
-                      },
-                    ]
-                  : []),
-                ...(selected.minutes_late
-                  ? [{ key: "Vào muộn", value: describeMinutes(selected.minutes_late) }]
-                  : []),
-                ...(selected.minutes_early_leave
-                  ? [{ key: "Ra sớm", value: describeMinutes(selected.minutes_early_leave) }]
-                  : []),
-                ...(selected.reason
-                  ? [{ key: "Giải trình của thành viên", value: selected.reason }]
-                  : []),
-                ...(selected.edited_at
-                  ? [
-                      {
-                        key: "Đã được sửa",
-                        value: `${formatDateTime(selected.edited_at)}${
-                          selected.edited_by_email ? ` · ${selected.edited_by_email}` : ""
-                        }${selected.edit_reason ? ` · ${selected.edit_reason}` : ""}`,
-                      },
-                    ]
-                  : []),
-              ]}
-            />
-
-            <details className="disclosure">
-              <summary>Thông tin kỹ thuật</summary>
-              <DataList
-                rows={[
-                  { key: "Sự kiện", value: selected.event_type === "CHECK_IN" ? "Check-in" : "Check-out" },
-                  { key: "Thời điểm ghi nhận", value: formatDateTime(selected.server_time) },
-                  ...(selected.original_server_time
-                    ? [
-                        {
-                          key: "Thiết bị báo lúc đầu",
-                          value: formatDateTime(selected.original_server_time),
-                        },
-                      ]
-                    : []),
-                  { key: "Lưu vào hệ thống lúc", value: formatDateTime(selected.created_at) },
-                  {
-                    key: "Nguồn bản ghi",
-                    value: SOURCE_LABEL[selected.source] ?? selected.source,
-                  },
-                  ...(selected.gps_accuracy_meters !== null
-                    ? [{ key: "Sai số định vị", value: `${selected.gps_accuracy_meters.toFixed(0)} m` }]
-                    : []),
-                  ...(selected.latitude !== null && selected.longitude !== null
-                    ? [
-                        {
-                          key: "Toạ độ ghi nhận",
-                          value: (
-                            <span className="mono">
-                              {selected.latitude.toFixed(6)}, {selected.longitude.toFixed(6)}
-                            </span>
-                          ),
-                        },
-                      ]
-                    : []),
-                  { key: "Thư viện nhận diện", value: selected.face_engine ?? "—" },
-                  { key: "Mã bản ghi", value: <span className="mono">{selected.id}</span> },
-                ]}
-              />
-            </details>
-
-            {may.edit ? (
-              <div className="edit-box">
-                <h3 className="subhead">
-                  Sửa {selected.event_type === "CHECK_IN" ? "lượt vào" : "lượt ra"}
-                </h3>
-
-                {adjustNotice ? <Alert tone="success">{adjustNotice}</Alert> : null}
-                {adjustError ? <Alert tone="danger">{adjustError}</Alert> : null}
-
-                <div className="stack stack--tight">
-                  <div className="filter-row">
-                    <Field
-                      label="Thời điểm"
-                      type="datetime-local"
-                      value={editTime}
-                      onChange={(event) => setEditTime(event.target.value)}
-                    />
-                    <SelectField
-                      label="Địa điểm"
-                      value={editLocation}
-                      onChange={(event) => setEditLocation(event.target.value)}
-                    >
-                      {locations.some((row) => row.id === editLocation) ? null : (
-                        <option value={editLocation}>{selected.location_name}</option>
-                      )}
-                      {locations.map((row) => (
-                        <option key={row.id} value={row.id}>
-                          {row.name}
-                        </option>
-                      ))}
-                    </SelectField>
-                  </div>
-
-                  <SelectField
-                    label="Trạng thái bản ghi"
-                    value={editVerdict}
-                    onChange={(event) => setEditVerdict(event.target.value as Verdict)}
-                  >
-                    {VERDICTS.map((item) => (
-                      <option key={item.key} value={item.key}>
-                        {verdictLabel(item.key)}
-                      </option>
-                    ))}
-                  </SelectField>
-
-                  <Field
-                    label="Giải trình của thành viên"
-                    placeholder="Ghi lại lời của thành viên nếu có"
-                    value={editNote}
-                    onChange={(event) => setEditNote(event.target.value)}
-                  />
-
-                  <TextAreaField
-                    label={isAdmin ? "Lý do sửa (không bắt buộc)" : "Lý do sửa (bắt buộc)"}
-                    required={!isAdmin}
-                    placeholder="Ví dụ: đồng hồ máy lệch 15 phút, đã đối chiếu camera cửa."
-                    value={adjustReason}
-                    onChange={(event) => setAdjustReason(event.target.value)}
-                  />
-
-                  <Button
-                    onClick={() => void submitAdjust()}
-                    loading={adjusting}
-                    disabled={!isAdmin && adjustReason.trim().length < 3}
-                    block
-                  >
-                    Lưu thay đổi
-                  </Button>
-                </div>
-              </div>
-            ) : null}
-
-            {may.delete ? (
-              <div className="danger-zone">
-                <h3 className="danger-zone__title">Xoá cả ngày công này</h3>
-                <p className="danger-zone__text">
-                  Xoá hết lượt vào, lượt ra và cả những lần bị từ chối trong ngày này. Việc xoá được
-                  ghi vào nhật ký kèm tên bạn và lý do, quản trị hệ thống vẫn khôi phục lại được.
-                </p>
-                <TextAreaField
-                  label="Lý do xoá (bắt buộc)"
-                  placeholder="Ví dụ: chấm nhầm ca, thành viên bấm hai lần…"
-                  value={deleteReason}
-                  onChange={(event) => setDeleteReason(event.target.value)}
-                />
-                <Button
-                  variant="danger"
-                  onClick={() => void removeRecord()}
-                  loading={deleting}
-                  disabled={deleteReason.trim().length < 3}
-                  block
-                >
-                  Xoá cả ngày công
+              <div className="row is-right">
+                <Button variant="secondary" size="sm" onClick={() => exportSessionsCsv(day, shownSessions)}>
+                  Xuất CSV
                 </Button>
               </div>
-            ) : null}
-          </div>
-        </Dialog>
+              <ul className="person-list">
+                {shownSessions.map((session) => {
+                  const pill = timingPill(session);
+                  // With refused attempts switched on, each one gets its own
+                  // line: four failed tries and one success must not look
+                  // like one success.
+                  const extra = includeInvalid
+                    ? (session.attempts ?? []).filter((attempt) => attempt.id !== session.check_in_id && attempt.id !== session.check_out_id)
+                    : [];
+                  return (
+                    <li key={`${session.member_id}-${session.work_date}`}>
+                      <button
+                        type="button"
+                        className="person-row"
+                        onClick={() => openPerson(session.work_date, session.member_id)}
+                        disabled={!session.check_in_id && !session.check_out_id}
+                      >
+                        <span className="avatar" aria-hidden="true">
+                          {initials(session.member_name, session.member_email)}
+                          <i style={{ background: DAY_STATUS[session.status].dot }} />
+                        </span>
+                        <span className="person-row__body">
+                          <span className="person-row__name">{session.member_name ?? session.member_email}</span>
+                          <span className="person-row__meta">
+                            {session.check_in ? (
+                              <>
+                                Vào <strong>{clock(session.check_in)}</strong> ·{" "}
+                                {session.check_out ? (
+                                  <>
+                                    Ra <strong>{clock(session.check_out)}</strong>
+                                  </>
+                                ) : (
+                                  <span className="is-open">chưa ra ca</span>
+                                )}
+                              </>
+                            ) : (
+                              DAY_STATUS[session.status].label
+                            )}
+                            {session.location_name ? ` · ${session.location_name}` : ""}
+                          </span>
+                        </span>
+                        <Badge tone={session.check_in ? pill.tone : DAY_STATUS[session.status].tone}>
+                          {session.check_in ? pill.label : DAY_STATUS[session.status].label}
+                        </Badge>
+                      </button>
+                      {extra.map((attempt) => (
+                        <button
+                          type="button"
+                          className="person-row person-row--attempt"
+                          key={attempt.id}
+                          onClick={() => openPerson(session.work_date, session.member_id, attempt.id)}
+                        >
+                          <span className="person-row__body">
+                            <span className="person-row__meta">
+                              {clock(attempt.server_time)} · {attempt.event_type === "CHECK_IN" ? "thử vào" : "thử ra"}
+                              {attempt.failure_code ? ` · ${describeFailure(attempt.failure_code)}` : ""}
+                            </span>
+                          </span>
+                          <Badge tone={EVENT_STATUS[attempt.status].tone}>{EVENT_STATUS[attempt.status].label}</Badge>
+                        </button>
+                      ))}
+                    </li>
+                  );
+                })}
+              </ul>
+            </div>
+          )}
+        </Drawer>
       ) : null}
     </ManagerShell>
   );

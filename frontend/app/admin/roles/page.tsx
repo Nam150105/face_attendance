@@ -213,6 +213,7 @@ export default function AdminRolesPage() {
       ) : (
         GROUPS.map((group) => (
           <Card title={group} key={group}>
+            <p className="matrix-hint">Kéo ngang để xem cột Người quản lý và Quản trị hệ thống.</p>
             <div className="table-wrap">
               <table className="table table--matrix">
                 <thead>

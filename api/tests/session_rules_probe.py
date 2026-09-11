@@ -86,6 +86,7 @@ def main() -> int:
         status, location = call("POST", "/manager/locations", manager, {
             "name": "Session rules", "address": None, "latitude": 21.0, "longitude": 105.8,
             "allow_radius_meters": 500, "warning_radius_meters": 900, "is_active": True,
+            "expected_check_in": "08:00", "expected_check_out": "17:00",
         })
         location_id = location["id"]
         call("POST", f"/manager/members/{member_id}/locations", manager,
@@ -95,15 +96,17 @@ def main() -> int:
         today = now.astimezone(LOCAL_ZONE).date().isoformat()
         yesterday = (now.astimezone(LOCAL_ZONE).date() - timedelta(days=1)).isoformat()
 
-        # --- 1. Open for 20 hours, then simply not open -------------------------
-        seed(member_id, location_id, now - timedelta(hours=3), "CHECK_IN")
+        # --- 1. Open until midnight, then simply not open -----------------------
+        # Seeded at 01:00 local today so it is "today" whenever the probe runs.
+        early_today = datetime.now(LOCAL_ZONE).replace(hour=1, minute=0, second=0, microsecond=0)
+        seed(member_id, location_id, early_today.astimezone(timezone.utc), "CHECK_IN")
         status, state = call("GET", "/attendance/me/state", member)
-        check("Vào 3 tiếng trước thì đang trong phiên", state.get("state") == "CHECKED_IN", str(state.get("state")))
+        check("Vào lúc 01:00 hôm nay thì đang trong phiên", state.get("state") == "CHECKED_IN", str(state.get("state")))
 
         wipe(member_id)
-        seed(member_id, location_id, now - timedelta(hours=21), "CHECK_IN")
+        seed(member_id, location_id, (early_today - timedelta(hours=2)).astimezone(timezone.utc), "CHECK_IN")
         status, state = call("GET", "/attendance/me/state", member)
-        check("Vào 21 tiếng trước thì phiên đã khép, về trạng thái chưa mở phiên",
+        check("Vào 23:00 hôm qua, chưa ra → qua 00:00 phiên đã khép, về trạng thái chưa mở phiên",
               state.get("state") == "NOT_CHECKED_IN", str(state.get("state")))
 
         with psycopg.connect(DATABASE_URL) as connection:
@@ -114,13 +117,18 @@ def main() -> int:
         check("Không có lượt ra nào được bịa ra", invented == 0, f"{invented} lượt ra")
 
         status, detail = try_check_out(member)
-        check("Chấm ra sau 20 tiếng bị từ chối và nói rõ phiên đã khép",
+        check("Chấm ra cho phiên của hôm qua bị từ chối và nói rõ phiên đã khép",
               status == 409 and detail == "SESSION_EXPIRED", f"HTTP {status} {detail}")
 
         rows = day_rows(manager, yesterday) + day_rows(manager, today)
         stale = [r for r in rows if r["check_in"] and not r["check_out"]]
-        check("Ngày hôm đó hiện 'chưa chấm ra', không hiện đủ vào ra",
-              len(stale) == 1 and stale[0]["status"] == "OPEN", str([r["status"] for r in rows]))
+        check("Ngày hôm qua hiện 'chưa chấm ra', chỉ có lượt vào",
+              len(stale) == 1 and stale[0]["status"] == "OPEN" and stale[0]["work_date"] == yesterday,
+              str([(r["work_date"], r["status"]) for r in rows]))
+
+        status, detail = try_check_in(member, location_id)
+        check("Hôm nay chấm vào mới được ngay (ảnh chưa đăng ký nên chỉ tới bước mặt)",
+              detail == "FACE_NOT_ENROLLED", f"HTTP {status} {detail}")
 
         # --- 2. A check-out from another site closes the session ---------------
         wipe(member_id)
@@ -128,22 +136,27 @@ def main() -> int:
         seed(member_id, location_id, now - timedelta(hours=1), "CHECK_OUT", "WARNING_CONFIRMED")
         status, state = call("GET", "/attendance/me/state", member)
         check("Chấm ra ở nơi khác (hợp lệ có lý do) cũng đóng được phiên",
-              state.get("state") == "NOT_CHECKED_IN", str(state.get("state")))
+              state.get("state") in ("NOT_CHECKED_IN", "DONE_FOR_TODAY"), str(state.get("state")))
 
-        # --- 3. A departure after midnight belongs to the day it started --------
+        # --- 3. Each calendar day stands on its own -----------------------------
+        # A check-out recorded after midnight (only a correction or an edit can
+        # put one there now) is that day's, not yesterday's.
         wipe(member_id)
         last_night = datetime.now(LOCAL_ZONE).replace(hour=22, minute=0, second=0, microsecond=0) - timedelta(days=1)
         seed(member_id, location_id, last_night.astimezone(timezone.utc), "CHECK_IN")
         seed(member_id, location_id, (last_night + timedelta(hours=2, minutes=30)).astimezone(timezone.utc), "CHECK_OUT")
         y_rows = day_rows(manager, yesterday)
         t_rows = day_rows(manager, today)
-        check("Vào 22:00 hôm qua, ra 00:30 hôm nay → một ngày công của hôm qua",
-              len(y_rows) == 1 and y_rows[0]["check_in"] and y_rows[0]["check_out"]
-              and y_rows[0]["status"] == "ON_TIME" and y_rows[0]["worked_minutes"] == 150,
+        check("Vào 22:00 hôm qua, không ra trước 00:00 → hôm qua chỉ có lượt vào",
+              len(y_rows) == 1 and y_rows[0]["check_in"] and not y_rows[0]["check_out"] and y_rows[0]["status"] == "OPEN",
               f"hôm qua {[(r['status'], r['worked_minutes']) for r in y_rows]}")
-        check("Hôm nay không có lượt ra mồ côi", len(t_rows) == 0, f"{len(t_rows)} dòng")
+        check("Lượt ra 00:30 nằm ở hôm nay như một lượt ra thiếu lượt vào",
+              len(t_rows) == 1 and t_rows[0]["status"] == "NO_CHECK_IN", str([r["status"] for r in t_rows]))
 
         # --- 4. One session a day, counted by check-ins ------------------------
+        wipe(member_id)
+        seed(member_id, location_id, last_night.astimezone(timezone.utc), "CHECK_IN")
+        seed(member_id, location_id, (last_night + timedelta(hours=1)).astimezone(timezone.utc), "CHECK_OUT")
         status, detail = try_check_in(member, location_id)
         check("Hôm qua đã làm việc thì hôm nay vẫn chấm vào được (ảnh chưa đăng ký nên chỉ tới bước mặt)",
               detail == "FACE_NOT_ENROLLED", f"HTTP {status} {detail}")
@@ -155,6 +168,12 @@ def main() -> int:
         status, detail = try_check_in(member, location_id)
         check("Hôm nay đã có một phiên thì không mở phiên thứ hai",
               status == 409 and detail == "ALREADY_WORKED_TODAY", f"HTTP {status} {detail}")
+        status, state = call("GET", "/attendance/me/state", member)
+        check("Trạng thái nói rõ hôm nay đã xong, nút vào tắt tới ngày mai",
+              state.get("state") == "DONE_FOR_TODAY" and state.get("done_for_today") is True, str(state.get("state")))
+        status, detail = try_check_out(member)
+        check("Đã ra rồi thì chấm ra lần nữa bị từ chối",
+              status == 409 and detail == "ALREADY_CHECKED_OUT", f"HTTP {status} {detail}")
 
         # --- 5. Three screens, one answer --------------------------------------
         wipe(member_id)
