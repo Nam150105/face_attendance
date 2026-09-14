@@ -10,7 +10,7 @@ import { MAP_FALLBACK, MAP_STYLE_URL, circlePolygon, zoomForRadius } from "../li
 type MapLibre = typeof import("maplibre-gl");
 
 /** Enough tilt to see building heights, not so much that the fence flattens. */
-const MAP_PITCH = 48;
+const MAP_PITCH = 30;
 const MAP_BEARING = -12;
 
 type MapInstance = import("maplibre-gl").Map;

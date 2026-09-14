@@ -10,6 +10,9 @@ import { DAY_STATUS, EVENT_STATUS, SOURCE_LABEL, clock, initials, longDate, pres
 import type { DaySession, ManagerAttendanceEvent, ManagerLocation } from "../../lib/types";
 import { GeoMap, type MapCircle, type MapMarker } from "../GeoMap";
 import { RefusedAttempts } from "./RefusedAttempts";
+import { Lightbox, ZoomableImage } from "../Lightbox";
+
+type Photo = { src: string; alt: string; caption?: string };
 import { Alert, Badge, Button, DataList, Field, SelectField, TextAreaField } from "../ui";
 
 /**
@@ -82,6 +85,7 @@ export function PersonPanel({
   const [deleteReason, setDeleteReason] = useState("");
   const [deleting, setDeleting] = useState(false);
   const [showEdit, setShowEdit] = useState(false);
+  const [zoomed, setZoomed] = useState<Photo | null>(null);
 
   function loadForm(event: ManagerAttendanceEvent) {
     setSelected(event);
@@ -108,6 +112,11 @@ export function PersonPanel({
     setDeleteReason("");
     void (async () => {
       try {
+        const facePhoto = api.memberFacePhoto(session.member_id).catch(() => null);
+        void facePhoto.then((url) => {
+          if (url) urls.push(url);
+          if (live) setFaceUrl(url);
+        });
         const firstId = attemptId ?? session.check_in_id ?? session.check_out_id;
         if (!firstId) {
           return;
@@ -137,11 +146,6 @@ export function PersonPanel({
             if (url) urls.push(url);
             if (live) setExitUrl(url);
           }
-        }
-        if (first.has_enrollment_photo) {
-          const url = await api.memberFacePhoto(first.member_id).catch(() => null);
-          if (url) urls.push(url);
-          if (live) setFaceUrl(url);
         }
       } catch (cause) {
         if (live) setLoadError(describeError(cause));
@@ -291,9 +295,7 @@ export function PersonPanel({
             <span className="face-compare__label">Đã đăng ký</span>
             <div className="face-compare__frame">
               {faceUrl ? (
-                <img src={faceUrl} alt="Ảnh khuôn mặt đã đăng ký" />
-              ) : selected?.has_enrollment_photo ? (
-                <span className="spinner" />
+                <ZoomableImage src={faceUrl} alt="Ảnh khuôn mặt đã đăng ký" caption="Ảnh đã đăng ký" onOpen={setZoomed} />
               ) : (
                 <p className="face-compare__missing">Không có ảnh gốc.</p>
               )}
@@ -304,7 +306,7 @@ export function PersonPanel({
             <span className="face-compare__label">{attemptId ? "Lúc thử" : "Lúc vào"}</span>
             <div className="face-compare__frame">
               {entryUrl ? (
-                <img src={entryUrl} alt="Ảnh chụp lúc chấm vào" />
+                <ZoomableImage src={entryUrl} alt="Ảnh chụp lúc chấm vào" caption={`Lúc vào · ${clock(session.check_in ?? entryEvent?.server_time ?? null)}`} onOpen={setZoomed} />
               ) : (
                 <p className="face-compare__missing">Không có ảnh kèm.</p>
               )}
@@ -316,7 +318,7 @@ export function PersonPanel({
               <span className="face-compare__label">Lúc ra</span>
               <div className="face-compare__frame">
                 {exitUrl ? (
-                  <img src={exitUrl} alt="Ảnh chụp lúc chấm ra" />
+                  <ZoomableImage src={exitUrl} alt="Ảnh chụp lúc chấm ra" caption={`Lúc ra · ${clock(session.check_out)}`} onOpen={setZoomed} />
                 ) : (
                   <p className="face-compare__missing">Không có ảnh kèm.</p>
                 )}
@@ -328,7 +330,9 @@ export function PersonPanel({
 
       {/* What was refused that day, with the photo and the reason. Not shown
           when the panel is already open on one refused attempt. */}
-      {!attemptId ? <RefusedAttempts attempts={session.attempts ?? []} /> : null}
+      {!attemptId ? <RefusedAttempts attempts={session.attempts ?? []} onZoom={setZoomed} /> : null}
+
+      {zoomed ? <Lightbox src={zoomed.src} alt={zoomed.alt} caption={zoomed.caption} onClose={() => setZoomed(null)} /> : null}
 
       {/* Where they stood. */}
       {markers.length > 0 ? (

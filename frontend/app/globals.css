@@ -5029,3 +5029,140 @@ button.map-pin {
   font-size: var(--text-sm);
   color: var(--color-danger-strong);
 }
+
+/* Lightbox ------------------------------------------------------------- */
+.lightbox {
+  position: fixed;
+  inset: 0;
+  z-index: 1200;
+  display: grid;
+  place-items: center;
+  grid-template-rows: 1fr auto;
+  padding: var(--space-2);
+  background: rgba(2, 4, 8, 0.92);
+  animation: fadeIn 0.12s ease-out;
+}
+
+.lightbox__image {
+  max-width: 100%;
+  max-height: calc(100vh - 96px);
+  object-fit: contain;
+  border-radius: var(--radius-sm);
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.6);
+}
+
+.lightbox__caption {
+  color: #fff;
+  font-size: var(--text-sm);
+  text-align: center;
+  opacity: 0.85;
+}
+
+.lightbox__close {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  width: 44px;
+  height: 44px;
+  border: 0;
+  border-radius: var(--radius-full);
+  background: rgba(255, 255, 255, 0.12);
+  color: #fff;
+  font: inherit;
+  font-size: var(--text-lg);
+  cursor: pointer;
+}
+
+.zoomable {
+  position: relative;
+  display: block;
+  width: 100%;
+  height: 100%;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  cursor: zoom-in;
+}
+
+.zoomable img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  border-radius: var(--radius-xs);
+}
+
+.zoomable__hint {
+  position: absolute;
+  right: 6px;
+  bottom: 6px;
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  border-radius: var(--radius-full);
+  background: rgba(15, 23, 42, 0.6);
+  color: #fff;
+  font-size: 12px;
+}
+
+.attempts__photo .zoomable img {
+  object-fit: cover;
+}
+
+/* Phones: photos above facts, wider than a thumb ----------------------- */
+@media (max-width: 600px) {
+  .attempts__detail {
+    grid-template-columns: 1fr;
+  }
+
+  .attempts__photo {
+    width: min(100%, 220px);
+    justify-self: center;
+  }
+
+  .drawer__header {
+    align-items: center;
+  }
+
+  .person-head {
+    flex-wrap: wrap;
+  }
+
+  .person-head .avatar--lg {
+    width: 40px;
+    height: 40px;
+    font-size: var(--text-sm);
+  }
+
+  .person-head .drawer__title {
+    font-size: var(--text-md);
+  }
+
+  .person-head .drawer__subtitle {
+    font-size: var(--text-xs);
+  }
+
+  .person-head > .badge {
+    flex-basis: 100%;
+    justify-self: start;
+    width: fit-content;
+  }
+}
+
+@media (max-width: 600px) {
+  /* The coloured edge already says which kind; the badge only pushed the
+     reason off the line. */
+  .attempts__row .badge {
+    display: none;
+  }
+
+  .attempts__what,
+  .attempts__why {
+    white-space: normal;
+  }
+
+  .drawer__header .drawer__icon {
+    align-self: flex-start;
+  }
+}

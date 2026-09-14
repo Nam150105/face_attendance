@@ -6,6 +6,7 @@ import { api } from "../../lib/api";
 import { describeError, describeFailure } from "../../lib/messages";
 import { EVENT_STATUS, clock } from "../../lib/records";
 import type { DaySession, ManagerAttendanceEvent } from "../../lib/types";
+import { ZoomableImage } from "../Lightbox";
 import { Alert, Badge, DataList, LoadingRows } from "../ui";
 
 type Attempt = DaySession["attempts"][number];
@@ -17,7 +18,13 @@ type Attempt = DaySession["attempts"][number];
  * not let me in?" is answered with the photo it saw and the number it
  * measured.
  */
-export function RefusedAttempts({ attempts: all }: { attempts: Attempt[] }) {
+export function RefusedAttempts({
+  attempts: all,
+  onZoom,
+}: {
+  attempts: Attempt[];
+  onZoom: (photo: { src: string; alt: string; caption?: string }) => void;
+}) {
   const attempts = all.filter((attempt) => attempt.status === "BLOCKED" || attempt.status === "FAILED");
   const [error, setError] = useState<string | null>(null);
   const [open, setOpen] = useState<string | null>(null);
@@ -87,7 +94,12 @@ export function RefusedAttempts({ attempts: all }: { attempts: Attempt[] }) {
                 <div className="attempts__detail">
                   <div className={`attempts__photo${attempt.status === "FAILED" ? " is-face" : ""}`}>
                     {photo ? (
-                      <img src={photo} alt={`Ảnh máy nhận lúc ${clock(attempt.server_time)}`} />
+                      <ZoomableImage
+                        src={photo}
+                        alt={`Ảnh máy nhận lúc ${clock(attempt.server_time)}`}
+                        caption={`${clock(attempt.server_time)} · ${describeFailure(attempt.failure_code) ?? ""}`}
+                        onOpen={onZoom}
+                      />
                     ) : detail && !detail.has_image ? (
                       <p className="face-compare__missing">Lượt này không lưu ảnh.</p>
                     ) : (
@@ -111,9 +123,12 @@ export function RefusedAttempts({ attempts: all }: { attempts: Attempt[] }) {
                           ? [
                               {
                                 key: "Khớp khuôn mặt",
-                                value: `${detail.face_distance !== null ? `khoảng cách ${detail.face_distance.toFixed(3)}` : ""}${
-                                  detail.face_match_score !== null ? ` · ${(detail.face_match_score * 100).toFixed(0)}%` : ""
-                                }`,
+                                value: [
+                                  detail.face_distance !== null ? `khoảng cách ${detail.face_distance.toFixed(3)}` : null,
+                                  detail.face_match_score !== null ? `${(detail.face_match_score * 100).toFixed(0)}%` : null,
+                                ]
+                                  .filter(Boolean)
+                                  .join(" · "),
                               },
                             ]
                           : []),
