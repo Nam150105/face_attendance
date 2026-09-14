@@ -84,7 +84,8 @@ export function RecordsCalendar({
                 {people.slice(0, 12).map((person) => (
                   <i
                     key={person.member_id}
-                    style={{ background: DAY_STATUS[person.status].dot }}
+                    className={person.status === "REJECTED_FACE" || person.status === "REJECTED_PLACE" ? "is-ring" : undefined}
+                    style={{ background: DAY_STATUS[person.status].dot, borderColor: DAY_STATUS[person.status].dot }}
                     title={`${person.member_name ?? person.member_email} · ${DAY_STATUS[person.status].label}`}
                   />
                 ))}

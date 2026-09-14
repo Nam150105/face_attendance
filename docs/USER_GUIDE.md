@@ -51,13 +51,11 @@ Chưa duyệt thì họ chưa chấm công được ở đâu cả.
 
 **Bản ghi** mở ra với một thanh công cụ: chọn tháng, bốn con số của tháng (*lượt · người đi làm · chưa ra ca · đi muộn*), ô tìm theo tên hoặc email, ba cách xem và nút làm mới.
 
-- **Lịch**: mỗi ngày ghi số lượt, "*2 người · 1 muộn · 1 chưa ra ca*" và một chấm màu cho mỗi người — xanh đúng giờ, vàng chưa ra ca, đỏ đi muộn, xám bị từ chối (chỉ hiện khi bật *Hiện cả lượt không hợp lệ*). Hôm nay có vòng tròn xanh. Trên điện thoại chỉ còn chấm màu.
+- **Lịch**: mỗi ngày ghi số lượt, "*2 người · 1 muộn · 1 chưa ra ca*" và một chấm màu cho mỗi người — xanh đúng giờ, vàng chưa ra ca, đỏ đi muộn; **vòng đỏ** là người chỉ có lượt bị từ chối vì khuôn mặt, **vòng cam** là bị từ chối vì vị trí — những ngày như thế luôn hiện, không cần bật gì. Hôm nay có vòng tròn xanh. Trên điện thoại chỉ còn chấm màu.
 - **Bảng**: cả tháng thành từng dòng — ngày, người, vào, ra, có mặt, nơi, tình trạng. Tiện khi cần kiểm một lời khai "hôm mùng 7 tôi có đi".
 - **Điểm danh**: hôm nay, theo danh sách nhóm — ai **chưa chấm công đứng đầu**, rồi đi muộn, đang làm, đủ vào ra.
 
 Bấm vào một ngày, một **ngăn kéo** trượt ra bên phải (trên điện thoại là cả màn hình), lịch vẫn ở đó: đầu ngăn ghi *Thứ Sáu · 2 lượt · 2 người · 1 muộn*, rồi **mỗi người một dòng** — ảnh đại diện, tên, "Vào 08:00 · chưa ra ca", nơi, và nhãn *Đúng giờ · Muộn 43' · Về sớm 12' · Chưa ra ca*. Lịch, bảng và bảng công của thành viên dùng đúng cách tính này, nên không nơi nào nói khác nhau về một ngày. Bấm **Xuất CSV** để lấy đúng ngày đang xem.
-
-Mặc định chỉ hiện những lượt hợp lệ. Muốn xem cả lượt bị từ chối thì tích **Hiện cả lượt không hợp lệ**.
 
 ### Xem chi tiết một lượt
 
@@ -67,6 +65,7 @@ Bấm vào một dòng, ngăn kéo chuyển sang trang của người đó (mũi
 - **Thẻ ngày**: *Vào 08:43 ——— 9 giờ 40 phút ——— Ra 18:05*, hoặc *Ra: Chưa ra ca* màu vàng
 - Ảnh đã đăng ký, ảnh lúc vào, ảnh lúc ra — **xếp ngang cạnh nhau** để đối chiếu trong một tầm mắt
 - **Bản đồ vị trí chấm công**: hai vòng của địa điểm (xanh: chấm được, cam nét đứt: chặn), ghim xanh nơi đứng lúc vào, ghim cam nơi đứng lúc ra, địa chỉ và khoảng cách bên dưới
+- **Lượt bị từ chối trong ngày** (nếu có): mỗi lần máy từ chối là một dòng — viền **đỏ** là khuôn mặt không khớp, viền **cam** là sai vị trí — giờ, thử vào hay ra, lý do máy báo; bấm dòng để xem ảnh máy nhận được (mọi lần thử đều lưu ảnh, kể cả bị chặn vì vị trí), khoảng cách tới địa điểm, sai số định vị và độ khớp khuôn mặt.
 - Tình trạng, thời điểm, địa điểm, khoảng cách tới địa điểm, độ khớp khuôn mặt
 - Lý do nếu lượt đó không hợp lệ, hoặc giải trình của thành viên
 

@@ -6,9 +6,10 @@ import { api } from "../../lib/api";
 import { formatDateTime } from "../../lib/geo";
 import { describeMinutes } from "../../lib/member";
 import { describeError, describeFailure } from "../../lib/messages";
-import { EVENT_STATUS, SOURCE_LABEL, clock, initials, longDate, presenceOf, timingPill } from "../../lib/records";
+import { DAY_STATUS, EVENT_STATUS, SOURCE_LABEL, clock, initials, longDate, presenceOf, timingPill } from "../../lib/records";
 import type { DaySession, ManagerAttendanceEvent, ManagerLocation } from "../../lib/types";
 import { GeoMap, type MapCircle, type MapMarker } from "../GeoMap";
+import { RefusedAttempts } from "./RefusedAttempts";
 import { Alert, Badge, Button, DataList, Field, SelectField, TextAreaField } from "../ui";
 
 /**
@@ -244,7 +245,9 @@ export function PersonPanel({
     return list;
   }, [site, entryEvent, exitEvent]);
 
-  const pill = timingPill(session);
+  const pill = session.check_in
+    ? timingPill(session)
+    : { label: DAY_STATUS[session.status].label, tone: DAY_STATUS[session.status].tone };
 
   return (
     <div className="stack">
@@ -256,6 +259,11 @@ export function PersonPanel({
           <span className="day-card__date">{longDate(session.work_date)}</span>
           <Badge tone={pill.tone}>{pill.label}</Badge>
         </div>
+        {!session.check_in && !attemptId ? (
+          <p className="day-card__none">
+            Không có lượt hợp lệ trong ngày — {session.rejected} lần thử bị từ chối, xem bên dưới.
+          </p>
+        ) : (
         <div className="day-card__times">
           <div>
             <span className="day-card__label">Vào</span>
@@ -271,6 +279,7 @@ export function PersonPanel({
             </span>
           </div>
         </div>
+        )}
         {session.location_name ? <p className="day-card__place">{session.location_name}</p> : null}
       </section>
 
@@ -290,30 +299,36 @@ export function PersonPanel({
               )}
             </div>
           </div>
+          {session.check_in_id || attemptId ? (
           <div className="face-compare__cell">
             <span className="face-compare__label">{attemptId ? "Lúc thử" : "Lúc vào"}</span>
             <div className="face-compare__frame">
               {entryUrl ? (
                 <img src={entryUrl} alt="Ảnh chụp lúc chấm vào" />
               ) : (
-                <p className="face-compare__missing">{session.check_in_id || attemptId ? "Không có ảnh kèm." : "Chưa chấm vào."}</p>
+                <p className="face-compare__missing">Không có ảnh kèm.</p>
               )}
             </div>
           </div>
-          {!attemptId ? (
+          ) : null}
+          {!attemptId && session.check_out_id ? (
             <div className="face-compare__cell">
               <span className="face-compare__label">Lúc ra</span>
               <div className="face-compare__frame">
                 {exitUrl ? (
                   <img src={exitUrl} alt="Ảnh chụp lúc chấm ra" />
                 ) : (
-                  <p className="face-compare__missing">{session.check_out_id ? "Không có ảnh kèm." : "Chưa chấm ra."}</p>
+                  <p className="face-compare__missing">Không có ảnh kèm.</p>
                 )}
               </div>
             </div>
           ) : null}
         </div>
       </section>
+
+      {/* What was refused that day, with the photo and the reason. Not shown
+          when the panel is already open on one refused attempt. */}
+      {!attemptId ? <RefusedAttempts attempts={session.attempts ?? []} /> : null}
 
       {/* Where they stood. */}
       {markers.length > 0 ? (

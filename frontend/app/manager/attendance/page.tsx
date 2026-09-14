@@ -10,11 +10,10 @@ import { RecordsTable } from "../../../components/records/RecordsTable";
 import { RollCallView } from "../../../components/records/RollCallView";
 import { Alert, Badge, Button, Empty, LoadingRows } from "../../../components/ui";
 import { api } from "../../../lib/api";
-import { describeError, describeFailure } from "../../../lib/messages";
+import { describeError } from "../../../lib/messages";
 import { usePermissions } from "../../../lib/permissions";
 import {
   DAY_STATUS,
-  EVENT_STATUS,
   clock,
   exportSessionsCsv,
   initials,
@@ -42,8 +41,9 @@ export default function ManagerAttendancePage() {
   const [view, setView] = useState<View>("calendar");
   const [month, setMonth] = useState(() => monthKey(new Date()));
   const [search, setSearch] = useState("");
-  // Refused attempts are not attendance; they are shown only when asked for.
-  const [includeInvalid, setIncludeInvalid] = useState(false);
+  // Refused attempts always come along: a day somebody tried three times
+  // and never got in must be on the calendar, red, not behind a switch.
+  const includeInvalid = true;
   const [refreshToken, setRefreshToken] = useState(0);
   const [data, setData] = useState<AttendanceCalendar | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -172,19 +172,31 @@ export default function ManagerAttendancePage() {
             </Button>
           </div>
 
-          <div className="records__counters" aria-live="polite">
-            <span>
-              <strong>{counters.events}</strong> lượt
-            </span>
-            <span>
-              <strong>{counters.people}</strong> người đi làm
-            </span>
-            <span className={counters.open > 0 ? "is-open" : undefined}>
-              <strong>{counters.open}</strong> chưa ra ca
-            </span>
-            <span className={counters.late > 0 ? "is-late" : undefined}>
-              <strong>{counters.late}</strong> đi muộn
-            </span>
+          <div className="records__header">
+            <div className="records__counters" aria-live="polite">
+              <span>
+                <strong>{counters.events}</strong> lượt
+              </span>
+              <span>
+                <strong>{counters.people}</strong> người đi làm
+              </span>
+              <span className={counters.open > 0 ? "is-open" : undefined}>
+                <strong>{counters.open}</strong> chưa ra ca
+              </span>
+              <span className={counters.late > 0 ? "is-late" : undefined}>
+                <strong>{counters.late}</strong> đi muộn
+              </span>
+            </div>
+
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={refresh}
+              aria-label="Làm mới"
+              title="Làm mới"
+            >
+              ⟳
+            </Button>
           </div>
 
           <div className="records__tools">
@@ -210,17 +222,10 @@ export default function ManagerAttendancePage() {
                 </button>
               ))}
             </div>
-            <Button variant="secondary" size="sm" onClick={refresh} aria-label="Làm mới" title="Làm mới">
-              ⟳
-            </Button>
           </div>
         </header>
 
         <div className="records__sub">
-          <label className="checkbox">
-            <input type="checkbox" checked={includeInvalid} onChange={(event) => setIncludeInvalid(event.target.checked)} />
-            <span>Hiện cả lượt không hợp lệ</span>
-          </label>
           <div className="records__legend">
             {(["ON_TIME", "OPEN", "LATE"] as const).map((key) => (
               <span key={key}>
@@ -228,12 +233,12 @@ export default function ManagerAttendancePage() {
                 {DAY_STATUS[key].label}
               </span>
             ))}
-            {includeInvalid ? (
-              <span>
-                <i style={{ background: DAY_STATUS.REJECTED_FACE.dot }} aria-hidden="true" />
-                Bị từ chối
+            {(["REJECTED_FACE", "REJECTED_PLACE"] as const).map((key) => (
+              <span key={key}>
+                <i className="is-ring" style={{ borderColor: DAY_STATUS[key].dot }} aria-hidden="true" />
+                {DAY_STATUS[key].label}
               </span>
-            ) : null}
+            ))}
           </div>
         </div>
 
@@ -260,6 +265,12 @@ export default function ManagerAttendancePage() {
               <>
                 {longDate(day).split(",")[0]} · <strong>{counters.events > 0 || shownSessions.length > 0 ? shownSessions.reduce((n, s) => n + (s.check_in ? 1 : 0) + (s.check_out ? 1 : 0), 0) : 0}</strong> lượt ·{" "}
                 <strong>{daySummary.people}</strong> người
+                {shownSessions.reduce((n, s) => n + s.rejected, 0) > 0 ? (
+                  <>
+                    {" "}
+                    · <span className="is-late"><strong>{shownSessions.reduce((n, s) => n + s.rejected, 0)}</strong> bị từ chối</span>
+                  </>
+                ) : null}
                 {daySummary.late > 0 ? (
                   <>
                     {" "}
@@ -287,7 +298,9 @@ export default function ManagerAttendancePage() {
                   <h2 className="drawer__title">{current.member_name ?? current.member_email}</h2>
                   <p className="drawer__subtitle">{current.member_email}</p>
                 </div>
-                <Badge tone={timingPill(current).tone}>{timingPill(current).label}</Badge>
+                <Badge tone={current.check_in ? timingPill(current).tone : DAY_STATUS[current.status].tone}>
+                  {current.check_in ? timingPill(current).label : DAY_STATUS[current.status].label}
+                </Badge>
               </div>
             ) : undefined
           }
@@ -328,20 +341,17 @@ export default function ManagerAttendancePage() {
               <ul className="person-list">
                 {shownSessions.map((session) => {
                   const pill = timingPill(session);
-                  // With refused attempts switched on, each one gets its own
-                  // line: four failed tries and one success must not look
-                  // like one success.
-                  const extra = includeInvalid
-                    ? (session.attempts ?? []).filter((attempt) => attempt.id !== session.check_in_id && attempt.id !== session.check_out_id)
-                    : [];
+                  // A day that is only refusals is a red (face) or amber
+                  // (place) row; a worked day with refusals says how many.
+                  // The attempts themselves, photo and reason, are in the
+                  // person's panel.
+                  const refusedOnly = session.status === "REJECTED_FACE" || session.status === "REJECTED_PLACE";
+                  const rowClass = `person-row${
+                    session.status === "REJECTED_FACE" ? " person-row--face" : session.status === "REJECTED_PLACE" ? " person-row--place" : ""
+                  }`;
                   return (
                     <li key={`${session.member_id}-${session.work_date}`}>
-                      <button
-                        type="button"
-                        className="person-row"
-                        onClick={() => openPerson(session.work_date, session.member_id)}
-                        disabled={!session.check_in_id && !session.check_out_id}
-                      >
+                      <button type="button" className={rowClass} onClick={() => openPerson(session.work_date, session.member_id)}>
                         <span className="avatar" aria-hidden="true">
                           {initials(session.member_name, session.member_email)}
                           <i style={{ background: DAY_STATUS[session.status].dot }} />
@@ -361,31 +371,18 @@ export default function ManagerAttendancePage() {
                                 )}
                               </>
                             ) : (
-                              DAY_STATUS[session.status].label
+                              `${session.rejected} lần bị từ chối · không có lượt hợp lệ`
                             )}
                             {session.location_name ? ` · ${session.location_name}` : ""}
+                            {!refusedOnly && session.rejected > 0 ? (
+                              <span className="is-late"> · {session.rejected} lần bị từ chối</span>
+                            ) : null}
                           </span>
                         </span>
-                        <Badge tone={session.check_in ? pill.tone : DAY_STATUS[session.status].tone}>
-                          {session.check_in ? pill.label : DAY_STATUS[session.status].label}
+                        <Badge tone={refusedOnly ? DAY_STATUS[session.status].tone : pill.tone}>
+                          {refusedOnly ? DAY_STATUS[session.status].label : pill.label}
                         </Badge>
                       </button>
-                      {extra.map((attempt) => (
-                        <button
-                          type="button"
-                          className="person-row person-row--attempt"
-                          key={attempt.id}
-                          onClick={() => openPerson(session.work_date, session.member_id, attempt.id)}
-                        >
-                          <span className="person-row__body">
-                            <span className="person-row__meta">
-                              {clock(attempt.server_time)} · {attempt.event_type === "CHECK_IN" ? "thử vào" : "thử ra"}
-                              {attempt.failure_code ? ` · ${describeFailure(attempt.failure_code)}` : ""}
-                            </span>
-                          </span>
-                          <Badge tone={EVENT_STATUS[attempt.status].tone}>{EVENT_STATUS[attempt.status].label}</Badge>
-                        </button>
-                      ))}
                     </li>
                   );
                 })}

@@ -129,13 +129,13 @@ Ba ô ở đầu *Quản lý nhóm* đếm việc chờ: *Yêu cầu vào nhóm 
 - **Bảng**: cả tháng thành dòng — ngày, người, vào, ra, có mặt, nơi, tình trạng — để đối chiếu một lời khai.
 - **Điểm danh**: hôm nay, đi từ **danh sách nhóm**: ai chưa chấm công đứng đầu, rồi muộn, đang làm, đủ vào ra.
 
-Bấm một ngày → **ngăn kéo bên phải** mở (không che lịch): *Thứ Sáu · N lượt · N người · N muộn · N chưa ra ca*, rồi mỗi người một dòng với ảnh đại diện, "Vào 08:00 · chưa ra ca", nhãn. Bật *Hiện cả lượt không hợp lệ* thì từng lần thử bị từ chối hiện thành dòng phụ. Xuất CSV đúng ngày đang xem.
+Bấm một ngày → **ngăn kéo bên phải** mở (không che lịch): *Thứ Sáu · N lượt · N người · N muộn · N bị từ chối*, rồi mỗi người một dòng với ảnh đại diện, "Vào 08:00 · chưa ra ca", nhãn. Lượt bị từ chối **luôn được tính**: người chỉ có lượt bị từ chối là dòng tô đỏ (khuôn mặt) / cam (vị trí), người đã vào nhưng từng bị từ chối có ghi số lần; lịch vẽ vòng đỏ/cam cho ngày như thế. Xuất CSV đúng ngày đang xem.
 
 **Phạm vi dữ liệu**: người quản lý chỉ thấy bản ghi phát sinh **tại địa điểm của mình**. Hai người quản lý từng chung một người không thấy dữ liệu tại nơi của nhau.
 
 ### UC9 · Xem chi tiết một lượt
 
-Bấm dòng → ngăn kéo chuyển sang trang người (mũi tên quay lại ở đầu): tên, email, nhãn; **thẻ ngày** với hai giờ to *Vào 08:43 ——— Ra Chưa ra ca* và tổng thời gian ở giữa; ba ảnh **xếp ngang** — ảnh đã đăng ký, ảnh lúc vào, ảnh lúc ra — để đối chiếu bằng mắt; **bản đồ vị trí chấm công** (MapLibre) với hai vòng geofence của địa điểm và ghim nơi người đó đứng lúc vào (xanh) / lúc ra (cam), kèm địa chỉ và khoảng cách; thông tin cốt lõi; mục *Thông tin kỹ thuật* gập lại (toạ độ, sai số GPS, thư viện nhận diện, mã bản ghi, nguồn bản ghi: thiết bị / chỉnh công / người nhập).
+Bấm dòng → ngăn kéo chuyển sang trang người (mũi tên quay lại ở đầu): tên, email, nhãn; **thẻ ngày** với hai giờ to *Vào 08:43 ——— Ra Chưa ra ca* và tổng thời gian ở giữa; ba ảnh **xếp ngang** — ảnh đã đăng ký, ảnh lúc vào, ảnh lúc ra — để đối chiếu bằng mắt; **lượt bị từ chối trong ngày** (viền đỏ = khuôn mặt, cam = vị trí; giờ, lý do máy báo; bấm để xem ảnh máy nhận — mọi lần thử đều lưu ảnh, kể cả bị chặn vì vị trí — khoảng cách, sai số GPS, độ khớp); **bản đồ vị trí chấm công** (MapLibre) với hai vòng geofence của địa điểm và ghim nơi người đó đứng lúc vào (xanh) / lúc ra (cam), kèm địa chỉ và khoảng cách; thông tin cốt lõi; mục *Thông tin kỹ thuật* gập lại (toạ độ, sai số GPS, thư viện nhận diện, mã bản ghi, nguồn bản ghi: thiết bị / chỉnh công / người nhập).
 
 ### UC10 · Sửa và xoá
 

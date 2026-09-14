@@ -137,6 +137,28 @@ def main() -> int:
         call("POST", f"/manager/members/{member_id}/locations", manager,
              {"location_id": second_id, "is_default": False})
 
+        # --- Refusals keep their photo -----------------------------------------
+        # Tomorrow's check-in (the day is done) is refused before anything is
+        # measured, but a refusal for standing far away happens after the
+        # picture arrived — and the picture is what the manager will ask for.
+        far_body, far_type = multipart(
+            {
+                "location_id": location_id, "latitude": "21.2", "longitude": "105.8",
+                "gps_accuracy_meters": "5", "idempotency_key": "read-" + uuid.uuid4().hex,
+            },
+            "image", "face.jpg", sample("einstein_b.jpg"), "image/jpeg",
+        )
+        status, far = call("POST", "/attendance/check-out", member, raw=far_body, content_type=far_type)
+        check("Chấm ra cách địa điểm 22 km bị chặn", status in (403, 422) and far.get("detail") == "OUTSIDE_ALLOWED_ZONE",
+              f"HTTP {status} {far.get('detail')}")
+        status, refused_rows = call("GET", "/manager/attendance?include_invalid=true&status=BLOCKED", manager)
+        blocked = [row for row in refused_rows.get("items", []) if row.get("failure_code") == "OUTSIDE_ALLOWED_ZONE"]
+        check("Lượt bị chặn vì vị trí vẫn lưu ảnh để người quản lý xem",
+              bool(blocked) and blocked[0].get("has_image") is True, str(blocked[:1]))
+        if blocked:
+            status, _ = call("GET", f"/manager/attendance/{blocked[0]['id']}/image", manager)
+            check("Ảnh của lượt bị chặn tải được", status == 200, f"HTTP {status}")
+
         status, refused = check_out(member, sample("einstein_b.jpg"), second_id)
         check("Chấm ra ở nơi khác mà không giải trình thì bị từ chối",
               status == 422 and refused.get("detail") == "CHECKOUT_LOCATION_REASON_REQUIRED",

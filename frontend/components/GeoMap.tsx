@@ -8,6 +8,11 @@ import type { GeoPoint } from "../lib/map";
 import { MAP_FALLBACK, MAP_STYLE_URL, circlePolygon, zoomForRadius } from "../lib/map";
 
 type MapLibre = typeof import("maplibre-gl");
+
+/** Enough tilt to see building heights, not so much that the fence flattens. */
+const MAP_PITCH = 48;
+const MAP_BEARING = -12;
+
 type MapInstance = import("maplibre-gl").Map;
 type MarkerInstance = import("maplibre-gl").Marker;
 
@@ -84,11 +89,16 @@ export function GeoMap({ circles, markers, onPick, onMarkerClick, height = 260, 
       // The worker files are copied into /public/maplibre by the Dockerfile.
       maplibre.setWorkerUrl("/maplibre/maplibre-gl-worker.mjs");
       const startZoom = circles[0] ? zoomForRadius(circles[0].radiusMeters, primary.latitude) : 15;
+      // Tilted a little so the style's extruded buildings read as blocks
+      // rather than outlines; the fence stays a circle on the ground.
       const map = new maplibre.Map({
         container: containerRef.current,
         style: MAP_STYLE_URL,
         center: [primary.longitude, primary.latitude],
         zoom: startZoom,
+        pitch: MAP_PITCH,
+        bearing: MAP_BEARING,
+        maxPitch: 65,
         attributionControl: { compact: true },
       });
       map.addControl(new maplibre.NavigationControl({ showCompass: false }), "top-right");
@@ -205,7 +215,7 @@ export function GeoMap({ circles, markers, onPick, onMarkerClick, height = 260, 
           bounds.extend([lng, lat]);
         }
       }
-      map.fitBounds(bounds, { padding: 40, maxZoom: 18, duration: 0 });
+      map.fitBounds(bounds, { padding: 40, maxZoom: 18, duration: 0, pitch: MAP_PITCH, bearing: MAP_BEARING });
     } else if (!fit && markers[0]) {
       const current = map.getCenter();
       const target = markers[0].point;

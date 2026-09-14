@@ -15,8 +15,8 @@ export const DAY_STATUS: Record<CalendarDayStatus, { label: string; tone: Tone; 
   LATE: { label: "Đi muộn", tone: "danger", dot: "var(--color-danger)" },
   OPEN: { label: "Chưa ra ca", tone: "warning", dot: "var(--color-warning)" },
   NO_CHECK_IN: { label: "Thiếu lượt vào", tone: "warning", dot: "var(--color-warning)" },
-  REJECTED_FACE: { label: "Khuôn mặt không khớp", tone: "neutral", dot: "var(--text-muted)" },
-  REJECTED_PLACE: { label: "Địa điểm không khớp", tone: "neutral", dot: "var(--text-muted)" },
+  REJECTED_FACE: { label: "Khuôn mặt không khớp", tone: "danger", dot: "var(--color-danger)" },
+  REJECTED_PLACE: { label: "Địa điểm không khớp", tone: "warning", dot: "var(--color-warning)" },
 };
 
 export const ROLL_STATUS: Record<RollCallStatus, { label: string; tone: Tone; dot: string }> = {

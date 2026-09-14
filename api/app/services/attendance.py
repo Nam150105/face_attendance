@@ -410,6 +410,11 @@ def check_in(
         if location is None:
             raise _reject(404, "Location is not assigned to this member")
 
+        # The photo is evidence whatever the verdict: a refusal for standing
+        # too far away is still a face the manager may want to see.
+        object_key = f"attendance/{user.id}/{uuid.uuid4()}.jpg"
+        PrivateObjectStorage().put_private(object_key, image, content_type)
+
         decision = evaluate_geofence(
             latitude, longitude, gps_accuracy_meters, float(location[1]), float(location[2]),
             GeofencePolicy(location[3], location[4], 100),
@@ -420,6 +425,7 @@ def check_in(
             _record_rejection(
                 connection, user, location_id, "CHECK_IN", "BLOCKED", code,
                 latitude, longitude, gps_accuracy_meters, decision.distance_meters, idempotency_key,
+                object_key=object_key,
             )
             raise _reject(status_code, code)
         if decision.status == GeofenceStatus.WARNING_REASON_REQUIRED and not reason:
@@ -435,6 +441,7 @@ def check_in(
             _record_rejection(
                 connection, user, location_id, "CHECK_IN", "BLOCKED", "CHECK_IN_TOO_LATE",
                 latitude, longitude, gps_accuracy_meters, decision.distance_meters, idempotency_key,
+                object_key=object_key,
             )
             raise _reject(403, "CHECK_IN_TOO_LATE")
 
@@ -444,9 +451,6 @@ def check_in(
         face_result = _verify_face(image, user.id, reference_embedding)
         if _face_ai_not_configured(face_result):
             raise _reject(503, "FACE_MODEL_NOT_CONFIGURED")
-
-        object_key = f"attendance/{user.id}/{uuid.uuid4()}.jpg"
-        PrivateObjectStorage().put_private(object_key, image, content_type)
 
         if face_result.get("status") != "VERIFIED":
             code = face_result.get("code", "FACE_NOT_MATCHED")
@@ -549,6 +553,9 @@ def check_out(
             if checkout_location is None:
                 raise _reject(404, "Checkout location is inactive")
 
+        object_key = f"attendance/{user.id}/{uuid.uuid4()}.jpg"
+        PrivateObjectStorage().put_private(object_key, image, content_type)
+
         decision = evaluate_geofence(
             latitude, longitude, gps_accuracy_meters, float(checkout_location[0]), float(checkout_location[1]),
             GeofencePolicy(checkout_location[2], checkout_location[3], 100),
@@ -559,6 +566,7 @@ def check_out(
             _record_rejection(
                 connection, user, location_id, "CHECK_OUT", "BLOCKED", code,
                 latitude, longitude, gps_accuracy_meters, decision.distance_meters, idempotency_key,
+                object_key=object_key,
             )
             raise _reject(status_code, code)
 
@@ -571,9 +579,6 @@ def check_out(
 
         rule = _hour_rule(connection, user.id, location_id)
         early_minutes = _minutes_early_leave(rule, _utc_now())
-
-        object_key = f"attendance/{user.id}/{uuid.uuid4()}.jpg"
-        PrivateObjectStorage().put_private(object_key, image, content_type)
 
         if face_result.get("status") != "VERIFIED":
             code = face_result.get("code", "FACE_NOT_MATCHED")
