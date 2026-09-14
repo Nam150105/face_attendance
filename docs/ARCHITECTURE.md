@@ -57,14 +57,14 @@ Router chỉ phân tích đầu vào và gọi service. Nghiệp vụ nằm tron
   ↓ face_recognition.face_locations(model="hog")
   ↓ face_recognition.face_landmarks()
   ↓ face_recognition.face_encodings()   → vector 128 chiều (dlib ResNet)
-  ↓ face_recognition.face_distance()    → khoảng cách Euclid, ngưỡng 0.6
+  ↓ face_recognition.face_distance()    → khoảng cách Euclid, ngưỡng 0.5 (FACE_MATCH_TOLERANCE)
 ```
 
 Loại ảnh hỏng ở bước OpenCV tốn vài mili giây; để lọt thì cái giá là nhận nhầm người.
 
 **Vector của hai engine không bao giờ đem so với nhau.** 128 số của dlib và 512 số của ArcFace ở hai không gian khác nhau; so vẫn ra một điểm số trông hợp lý nhưng vô nghĩa. Mỗi vector lưu kèm `model_name`, và `/v1/verify` từ chối với `FACE_ENGINE_MISMATCH` nếu lệch.
 
-Số đo thực tế (ba chân dung phạm vi công cộng): cùng một người **0.144**, hai người khác nhau **0.703**, ngưỡng **0.6**.
+Số đo thực tế (ba chân dung phạm vi công cộng): cùng một người **0.144**, hai người khác nhau **0.703**, ngưỡng **0.5**. Ngưỡng 0.6 của thư viện từng cho một người khác qua ở 0.58 trên ảnh điện thoại trong khi chính chủ đo 0.27–0.40; 0.5 là mức "chặt" theo tài liệu thư viện và tách hai nhóm đó. Lưu ý biến đúng là `FACE_MATCH_TOLERANCE` (engine face_recognition); `FACE_MATCH_THRESHOLD` chỉ dùng cho ArcFace.
 
 **Số đo hiện ra cho chính người bị đo.** Màn hình đăng ký khuôn mặt in ra độ nét, độ sáng, số khuôn mặt tìm thấy và số chiều của vector; màn hình chấm công in ra khoảng cách và ngưỡng đã dùng (`face_distance`, `face_threshold`, `face_engine` trong phản hồi check-in/check-out). Một hệ thống đọc khuôn mặt người ta mà không cho người ta xem con số đã quyết định thay mình thì không có gì để kiểm chứng.
 
@@ -343,7 +343,7 @@ Giao diện kiểm bằng Playwright chạy Chrome hệ thống, ngoài kho mã.
 | Chưa có chống giả mạo | Ảnh chụp lại màn hình vẫn qua được |
 | Chưa có retention dữ liệu sinh trắc | Ảnh và vector giữ vô hạn; `07_SECURITY_PRIVACY.md` §6 yêu cầu có thời hạn |
 | Chưa có sao lưu tự động | Script có sẵn nhưng phải chạy tay |
-| `FACE_MATCH_TOLERANCE` chưa đánh giá FAR/FRR | Đang dùng 0.6, mặc định của thư viện |
+| `FACE_MATCH_TOLERANCE` chưa đánh giá FAR/FRR đầy đủ | Đang dùng 0.5, chọn theo số đo thật; cần tập ảnh của tổ chức để đo |
 | Frontend chưa có test trong kho mã | Kiểm bằng Playwright ngoài kho |
 
 ---

@@ -44,7 +44,12 @@ ENGINE_NAME = "face_recognition"
 # Euclidean distance of 0.6. Anything tighter trades false accepts for people
 # being turned away at the door.
 ENCODING_DIMENSION = 128
-DEFAULT_TOLERANCE = 0.6
+# face_recognition ships 0.6, tuned for LFW's studio-quality photos. On phone
+# frames of people who resemble each other it lets a stranger through: the
+# live system recorded a second person accepted at 0.58 while every genuine
+# match sat between 0.27 and 0.40. 0.5 is the value the library's own
+# documentation recommends for "strict" use, and it splits those two groups.
+DEFAULT_TOLERANCE = 0.5
 
 # "hog" runs on a CPU in tens of milliseconds; "cnn" is markedly more accurate
 # on angled faces but needs a GPU to be usable in a queue.

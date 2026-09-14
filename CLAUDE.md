@@ -138,4 +138,4 @@ Tài khoản demo do migration `002_seed_local_demo` tạo ra chỉ dùng cho m�
 - Test tự động: `api/tests/` có geofence + kiểm tra ảnh tải lên (unit) và `security_probe.py` (chạy trên stack thật). Frontend chưa có test trong repo — kiểm chứng giao diện đang làm thủ công bằng Playwright ngoài repo.
 - Service worker (`frontend/public/sw.js`) chỉ cache app shell và asset tĩnh. **Không cache `/api/*`** — dữ liệu chấm công và ảnh bằng chứng không bao giờ được ghi xuống cache trình duyệt. Đổi chiến lược thì phải tăng `CACHE_VERSION`.
 - Offline chỉ mở được app và báo lỗi tử tế; **không có hàng đợi chấm công offline** — mọi lượt check-in/check-out đều cần mạng vì server mới là nơi xác thực.
-- `FACE_MATCH_THRESHOLD` hiện là **giá trị tạm** chưa qua đánh giá FAR/FRR.
+- Ngưỡng khớp mặt của engine đang dùng là `FACE_MATCH_TOLERANCE` (0.5), **không phải** `FACE_MATCH_THRESHOLD` (chỉ cho ArcFace). 0.6 của thư viện từng cho người khác qua ở 0.58. Chưa đánh giá FAR/FRR có hệ thống.

@@ -88,7 +88,7 @@ Một giao diện duy nhất cho cả ba: vai trò quyết định màn hình n�
 1. Vào *Chấm công*. Nếu được gán nhiều nơi, chọn địa điểm. Lúc chấm ra, ô địa điểm để sẵn nơi đã chấm vào; chọn nơi khác thì **phải nêu lý do** và bản ghi mang trạng thái *Hợp lệ có lý do*.
 2. Camera dẫn hướng như UC2; **Chụp để chấm vào** / **Chụp để chấm ra**.
 3. Trình duyệt gửi ảnh + toạ độ + sai số GPS + khoá idempotency tới `POST /attendance/check-in` (hoặc `/check-out`).
-4. Máy chủ, theo thứ tự: giới hạn tần suất → xác thực ảnh bằng magic byte → **geofence** (khoảng cách haversine tới địa điểm; trong bán kính cho phép thì được, giữa hai vòng thì phải nêu lý do, ngoài vòng cảnh báo thì `OUTSIDE_ALLOWED_ZONE`) → gọi face-ai `/v1/verify` với vector tham chiếu → **so khớp** (khoảng cách Euclid ≤ 0,6) → tính đi muộn / về sớm theo giờ quy định của địa điểm → ghi `attendance_events`.
+4. Máy chủ, theo thứ tự: giới hạn tần suất → xác thực ảnh bằng magic byte → **geofence** (khoảng cách haversine tới địa điểm; trong bán kính cho phép thì được, giữa hai vòng thì phải nêu lý do, ngoài vòng cảnh báo thì `OUTSIDE_ALLOWED_ZONE`) → gọi face-ai `/v1/verify` với vector tham chiếu → **so khớp** (khoảng cách Euclid ≤ 0,5) → tính đi muộn / về sớm theo giờ quy định của địa điểm → ghi `attendance_events`.
 5. Kết quả hiện ngay: giờ, khoảng cách tới địa điểm, và **khoảng cách khuôn mặt / ngưỡng** mà bộ nhận diện đã dùng để quyết định.
 
 **Quy tắc phiên** (mục 5): một phiên mỗi ngày công tính theo lượt vào; phiên khép khi hết ngày công của ca (ca ngày: 00:00; ca đêm 22:00–06:00: 14:00 hôm sau) — chưa ra thì ngày đó chỉ có lượt vào (*Chưa chấm ra*), không bịa lượt ra, ngày công sau chấm vào bình thường; đã ra thì nút chấm vào tắt tới ngày công mới (`DONE_FOR_TODAY`).
@@ -225,10 +225,10 @@ Mọi ảnh — đăng ký, chấm công, dẫn hướng camera — đi qua **c�
 | 5 | **Tìm khuôn mặt** bằng bộ phát hiện HOG của dlib | face_recognition | `face_recognition.face_locations(img, model="hog")` | `recognition.py` `locate_faces`, dòng 105–114 |
 | 6 | Đặt **điểm mốc** (68 điểm) để đánh giá mặt có đọc rõ không; dưới 60 điểm là `FACE_NOT_CLEAR` khi đăng ký | face_recognition | `face_recognition.face_landmarks` | `recognition.py` `landmark_count`, dòng 117–129 |
 | 7 | **Mã hoá** khuôn mặt thành vector 128 chiều bằng ResNet của dlib | face_recognition | `face_recognition.face_encodings(..., num_jitters=1)` | `recognition.py` `encode`, dòng 132–142 |
-| 8 | **So khớp**: khoảng cách Euclid giữa hai vector; ≤ 0,6 là cùng người | face_recognition | `face_recognition.face_distance` | `recognition.py` `compare`, dòng 145–156 |
+| 8 | **So khớp**: khoảng cách Euclid giữa hai vector; ≤ 0,5 là cùng người | face_recognition | `face_recognition.face_distance` | `recognition.py` `compare`, dòng 145–156 |
 | 9 | Vẽ khung mặt lên ảnh xem trước (cho người quản lý xem máy thấy gì) | OpenCV | `cv2.rectangle`, `cv2.imencode` | `recognition.py` `annotate`, dòng 159–166 |
 
-Các ngưỡng nằm ở đầu `face_pipeline.py` (dòng 21–28): độ nét tối thiểu 40, độ sáng 35–220, số điểm mốc tối thiểu 60; và `TOLERANCE = 0.6` ở `recognition.py` dòng 52. Tất cả đọc từ biến môi trường, ghi rõ trong `.env.example`.
+Các ngưỡng nằm ở đầu `face_pipeline.py` (dòng 21–28): độ nét tối thiểu 40, độ sáng 35–220, số điểm mốc tối thiểu 60; và `TOLERANCE = 0.5` (`FACE_MATCH_TOLERANCE`) ở `recognition.py`. Tất cả đọc từ biến môi trường, ghi rõ trong `.env.example`.
 
 Điều phối chuỗi trên: `FacePipeline.analyze` (bước 1–6, dòng 86–100), `FacePipeline.validate` (áp ngưỡng, dòng 161–178; đăng ký khắt khe hơn chấm công), `FacePipeline.encode` (bước 7), `FacePipeline.compare` (bước 8). Bốn endpoint HTTP của dịch vụ ở [`face-ai/app/main.py`](../face-ai/app/main.py): `/v1/analyze` (dẫn hướng), `/v1/preview` (ảnh có khung), `/v1/enroll`, `/v1/verify`.
 
@@ -259,14 +259,14 @@ Các ngưỡng nằm ở đầu `face_pipeline.py` (dòng 21–28): độ nét t
 
 ### 6.5 Số đo thực tế
 
-Trên ba chân dung phạm vi công cộng (probe `reading_probe`, `pipeline_probe`): cùng một người ở hai ảnh khác nhau **0,144**; hai người khác nhau **0,703**; ngưỡng **0,6**. Cả hai probe chạy lại được bất cứ lúc nào bằng lệnh trong `INSTALL.md`.
+Trên ba chân dung phạm vi công cộng (probe `reading_probe`, `pipeline_probe`): cùng một người ở hai ảnh khác nhau **0,144**; hai người khác nhau **0,703**; ngưỡng **0,5**. Trên dữ liệu thật của hệ thống: người chính chủ đo 0,27–0,40; một người khác từng được chấp nhận ở 0,58 khi ngưỡng còn là 0,6 của thư viện — đó là lý do hạ xuống 0,5. Cả hai probe chạy lại được bất cứ lúc nào bằng lệnh trong `INSTALL.md`.
 
 ### 6.6 Điều dự án cố ý không làm
 
 - **Không giả lập AI**: model chưa sẵn sàng thì trả `FACE_MODEL_NOT_CONFIGURED`; không sinh vector giả, điểm giả. Bản ghi do người tạo (chỉnh công) mang `face_match_score = NULL`.
 - **Không chống giả mạo (liveness)**: ảnh chụp lại màn hình vẫn qua được. Là hạn chế đã biết của phương pháp 2D.
 - **Không xử lý ảnh chói**: CLAHE hiện chỉ chạy cho ảnh tối. Ảnh cháy sáng mất thông tin từ lúc chụp; dẫn hướng camera chặn sớm bằng lời khuyên "quay lưng lại nguồn sáng" thay vì cố cứu ảnh.
-- **Ngưỡng 0,6 là mặc định thư viện**, chưa đánh giá FAR/FRR trên tập dữ liệu của tổ chức.
+- **Ngưỡng 0,5** chọn theo khuyến nghị "chặt" của thư viện và số đo thật (chính chủ ≤ 0,40, người lạ ≥ 0,58); chưa đánh giá FAR/FRR có hệ thống trên tập dữ liệu của tổ chức.
 
 ---
 
@@ -277,5 +277,5 @@ Trên ba chân dung phạm vi công cộng (probe `reading_probe`, `pipeline_pro
 | Chưa có liveness | Ảnh chụp lại màn hình vẫn qua |
 | Retention dữ liệu sinh trắc | Ảnh và vector giữ vô hạn, chưa có job dọn |
 | Sao lưu tự động | Script có, chưa gắn lịch |
-| Ngưỡng nhận diện | 0,6 chưa đánh giá trên dữ liệu thật |
+| Ngưỡng nhận diện | 0,5 — khớp số đo hiện có, chưa đánh giá FAR/FRR đầy đủ |
 | `rbac_probe` | Thi thoảng 49/50 khi chạy ngay sau khi deploy, chạy lại thì 50/50; chưa tìm ra nguyên nhân |

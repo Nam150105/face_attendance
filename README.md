@@ -83,7 +83,7 @@ Xem [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) — kiến trúc, mô hình d
 
 - **Chưa có chống giả mạo (liveness).** Ảnh chụp lại màn hình vẫn có thể qua được. Đang chờ chọn nhà cung cấp.
 - **Chưa có hàng đợi ngoại tuyến.** Mọi lượt chấm công đều cần mạng, vì máy chủ mới là nơi xác thực.
-- **Ngưỡng nhận diện** đang dùng giá trị mặc định của thư viện, chưa đánh giá trên tập dữ liệu thực tế của từng tổ chức.
+- **Ngưỡng nhận diện** đặt 0,5 (chặt hơn mặc định 0,6 của thư viện, vốn từng cho người khác qua); chưa đánh giá FAR/FRR trên tập dữ liệu thực tế của từng tổ chức.
 
 ---
 
