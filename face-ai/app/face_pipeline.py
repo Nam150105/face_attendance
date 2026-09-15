@@ -156,7 +156,21 @@ class FacePipeline:
                 "x": x1 / max(width, 1), "y": y1 / max(height, 1),
                 "w": (x2 - x1) / max(width, 1), "h": (y2 - y1) / max(height, 1),
             }
-        return {"hint": hint, "ready": hint == "OK", "box": box, "region_brightness": round(brightness, 1)}
+        # Every check on its own, so the screen can show a list of four
+        # ticks instead of one sentence: the person sees the light is fine
+        # and the face is found while the framing still needs fixing.
+        checks = {
+            "light": hint not in ("TOO_DARK", "TOO_BRIGHT"),
+            "face": analysis.face_count >= 1,
+            "single": analysis.face_count == 1,
+            "framed": hint not in ("TOO_FAR", "TOO_CLOSE", "OFF_CENTRE") and analysis.face_count == 1,
+            "sharp": analysis.face_count == 1 and hint != "BLURRY"
+                     and (analysis.blur_score is None or analysis.blur_score >= MINIMUM_SHARPNESS * 1.5),
+        }
+        return {
+            "hint": hint, "ready": hint == "OK", "box": box, "region_brightness": round(brightness, 1),
+            "face_count": analysis.face_count, "checks": checks,
+        }
 
     def validate(self, analysis: FaceAnalysis, strict: bool) -> None:
         """

@@ -191,13 +191,15 @@ async def guide_face(
     if result.get("status") != "ANALYZED":
         # A frame the pipeline could not even decode: say so as a hint, not a
         # crash, because the next frame is 700 ms away.
-        return {"hint": "NO_FACE", "ready": False, "box": None}
+        return {"hint": "NO_FACE", "ready": False, "box": None, "face_count": 0, "checks": None}
     return {
         "hint": result.get("hint", "NO_FACE"),
         "ready": bool(result.get("ready")),
         "box": result.get("box"),
         "brightness": result.get("brightness_score"),
         "sharpness": result.get("blur_score"),
+        "face_count": result.get("face_count", 0),
+        "checks": result.get("checks"),
     }
 
 

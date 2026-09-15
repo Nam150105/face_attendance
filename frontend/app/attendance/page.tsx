@@ -6,6 +6,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AppShell } from "../../components/AppShell";
 import { CameraCapture, type CapturePhase, type CapturedImage, type PhaseLabels } from "../../components/CameraCapture";
 import { PermissionHelp } from "../../components/PermissionHelp";
+import { ResultCard } from "../../components/ResultCard";
 import { Alert, Badge, Button, Card, SelectField, TextAreaField, playChime } from "../../components/ui";
 import { ApiError, api } from "../../lib/api";
 import {
@@ -15,16 +16,26 @@ import {
   readPosition,
   type FixedPosition,
 } from "../../lib/geo";
+import { permissionState, rememberGranted } from "../../lib/device";
 import { describeError, isRetryableTransport } from "../../lib/messages";
 import type { AttendanceState, CurrentUser, MemberLocation } from "../../lib/types";
 
-const LABELS: PhaseLabels = {
-  framing: "Đưa khuôn mặt vào giữa vòng tròn",
-  holding: "Giữ yên thiết bị…",
-  working: "Đang kiểm tra khuôn mặt và vị trí…",
-  done: "Đã ghi nhận",
-  failed: "Chưa xong, xem hướng dẫn bên dưới",
-};
+const LABELS: PhaseLabels = { working: "Đang đối chiếu khuôn mặt và vị trí…" };
+
+/** The headline of a refusal, from the code the server returned. */
+function refusalTitle(code: string): string {
+  if (code === "FACE_NOT_MATCHED") return "Khuôn mặt không khớp với ảnh đã đăng ký";
+  if (code === "FACE_NOT_FOUND") return "Không thấy khuôn mặt trong ảnh";
+  if (code === "MULTIPLE_FACES") return "Có nhiều hơn một người trong ảnh";
+  if (code === "FACE_TOO_BLURRY" || code === "FACE_NOT_CLEAR" || code === "FACE_QUALITY_LOW") return "Ảnh chưa đủ nét";
+  if (code === "LIGHTING_TOO_DARK") return "Ảnh quá tối";
+  if (code === "LIGHTING_TOO_BRIGHT") return "Ảnh quá chói";
+  if (code === "OUTSIDE_ALLOWED_ZONE") return "Bạn đang ở ngoài phạm vi chấm công";
+  if (code === "GPS_ACCURACY_LOW") return "Định vị chưa đủ chính xác";
+  if (code === "CHECK_IN_TOO_LATE") return "Đã quá giờ được phép chấm vào";
+  if (code === "FACE_NOT_ENROLLED") return "Bạn chưa đăng ký khuôn mặt";
+  return "Chưa ghi nhận được";
+}
 
 const RETRYABLE = new Set([
   "FACE_NOT_MATCHED",
@@ -83,11 +94,19 @@ export default function AttendancePage() {
   const [placeReason, setPlaceReason] = useState("");
   const [blocked, setBlocked] = useState(false);
   const [retryable, setRetryable] = useState(false);
+  const [failCode, setFailCode] = useState<string | null>(null);
+  // A fix taken while the camera is still open, so the photo does not wait
+  // on the GPS afterwards. Only when the browser already allows it: asking
+  // for the location before the person has done anything is the kind of
+  // prompt people refuse.
+  const warmFix = useRef<Promise<FixedPosition> | null>(null);
   const [locationDenied, setLocationDenied] = useState(false);
   const [fix, setFix] = useState<FixedPosition | null>(null);
   const [distance, setDistance] = useState<number | null>(null);
   const [gpsPhase, setGpsPhase] = useState<"idle" | "locating" | "ready" | "failed">("idle");
   const [successInfo, setSuccessInfo] = useState<{
+    /** Which half was just recorded — the state flips the moment it is. */
+    action: "in" | "out";
     distance: number;
     locationName: string;
     time: string;
@@ -131,6 +150,20 @@ export default function AttendancePage() {
     void load();
   }, [load]);
 
+  useEffect(() => {
+    void permissionState("location").then((state) => {
+      if (state === "granted") {
+        warmFix.current = readPosition().then((position) => {
+          rememberGranted("location");
+          return position;
+        });
+        warmFix.current.catch(() => {
+          warmFix.current = null;
+        });
+      }
+    });
+  }, []);
+
   const activeLocation = useMemo(
     () => locations.find((item) => item.id === locationId) ?? null,
     [locations, locationId],
@@ -173,6 +206,7 @@ export default function AttendancePage() {
         playChime("success");
         setMessage(`Đã ghi nhận. Vị trí cách địa điểm ${formatDistance(response.distance_meters)}.`);
         setSuccessInfo({
+          action: checkedIn ? "out" : "in",
           distance: response.distance_meters,
           locationName: activeLocation?.name ?? "địa điểm",
           time: new Intl.DateTimeFormat("vi-VN", { hour: "2-digit", minute: "2-digit", second: "2-digit" }).format(new Date()),
@@ -197,6 +231,7 @@ export default function AttendancePage() {
         }
         setPhase("failed");
         setTone("danger");
+        setFailCode(code || null);
         setMessage(describeError(cause));
         // The photo and the fix are still in hand, so a transport failure only
         // needs re-sending — not a whole new capture.
@@ -205,7 +240,7 @@ export default function AttendancePage() {
         setBlocked(!transport && (BLOCKING.has(code) || !RETRYABLE.has(code)));
       }
     },
-    [activeLocation?.name, send],
+    [activeLocation?.name, checkedIn, send],
   );
 
   const onCaptured = useCallback(
@@ -217,6 +252,7 @@ export default function AttendancePage() {
         setNeedsReason(false);
         setBlocked(false);
         setRetryable(false);
+        setFailCode(null);
         setLocationDenied(false);
         setSuccessInfo(null);
         setGpsPhase("idle");
@@ -228,9 +264,13 @@ export default function AttendancePage() {
       setMessage(null);
       setLocationDenied(false);
       setGpsPhase("locating");
-      void readPosition()
+      const fresh = warmFix.current?.then((position) =>
+        Date.now() - position.timestamp < 60000 ? position : readPosition(),
+      );
+      void (fresh ?? readPosition())
         .then((position) => {
           pendingRef.current = { image: image.blob, position };
+          rememberGranted("location");
           setFix(position);
           setGpsPhase("ready");
           return run(image.blob, position);
@@ -238,6 +278,7 @@ export default function AttendancePage() {
         .catch((cause) => {
           setPhase("failed");
           setTone("danger");
+          setFailCode("LOCATION");
           const denied = cause instanceof GeolocationUnavailableError && cause.reason === "DENIED";
           setLocationDenied(denied);
           setGpsPhase("failed");
@@ -265,7 +306,10 @@ export default function AttendancePage() {
     void run(pending.image, pending.position, reason.trim() || undefined);
   }, [reason, run]);
 
-  const actionName = checkedIn ? "Check-out" : "Check-in";
+  // While the verdict is on screen the words follow what was just done, not
+  // the state it produced ("Đã chấm vào" under a "Chấm ra" heading was wrong).
+  const doingOut = successInfo ? successInfo.action === "out" : checkedIn;
+  const actionName = doingOut ? "Chấm ra" : "Chấm vào";
   // An open session is always closable: somebody who checked in must be able to
   // check out even if their manager removed the place in the meantime.
   const gate =
@@ -286,9 +330,11 @@ export default function AttendancePage() {
         <div>
           <h1 className="page-title">{actionName}</h1>
           <p className="page-lead">
-            {checkedIn
-              ? "Xác thực khuôn mặt để kết thúc phiên đang mở."
-              : "Nhìn thẳng vào camera và cho phép trình duyệt lấy vị trí hiện tại."}
+            {successInfo
+              ? "Đã ghi nhận. Bạn có thể đóng trang này."
+              : checkedIn
+                ? "Chụp một ảnh để kết thúc phiên đang mở."
+                : "Đưa mặt vào khung, đủ bốn mục là chụp được."}
           </p>
         </div>
         <Badge tone={checkedIn ? "success" : "info"}>
@@ -314,10 +360,7 @@ export default function AttendancePage() {
           </div>
         </Card>
       ) : (
-      <Card
-        title={checkedIn ? "Chấm ra" : "Chấm vào"}
-        subtitle={activeLocation ? activeLocation.name : "Giữ điện thoại ngang tầm mắt."}
-      >
+      <Card title={actionName} subtitle={activeLocation ? activeLocation.name : "Giữ điện thoại ngang tầm mắt."}>
         <div className="stack">
           {!successInfo && locations.length > 1 ? (
             <div className="stack stack--tight">
@@ -347,57 +390,30 @@ export default function AttendancePage() {
             </div>
           ) : null}
           {successInfo ? (
-            <div
-              style={{
-                textAlign: "center",
-                padding: "var(--space-4) var(--space-2)",
-                background: "linear-gradient(145deg, rgba(16, 185, 129, 0.15), var(--surface-panel))",
-                borderRadius: "var(--radius-lg)",
-                border: "1px solid rgba(16, 185, 129, 0.35)",
-              }}
+            <ResultCard
+              tone="success"
+              title={`${successInfo.action === "out" ? "Đã chấm ra" : "Đã chấm vào"} lúc ${successInfo.time}`}
+              body={`${successInfo.locationName} · cách ${formatDistance(successInfo.distance)}`}
+              details={[
+                ...(successInfo.faceDistance !== null && successInfo.faceDistance !== undefined
+                  ? [
+                      {
+                        key: "Khớp khuôn mặt",
+                        value: `khoảng cách ${successInfo.faceDistance.toFixed(3)}${successInfo.faceThreshold ? ` / ngưỡng ${successInfo.faceThreshold}` : ""}`,
+                      },
+                    ]
+                  : []),
+                { key: "Bộ nhận diện", value: successInfo.faceEngine ?? "face_recognition" },
+                ...(fix ? [{ key: "Sai số định vị", value: `±${fix.accuracyMeters.toFixed(0)} m` }] : []),
+              ]}
             >
-              <div
-                style={{
-                  width: 56,
-                  height: 56,
-                  borderRadius: "50%",
-                  background: "var(--color-success)",
-                  color: "#fff",
-                  display: "grid",
-                  placeItems: "center",
-                  margin: "0 auto 16px",
-                  boxShadow: "0 0 20px var(--color-success-glow)",
-                }}
-              >
-                <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3">
-                  <polyline points="20 6 9 17 4 12" />
-                </svg>
-              </div>
-              <h2 style={{ fontSize: "var(--text-xl)", fontWeight: 800, marginBottom: "4px" }}>
-                {checkedIn ? "Đã check-in" : "Đã check-out"}
-              </h2>
-              <p style={{ color: "var(--text-secondary)", fontSize: "var(--text-sm)", marginBottom: "16px" }}>
-                Thời điểm ghi nhận: <strong style={{ color: "var(--text-primary)" }}>{successInfo.time}</strong>
-                <br />
-                Cách {successInfo.locationName}: <strong style={{ color: "var(--color-cyan)" }}>{formatDistance(successInfo.distance)}</strong>
-              </p>
-              {successInfo.faceDistance !== null && successInfo.faceDistance !== undefined ? (
-                <p className="reading__inline mono">
-                  {successInfo.faceEngine ?? "face_recognition"} · khoảng cách{" "}
-                  <strong style={{ color: "var(--color-success)" }}>
-                    {successInfo.faceDistance.toFixed(3)}
-                  </strong>
-                  {successInfo.faceThreshold ? ` / ngưỡng ${successInfo.faceThreshold}` : ""}
-                </p>
-              ) : null}
-
               <Button onClick={() => router.push("/")} block>
                 Về trang chính
               </Button>
-            </div>
+            </ResultCard>
           ) : (
             <CameraCapture
-              captureLabel={checkedIn ? "Chụp để chấm ra" : "Chụp để chấm vào"}
+              captureLabel={checkedIn ? "Chấm ra" : "Chấm vào"}
               labels={LABELS}
               onCaptured={onCaptured}
               phase={phase}
@@ -409,7 +425,11 @@ export default function AttendancePage() {
             />
           )}
 
-          {message && !successInfo ? <Alert tone={tone}>{message}</Alert> : null}
+          {message && !successInfo && phase === "failed" ? (
+            <ResultCard tone="danger" title={refusalTitle(failCode ?? "")} body={message} />
+          ) : message && !successInfo ? (
+            <Alert tone={tone}>{message}</Alert>
+          ) : null}
 
           {locationDenied ? <PermissionHelp kind="location" /> : null}
 

@@ -46,6 +46,10 @@ def main() -> int:
               f"HTTP {status} {good.get('hint')}")
         check("Trả về khung mặt để vẽ lên màn hình",
               isinstance(good.get("box"), dict) and 0 < good["box"]["w"] < 1, str(good.get("box")))
+        checks = good.get("checks") or {}
+        check("Bốn mục kiểm trước khi chụp đều đạt trên ảnh tốt",
+              all(checks.get(key) is True for key in ("face", "single", "light", "sharp", "framed")) and good.get("face_count") == 1,
+              str(checks))
 
         # --- 2. Each bad condition is named for what it is ----------------------
         expectations = [
@@ -62,6 +66,14 @@ def main() -> int:
             check(label, status == 200 and verdict.get("hint") in accepted,
                   f"HTTP {status} {verdict.get('hint')}")
             check(f"  …và không mở nút chụp ({name})", verdict.get("ready") is False, str(verdict.get("ready")))
+        status, two = guide(member, frame("two_people.jpg"))
+        two_checks = two.get("checks") or {}
+        check("Hai người: mục 'một người' rớt, mục 'khuôn mặt' vẫn thấy",
+              two_checks.get("face") is True and two_checks.get("single") is False and two.get("face_count", 0) >= 2,
+              str(two_checks))
+        status, dark = guide(member, frame("dark.jpg"))
+        check("Ảnh tối: mục 'ánh sáng' rớt",
+              (dark.get("checks") or {}).get("light") is False, str(dark.get("checks")))
 
         # --- 3. Nothing about the frame is kept --------------------------------
         status, me = call("GET", "/faces/me", member)

@@ -806,80 +806,14 @@ body {
 }
 
 /* Biometric Camera HUD Scanner --------------------------------------------- */
-.camera-box {
-  position: relative;
-  width: 100%;
-  aspect-ratio: 4 / 3;
-  background: #020408;
-  border-radius: var(--radius-xl);
-  overflow: hidden;
-  border: 1px solid var(--border-subtle);
-  box-shadow: var(--shadow-panel), var(--shadow-hud);
-}
 
-.camera-video {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-  transform: scaleX(-1); /* Mirror view for natural self-capture */
-}
 
-.camera-preview {
-  width: 100%;
-  height: 100%;
-  object-fit: contain;
-  background: #020408;
-}
 
-.hud-overlay {
-  position: absolute;
-  inset: 0;
-  pointer-events: none;
-  display: flex;
-  flex-direction: column;
-  justify-content: space-between;
-  padding: 16px;
-}
 
-.hud-target {
-  position: absolute;
-  top: 50%;
-  left: 50%;
-  transform: translate(-50%, -50%);
-  width: 220px;
-  height: 280px;
-  border: 2px dashed var(--color-cyan-glow);
-  border-radius: 50%;
-  box-shadow: 0 0 25px var(--color-cyan-soft), inset 0 0 20px var(--color-cyan-soft);
-  transition: all 0.3s ease;
-}
 
-.hud-target--scanning {
-  border-color: var(--color-cyan);
-  box-shadow: 0 0 35px var(--color-cyan-glow);
-  animation: hudPulse 2s infinite ease-in-out;
-}
 
-.hud-target--done {
-  border-color: var(--color-success);
-  border-style: solid;
-  box-shadow: 0 0 35px var(--color-success-glow);
-}
 
-.hud-target--failed {
-  border-color: var(--color-danger);
-  box-shadow: 0 0 35px var(--color-danger-glow);
-}
 
-.hud-scan-line {
-  position: absolute;
-  left: 10%;
-  right: 10%;
-  height: 2px;
-  background: linear-gradient(90deg, transparent, var(--color-cyan), transparent);
-  box-shadow: 0 0 12px var(--color-cyan);
-  animation: hudSweep 2.2s infinite ease-in-out;
-}
 
 @keyframes hudSweep {
   0% { top: 15%; opacity: 0; }
@@ -910,49 +844,8 @@ body {
   100% { opacity: 0; }
 }
 
-.hud-header {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  flex-wrap: wrap;
-  gap: 8px;
-}
 
-.hud-badge {
-  display: inline-flex;
-  align-items: center;
-  max-width: 100%;
-  line-height: 1.35;
-  gap: 6px;
-  padding: 5px 10px;
-  background: rgba(0, 0, 0, 0.65);
-  backdrop-filter: blur(8px);
-  border: 1px solid rgba(255, 255, 255, 0.15);
-  border-radius: var(--radius-full);
-  font-size: var(--text-xs);
-  font-weight: 600;
-  color: #fff;
-}
 
-.hud-countdown {
-  position: absolute;
-  top: 50%;
-  left: 50%;
-  transform: translate(-50%, -50%);
-  width: 80px;
-  height: 80px;
-  border-radius: var(--radius-full);
-  background: rgba(0, 0, 0, 0.75);
-  backdrop-filter: blur(12px);
-  border: 2px solid var(--color-cyan);
-  color: var(--color-cyan);
-  font-size: 36px;
-  font-weight: 800;
-  display: grid;
-  place-items: center;
-  box-shadow: 0 0 30px var(--color-cyan-glow);
-  animation: popScale 0.3s cubic-bezier(0.16, 1, 0.3, 1);
-}
 
 @keyframes popScale {
   0% { transform: translate(-50%, -50%) scale(0.6); opacity: 0; }
@@ -2065,18 +1958,6 @@ body {
     left: -20px;
   }
 
-  /* Phone cameras are portrait; a 4/3 landscape box wasted most of the screen
-     and cropped the face. */
-  .camera-box {
-    aspect-ratio: 3 / 4;
-    max-height: 62dvh;
-    border-radius: var(--radius-lg);
-  }
-
-  .hud-target {
-    width: 66%;
-    height: 52%;
-  }
 }
 
 @media (max-width: 600px) {
@@ -2139,20 +2020,6 @@ body {
     justify-content: flex-start;
     margin-left: 0;
     width: 100%;
-  }
-
-  .hud-header {
-    flex-direction: column;
-    align-items: flex-start;
-  }
-
-  .hud-overlay {
-    padding: 10px;
-  }
-
-  .hud-target {
-    width: 62%;
-    height: 58%;
   }
 
   .chart-bars {
@@ -4015,41 +3882,14 @@ body {
 /* Live guidance on the camera -----------------------------------------------
    The reticle and the badge take the detector's verdict: amber while there is
    something to fix, green when the next shutter press will be accepted. */
-.hud-target--warn {
-  border-color: #f59e0b;
-  border-style: dashed;
-}
 
-.hud-target--ready {
-  border-color: #22c55e;
-  border-style: solid;
-  box-shadow: 0 0 0 3px rgba(34, 197, 94, 0.35);
-}
 
 /* Over the video the badge sits on a dark chip, so these are lit colours, not
    the text colours used on the white page. */
-.hud-badge--warn {
-  color: #fbbf24;
-  border-color: rgba(251, 191, 36, 0.5);
-}
 
-.hud-badge--ok {
-  color: #4ade80;
-  border-color: rgba(74, 222, 128, 0.5);
-}
 
 /* The detector's own box: where "too far" or "off centre" is measured. */
-.hud-face {
-  position: absolute;
-  border: 2px solid rgba(251, 191, 36, 0.9);
-  border-radius: var(--radius-sm);
-  pointer-events: none;
-  transition: left 200ms ease, top 200ms ease, width 200ms ease, height 200ms ease, border-color 200ms ease;
-}
 
-.hud-face--ready {
-  border-color: rgba(74, 222, 128, 0.95);
-}
 
 /* Records: the month, three ways ------------------------------------------
    One toolbar (month, counters, search, view, refresh), then the calendar,
@@ -5164,5 +5004,358 @@ button.map-pin {
 
   .drawer__header .drawer__icon {
     align-self: flex-start;
+  }
+}
+
+/* Capture: the picture, four checks, one shutter --------------------------
+   Replaces the HUD chatter. Before the photo the screen answers four
+   questions and nothing else; after it, the server's verdict is a card. */
+.cam {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.cam__box {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 3 / 4;
+  max-height: 68vh;
+  overflow: hidden;
+  border-radius: var(--radius-lg);
+  background: #020408;
+}
+
+.cam__media {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  transform: scaleX(-1);
+}
+
+.cam__box.has-preview .cam__media {
+  transform: none;
+}
+
+.cam__idle {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  color: rgba(255, 255, 255, 0.7);
+  font-size: var(--text-sm);
+}
+
+.cam__oval {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.cam__oval::before {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 62%;
+  aspect-ratio: 3 / 4;
+  transform: translate(-50%, -50%);
+  border: 3px dashed rgba(255, 255, 255, 0.55);
+  border-radius: 50%;
+  box-shadow: 0 0 0 200vmax rgba(2, 4, 8, 0.35);
+  transition: border-color 200ms ease;
+}
+
+.cam__oval.is-ready::before {
+  border-style: solid;
+  border-color: var(--color-success);
+}
+
+.cam__face {
+  position: absolute;
+  border: 2px solid rgba(255, 255, 255, 0.85);
+  border-radius: var(--radius-sm);
+  transition: left 150ms ease, top 150ms ease, width 150ms ease, height 150ms ease;
+}
+
+.cam__face.is-ready {
+  border-color: var(--color-success);
+}
+
+.cam__working {
+  position: absolute;
+  left: 50%;
+  bottom: 12px;
+  transform: translateX(-50%);
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 14px;
+  border-radius: var(--radius-full);
+  background: rgba(2, 4, 8, 0.75);
+  color: #fff;
+  font-size: var(--text-sm);
+  white-space: nowrap;
+}
+
+.cam__note {
+  text-align: center;
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+}
+
+.checklist {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+}
+
+.checklist__item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 44px;
+  padding: 6px 10px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  background: var(--surface-card);
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+}
+
+.checklist__mark {
+  display: grid;
+  place-items: center;
+  flex: 0 0 auto;
+  width: 22px;
+  height: 22px;
+  border-radius: var(--radius-full);
+  background: var(--surface-base);
+  color: var(--text-muted);
+  font-size: var(--text-xs);
+  font-weight: 800;
+}
+
+.checklist__label {
+  flex: 0 0 auto;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.checklist__fix {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-size: var(--text-xs);
+  line-height: 1.25;
+}
+
+.checklist__item.is-ok {
+  border-color: var(--color-success);
+}
+
+.checklist__item.is-ok .checklist__mark {
+  background: var(--color-success);
+  color: #fff;
+}
+
+.checklist__item.is-ok .checklist__fix {
+  color: var(--color-success);
+}
+
+.checklist__item.is-fail {
+  border-color: var(--color-warning);
+  background: var(--color-warning-soft);
+}
+
+.checklist__item.is-fail .checklist__mark {
+  background: var(--color-warning);
+  color: #fff;
+}
+
+.checklist__item.is-fail .checklist__fix {
+  color: var(--color-warning-strong);
+  font-weight: 600;
+}
+
+.cam__actions {
+  display: flex;
+  justify-content: center;
+}
+
+.shutter {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  font: inherit;
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+
+.shutter__ring {
+  display: block;
+  width: 72px;
+  height: 72px;
+  border-radius: var(--radius-full);
+  border: 4px solid var(--border-medium);
+  background: var(--surface-card);
+  box-shadow: inset 0 0 0 4px var(--surface-card), inset 0 0 0 40px var(--border-medium);
+  transition: box-shadow 150ms ease, border-color 150ms ease;
+}
+
+.shutter.is-ready .shutter__ring {
+  border-color: var(--color-primary);
+  box-shadow: inset 0 0 0 4px var(--surface-card), inset 0 0 0 40px var(--color-primary);
+}
+
+.shutter.is-ready {
+  color: var(--color-primary);
+}
+
+.shutter:disabled {
+  cursor: not-allowed;
+}
+
+.shutter:active:not(:disabled) .shutter__ring {
+  transform: scale(0.94);
+}
+
+.shutter__text {
+  font-size: var(--text-sm);
+  font-weight: 700;
+}
+
+/* The verdict */
+.result {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: var(--space-3) var(--space-2);
+  text-align: center;
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--border-subtle);
+  background: var(--surface-card);
+}
+
+.result__mark {
+  display: grid;
+  place-items: center;
+  width: 56px;
+  height: 56px;
+  border-radius: var(--radius-full);
+  color: #fff;
+}
+
+.result--success {
+  border-color: var(--color-success);
+}
+
+.result--success .result__mark {
+  background: var(--color-success);
+}
+
+.result--warning {
+  border-color: var(--color-warning);
+}
+
+.result--warning .result__mark {
+  background: var(--color-warning);
+}
+
+.result--danger {
+  border-color: var(--color-danger);
+  background: var(--color-danger-soft);
+}
+
+.result--danger .result__mark {
+  background: var(--color-danger);
+}
+
+.result__title {
+  font-size: var(--text-lg);
+  font-weight: 800;
+  letter-spacing: -0.01em;
+  color: var(--text-primary);
+}
+
+.result__body {
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+  max-width: 34ch;
+}
+
+.result > .row {
+  width: 100%;
+  margin-top: 4px;
+}
+
+.result__details {
+  width: 100%;
+  text-align: left;
+}
+
+/* The one-time permission card */
+.perm {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2);
+  border: 1px solid var(--border-primary);
+  border-radius: var(--radius-md);
+  background: var(--color-primary-soft);
+}
+
+.perm__text {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.perm__title {
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.perm__body {
+  margin-top: 2px;
+  font-size: var(--text-xs);
+  line-height: 1.5;
+  color: var(--text-secondary);
+}
+
+.perm__state {
+  display: flex;
+  gap: var(--space-2);
+  margin-top: 6px;
+  font-size: var(--text-xs);
+  font-weight: 600;
+  color: var(--text-muted);
+}
+
+.perm__state .is-ok {
+  color: var(--color-success);
+}
+
+.perm__state .is-bad {
+  color: var(--color-danger-strong);
+}
+
+@media (max-width: 480px) {
+  .checklist__item {
+    min-height: 40px;
+    padding: 4px 8px;
+    gap: 6px;
+  }
+
+  .perm {
+    flex-direction: column;
+    align-items: stretch;
   }
 }

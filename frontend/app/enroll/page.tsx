@@ -7,54 +7,33 @@ import { AppShell } from "../../components/AppShell";
 import { BiometricConsent } from "../../components/BiometricConsent";
 import { CameraCapture, type CapturePhase, type CapturedImage, type PhaseLabels } from "../../components/CameraCapture";
 import { RecognitionEnginePanel } from "../../components/RecognitionEnginePanel";
+import { ResultCard } from "../../components/ResultCard";
 import { Alert, Button, Card, Field, playChime } from "../../components/ui";
 import { ApiError, api } from "../../lib/api";
 import { describeCode, describeError } from "../../lib/messages";
 import type { CurrentUser, EnrollmentResult, FaceEnrollmentStatus } from "../../lib/types";
 
-const ENROLL_LABELS: PhaseLabels = {
-  framing: "Nhìn thẳng vào camera",
-  holding: "Giữ yên thiết bị…",
-  working: "Đang phân tích đặc trưng khuôn mặt…",
-  done: "Đăng ký thành công",
-  failed: "Chất lượng ảnh chưa đạt",
-};
+const ENROLL_LABELS: PhaseLabels = { working: "Đang phân tích khuôn mặt…" };
 
-/** The numbers the two libraries produced for this exact photo. */
-function PipelineReading({ reading }: { reading: EnrollmentResult }) {
-  const stages = [
-    {
-      library: "OpenCV",
-      what: "Đo độ nét và độ sáng",
-      value: [
-        reading.blur_score !== undefined ? `độ nét ${reading.blur_score.toFixed(0)}` : null,
-        reading.brightness_score !== undefined ? `độ sáng ${reading.brightness_score.toFixed(0)}` : null,
-      ]
-        .filter(Boolean)
-        .join(" · "),
-    },
-    {
-      library: "face_recognition",
-      what: `Tìm khuôn mặt bằng ${reading.detector ?? "dlib"}`,
-      value: `${reading.face_count ?? 1} khuôn mặt trong ảnh`,
-    },
-    {
-      library: reading.encoder ?? "dlib ResNet",
-      what: "Quy khuôn mặt thành vector đặc trưng",
-      value: `${reading.dimension ?? 128} chiều`,
-    },
+/** What the server measured on this exact photo, for the fold-away details. */
+function readingRows(reading: EnrollmentResult) {
+  return [
+    ...(reading.face_count !== undefined ? [{ key: "Khuôn mặt tìm thấy", value: String(reading.face_count) }] : []),
+    ...(reading.blur_score !== undefined ? [{ key: "Độ nét (Laplacian)", value: reading.blur_score.toFixed(0) }] : []),
+    ...(reading.brightness_score !== undefined ? [{ key: "Độ sáng trung bình", value: reading.brightness_score.toFixed(0) }] : []),
+    { key: "Bộ tìm mặt", value: reading.detector ?? "dlib HOG" },
+    { key: "Bộ mã hoá", value: `${reading.encoder ?? "dlib ResNet"} · ${reading.dimension ?? 128} chiều` },
   ];
-  return (
-    <div className="reading">
-      {stages.map((stage) => (
-        <div className="reading__row" key={stage.library}>
-          <span className="reading__lib">{stage.library}</span>
-          <span className="reading__what">{stage.what}</span>
-          <span className="reading__value mono">{stage.value || "—"}</span>
-        </div>
-      ))}
-    </div>
-  );
+}
+
+/** Why the server said no, as a headline the person can act on. */
+function refusalTitle(code: string): string {
+  if (code === "FACE_NOT_FOUND") return "Không thấy khuôn mặt trong ảnh";
+  if (code === "MULTIPLE_FACES") return "Có nhiều hơn một người trong ảnh";
+  if (code === "FACE_TOO_BLURRY" || code === "FACE_NOT_CLEAR" || code === "FACE_QUALITY_LOW") return "Ảnh chưa đủ nét";
+  if (code === "LIGHTING_TOO_DARK") return "Ảnh quá tối";
+  if (code === "LIGHTING_TOO_BRIGHT") return "Ảnh quá chói";
+  return "Ảnh chưa dùng được";
 }
 
 export default function EnrollPage() {
@@ -64,13 +43,16 @@ export default function EnrollPage() {
   const [captured, setCaptured] = useState<CapturedImage | null>(null);
   const [phase, setPhase] = useState<CapturePhase>("idle");
   const [message, setMessage] = useState<string | null>(null);
+  const [failCode, setFailCode] = useState<string | null>(null);
   const [reason, setReason] = useState("");
   const [pending, setPending] = useState(false);
   // Replacing a face that is already on file is a different act from
   // registering one, and the screen says so.
-  const changing = Boolean(face?.enrolled);
   const [tone, setTone] = useState<"danger" | "warning" | "success">("danger");
   const [done, setDone] = useState(false);
+  // Frozen once the photo is accepted: refreshing the status flipped the
+  // screen to "Chụp ảnh mới" under a green "Đã đăng ký".
+  const changing = Boolean(face?.enrolled) && !done;
   // What the two libraries actually measured on this photo. Shown afterwards
   // rather than as a wall of text beforehand: before the shutter, the only
   // thing that helps is where to stand.
@@ -98,6 +80,7 @@ export default function EnrollPage() {
     setCaptured(image);
     setPhase("idle");
     setMessage(null);
+    setFailCode(null);
     setReading(null);
   }, []);
 
@@ -130,6 +113,7 @@ export default function EnrollPage() {
       if (result.status !== "ENROLLED") {
         setPhase("failed");
         setTone("warning");
+        setFailCode(result.code ?? "UNKNOWN_ERROR");
         setMessage(describeCode(result.code ?? "UNKNOWN_ERROR"));
         return;
       }
@@ -190,33 +174,47 @@ export default function EnrollPage() {
             disabled={phase === "working"}
           />
 
-          {message ? <Alert tone={tone}>{message}</Alert> : null}
-
-          {reading ? <PipelineReading reading={reading} /> : null}
-
-          {done ? (
-            <div className="row">
-              <Button onClick={() => router.push("/attendance")} block>
-                Check-in ngay
-              </Button>
-              <Button variant="secondary" onClick={() => router.push("/")}>
-                Về trang chính
-              </Button>
-            </div>
-          ) : captured ? (
-            // Only once there is a photo. Before that, the only thing to do is
-            // in the camera box; a second greyed-out "Chụp ảnh" underneath it
-            // just made people wonder which one they were meant to press.
-            <Button size="lg" onClick={() => void submit()} loading={phase === "working"} block>
+          {/* The verdict, only once there is one. */}
+          {phase === "done" && reading ? (
+            <ResultCard
+              tone="success"
+              title={reading.status === "PENDING_APPROVAL" ? "Đã gửi ảnh mới cho người quản lý" : "Đã đăng ký khuôn mặt"}
+              body={
+                reading.status === "PENDING_APPROVAL"
+                  ? "Trong lúc chờ duyệt, bạn vẫn chấm công bằng ảnh cũ."
+                  : "Từ giờ mỗi lần chấm công, hệ thống đối chiếu với ảnh này."
+              }
+              details={readingRows(reading)}
+            >
+              <div className="stack stack--tight">
+                <Button onClick={() => router.push("/attendance")} block>
+                  Chấm công ngay
+                </Button>
+                <Button variant="secondary" onClick={() => router.push("/")} block>
+                  Về trang chính
+                </Button>
+              </div>
+            </ResultCard>
+          ) : phase === "failed" ? (
+            <ResultCard
+              tone={tone === "danger" ? "danger" : "warning"}
+              title={failCode ? refusalTitle(failCode) : "Chưa đăng ký được"}
+              body={message}
+              details={reading ? readingRows(reading) : undefined}
+            />
+          ) : captured && phase === "idle" ? (
+            <Button size="lg" onClick={() => void submit()} block>
               {changing ? "Dùng ảnh này, gửi duyệt" : "Dùng ảnh này"}
             </Button>
           ) : null}
         </div>
       </Card>
 
-      <p className="field__hint" style={{ textAlign: "center" }}>
-        Một mình bạn trong khung hình · nơi sáng đều · bỏ khẩu trang, kính râm và mũ.
-      </p>
+      {!captured ? (
+        <p className="field__hint" style={{ textAlign: "center" }}>
+          Bỏ khẩu trang, kính râm và mũ. Bốn mục dưới khung hình đạt hết thì nút chụp mở.
+        </p>
+      ) : null}
 
       <details className="disclosure">
         <summary>Ảnh của bạn được xử lý như thế nào?</summary>

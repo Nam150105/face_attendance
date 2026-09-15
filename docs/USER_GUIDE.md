@@ -140,9 +140,11 @@ Chưa được duyệt, hoặc đã duyệt nhưng chưa được gán nơi ch�
 
 Vào **Chấm công → Đăng ký khuôn mặt**, chụp một ảnh.
 
-Mỗi bước chỉ có **một nút**: *Mở camera* → *Chụp ảnh* (chỉ sáng lên khi khung hình đạt) → *Dùng ảnh này* hoặc *Chụp lại*.
+Mỗi bước chỉ có **một nút**. Đã cho phép camera rồi thì camera tự mở khi vào trang (không phải bấm *Mở camera*); nút chụp tròn ở dưới sáng lên khi bốn mục đạt; chụp xong là *Dùng ảnh này* hoặc *Chụp lại*.
 
-Mở camera lên là màn hình **tự nói bạn cần chỉnh gì**: *Khuôn mặt quá xa* · *Quá gần* · *Đưa khuôn mặt vào giữa khung* · *Chỗ này hơi tối* · *Quá chói, quay lưng lại nguồn sáng* · *Chỉ một người trong khung hình* · *Giữ yên máy*. Vòng ngắm chuyển **xanh lá** và nút chụp mới bấm được khi khung hình đạt — lúc đó ảnh chụp ra chắc chắn không bị từ chối vì ánh sáng hay khung hình.
+Dưới khung hình là **bốn mục kiểm** và chỉ bốn: *Khuôn mặt* (đã thấy, đúng cỡ, ở giữa) · *Một người* · *Ánh sáng* · *Độ nét*. Mục nào chưa đạt thì ghi ngay việc cần làm (*Đưa máy lại gần hơn*, *Hơi tối — ra chỗ sáng hơn*, *Có 2 người trong khung*…). Trước khi chụp màn hình **không nói gì về việc bạn có phải là bạn không** — chỉ sau khi chụp, máy chủ đối chiếu xong mới hiện một thẻ kết quả: xanh là được, đỏ là vì sao không (ví dụ *Khuôn mặt không khớp với ảnh đã đăng ký*, *Bạn đang ở ngoài phạm vi chấm công*), số đo nằm trong mục *Chi tiết kỹ thuật* gập lại.
+
+Lần đầu vào trang chủ có thẻ **Cấp quyền camera và vị trí một lần**: bấm *Cho phép* là hai hộp thoại của trình duyệt hiện ngay lúc đó, những lần chấm công sau không bị hỏi giữa chừng. Trên iPhone, Safari vẫn có thể hỏi lại mỗi phiên trừ khi bạn chọn *Cho phép* cho trang này trong Cài đặt → Safari → Camera / Vị trí.
 
 Ba điều giúp đạt ngay lần đầu:
 - Chỉ một mình bạn trong khung hình

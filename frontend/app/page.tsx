@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 
 import { AppShell } from "../components/AppShell";
+import { DevicePermissions } from "../components/DevicePermissions";
 import { Alert, Badge, Button, Card, DataList, Empty, LoadingRows } from "../components/ui";
 import { ApiError, api } from "../lib/api";
 import { formatDateTime, formatDistance, isSecureContextReady } from "../lib/geo";
@@ -203,6 +204,8 @@ export default function DashboardPage() {
         </Alert>
       ) : null}
 
+      <DevicePermissions />
+
       {!isSecureContextReady() ? (
         <Alert tone="warning">
           Kết nối hiện chưa được mã hoá. Để dùng camera và định vị, vui lòng truy cập bằng đường dẫn HTTPS.
@@ -215,7 +218,7 @@ export default function DashboardPage() {
         title={checkedIn ? "Phiên đang mở" : doneToday ? "Hôm nay đã chấm đủ vào ra" : "Bắt đầu một phiên mới"}
         subtitle={
           checkedIn
-            ? "Bạn đã check-in. Hãy check-out khi kết thúc."
+            ? "Bạn đã chấm vào. Chấm ra khi kết thúc."
             : doneToday
               ? "Mỗi ngày công một phiên. Nút chấm vào mở lại khi sang ngày công mới."
               : "Xác thực bằng khuôn mặt và vị trí để ghi nhận."
@@ -261,12 +264,12 @@ export default function DashboardPage() {
                       (data.locations.length > 1 ? " (chọn nơi khác khi chấm công)" : ""),
               },
               {
-                key: doneToday ? "Hôm nay" : "Thời điểm check-in",
+                key: doneToday ? "Hôm nay" : "Thời điểm chấm vào",
                 value: state.open_check_in_time
                   ? formatDateTime(state.open_check_in_time)
                   : doneToday && state.last_event
                     ? `Đã chấm ra lúc ${formatDateTime(state.last_event.server_time)}`
-                    : "Chưa check-in",
+                    : "Chưa chấm vào",
               },
             ]}
           />
@@ -287,10 +290,10 @@ export default function DashboardPage() {
             >
               {face.enrolled
                 ? checkedIn
-                  ? "Check-out — kết thúc phiên"
+                  ? "Chấm ra — kết thúc phiên"
                   : doneToday
                     ? "Đã chấm ra hôm nay"
-                    : "Check-in — bắt đầu phiên"
+                    : "Chấm vào — bắt đầu phiên"
                 : "Đăng ký khuôn mặt"}
             </Button>
           </div>
@@ -320,7 +323,7 @@ export default function DashboardPage() {
                 <div className="event" key={event.id}>
                   <div>
                     <p className="event__label">
-                      {event.event_type === "CHECK_IN" ? "Check-in" : "Check-out"} · {event.location_name}
+                      {event.event_type === "CHECK_IN" ? "Chấm vào" : "Chấm ra"} · {event.location_name}
                     </p>
                     <p className="event__meta">
                       {formatDateTime(event.server_time)} · Cách địa điểm {formatDistance(event.distance_meters)}

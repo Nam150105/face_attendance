@@ -74,7 +74,7 @@ Một giao diện duy nhất cho cả ba: vai trò quyết định màn hình n�
 **Tiền điều kiện**: đã được duyệt. **Đây là use case cốt lõi của đề tài.**
 
 1. Vào *Chấm công → Đăng ký khuôn mặt*, bấm **Mở camera**.
-2. Trong lúc camera mở, cứ 0,7 giây trình duyệt gửi một khung nhỏ (400 px) tới `POST /faces/guide`. Khung đi qua **đúng bộ đo OpenCV và bộ phát hiện dlib** như ảnh thật, và trả về một lời khuyên: *quá tối · quá chói · chưa thấy khuôn mặt · chỉ một người · quá xa · quá gần · vào giữa khung · giữ yên máy · sẵn sàng*. Vòng ngắm xanh lá và nút **Chụp ảnh** chỉ sáng lên khi sẵn sàng.
+2. Trong lúc camera mở, cứ 0,7 giây trình duyệt gửi một khung nhỏ (400 px) tới `POST /faces/guide`. Khung đi qua **đúng bộ đo OpenCV và bộ phát hiện dlib** như ảnh thật, và trả về bốn mục kiểm riêng rẽ (`checks`: khuôn mặt · một người · ánh sáng · độ nét) cùng một lời khuyên ưu tiên (*quá xa · quá gần · vào giữa khung · hơi tối · quá chói · giữ yên máy*). Màn hình chỉ hiện bốn mục đó; vòng ngắm xanh lá và nút chụp mở khi cả bốn đạt. Kết quả nhận diện chỉ hiện **sau** khi máy chủ trả lời — thẻ `ResultCard` xanh/đỏ với số đo gập trong *Chi tiết kỹ thuật*.
 3. Chụp → xem lại → **Dùng ảnh này**. Ảnh gửi lên `POST /faces/enrollment/verify` kèm một challenge ngắn hạn (chống gửi ảnh có sẵn).
 4. face-ai chạy chuỗi xử lý (mục 6) và trả về vector 128 chiều. API lưu vector vào `face_embeddings` (pgvector) kèm tên engine, và lưu ảnh gốc vào MinIO riêng tư.
 5. Màn hình in ra **đúng số máy đo được** trên ảnh: độ nét, độ sáng, số khuôn mặt, 128 chiều.
@@ -86,7 +86,7 @@ Một giao diện duy nhất cho cả ba: vai trò quyết định màn hình n�
 **Tiền điều kiện**: đã duyệt, đã có địa điểm, đã đăng ký khuôn mặt (máy chủ trả `can_check_in`; thiếu gì nút tắt và nói rõ).
 
 1. Vào *Chấm công*. Nếu được gán nhiều nơi, chọn địa điểm. Lúc chấm ra, ô địa điểm để sẵn nơi đã chấm vào; chọn nơi khác thì **phải nêu lý do** và bản ghi mang trạng thái *Hợp lệ có lý do*.
-2. Camera dẫn hướng như UC2; **Chụp để chấm vào** / **Chụp để chấm ra**.
+2. Camera dẫn hướng như UC2 (tự mở nếu đã cấp quyền; vị trí được lấy sẵn trong lúc camera mở); nút tròn **Chấm vào** / **Chấm ra** — chụp là gửi ngay.
 3. Trình duyệt gửi ảnh + toạ độ + sai số GPS + khoá idempotency tới `POST /attendance/check-in` (hoặc `/check-out`).
 4. Máy chủ, theo thứ tự: giới hạn tần suất → xác thực ảnh bằng magic byte → **geofence** (khoảng cách haversine tới địa điểm; trong bán kính cho phép thì được, giữa hai vòng thì phải nêu lý do, ngoài vòng cảnh báo thì `OUTSIDE_ALLOWED_ZONE`) → gọi face-ai `/v1/verify` với vector tham chiếu → **so khớp** (khoảng cách Euclid ≤ 0,5) → tính đi muộn / về sớm theo giờ quy định của địa điểm → ghi `attendance_events`.
 5. Kết quả hiện ngay: giờ, khoảng cách tới địa điểm, và **khoảng cách khuôn mặt / ngưỡng** mà bộ nhận diện đã dùng để quyết định.
@@ -251,7 +251,9 @@ Các ngưỡng nằm ở đầu `face_pipeline.py` (dòng 21–28): độ nét t
 
 | Việc | Tệp |
 |---|---|
-| Camera, dẫn hướng trực tiếp, khung mặt bám theo, khoá nút chụp khi chưa đạt | [`frontend/components/CameraCapture.tsx`](../frontend/components/CameraCapture.tsx) |
+| Camera, bốn mục kiểm trực tiếp, khung mặt bám theo, khoá nút chụp khi chưa đạt, tự mở khi đã có quyền | [`frontend/components/CameraCapture.tsx`](../frontend/components/CameraCapture.tsx) |
+| Thẻ kết quả sau khi máy chủ trả lời | [`frontend/components/ResultCard.tsx`](../frontend/components/ResultCard.tsx) |
+| Ghi nhớ quyền camera/vị trí, thẻ cấp quyền một lần | [`frontend/lib/device.ts`](../frontend/lib/device.ts), [`frontend/components/DevicePermissions.tsx`](../frontend/components/DevicePermissions.tsx) |
 | Sau khi đăng ký: in độ nét, độ sáng, số mặt, 128 chiều; mục gập giải thích chuỗi xử lý | [`frontend/app/enroll/page.tsx`](../frontend/app/enroll/page.tsx), [`frontend/components/RecognitionEnginePanel.tsx`](../frontend/components/RecognitionEnginePanel.tsx) |
 | Sau khi chấm công: in khoảng cách khuôn mặt và ngưỡng | [`frontend/app/attendance/page.tsx`](../frontend/app/attendance/page.tsx) |
 | Người quản lý: ba ảnh xếp ngang + khoảng cách khuôn mặt trên từng lượt | [`frontend/app/manager/attendance/page.tsx`](../frontend/app/manager/attendance/page.tsx) |

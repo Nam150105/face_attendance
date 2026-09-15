@@ -5,7 +5,8 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { PermissionHelp } from "./PermissionHelp";
 import { Alert, Button, playChime } from "./ui";
 import { api } from "../lib/api";
-import type { FaceGuide, FaceHint } from "../lib/types";
+import { permissionState, rememberGranted } from "../lib/device";
+import type { FaceGuide } from "../lib/types";
 
 export interface CapturedImage {
   blob: Blob;
@@ -14,12 +15,9 @@ export interface CapturedImage {
 
 export type CapturePhase = "idle" | "working" | "done" | "failed";
 
+/** What the status chip over the picture says while the page is busy. */
 export interface PhaseLabels {
-  framing: string;
-  holding: string;
   working: string;
-  done: string;
-  failed: string;
 }
 
 interface CameraCaptureProps {
@@ -28,11 +26,12 @@ interface CameraCaptureProps {
   onCaptured: (image: CapturedImage | null) => void;
   phase?: CapturePhase;
   disabled?: boolean;
+  /** Open the camera as soon as the screen appears when the browser already allows it. */
+  autoStart?: boolean;
 }
 
 const CAPTURE_WIDTH = 960;
 const JPEG_QUALITY = 0.92;
-const COUNTDOWN_FROM = 3;
 
 // Live guidance: a small frame every so often, judged by the same OpenCV
 // measurements and the same detector the final photo goes through. Small
@@ -43,18 +42,6 @@ const GUIDE_INTERVAL_MS = 700;
 // a slow network must not lock somebody out of clocking in.
 const GUIDE_FAILURES_BEFORE_FALLBACK = 3;
 
-const HINT_TEXT: Record<FaceHint, string> = {
-  OK: "Sẵn sàng — bấm chụp",
-  NO_FACE: "Chưa thấy khuôn mặt. Nhìn thẳng vào camera.",
-  MULTIPLE_FACES: "Chỉ một người trong khung hình.",
-  TOO_DARK: "Chỗ này hơi tối. Chọn nơi sáng hơn.",
-  TOO_BRIGHT: "Quá chói. Quay lưng lại nguồn sáng.",
-  TOO_FAR: "Khuôn mặt quá xa. Đưa máy lại gần hơn.",
-  TOO_CLOSE: "Quá gần. Lùi ra một chút.",
-  OFF_CENTRE: "Đưa khuôn mặt vào giữa khung.",
-  BLURRY: "Ảnh bị nhoè. Giữ yên máy.",
-};
-
 const PERMISSION_MESSAGES: Record<string, string> = {
   NotAllowedError: "Quyền truy cập camera đã bị từ chối. Vui lòng cho phép camera trong cài đặt trình duyệt.",
   NotFoundError: "Không tìm thấy camera trên thiết bị này.",
@@ -62,16 +49,73 @@ const PERMISSION_MESSAGES: Record<string, string> = {
   OverconstrainedError: "Camera không đáp ứng được độ phân giải yêu cầu.",
 };
 
-export function CameraCapture({ captureLabel, labels, onCaptured, phase = "idle", disabled }: CameraCaptureProps) {
+type CheckState = "pending" | "ok" | "fail";
+
+interface CheckRow {
+  key: "face" | "single" | "light" | "sharp";
+  label: string;
+  state: CheckState;
+  /** What to do about it, only when it is not ok. */
+  fix: string | null;
+}
+
+/**
+ * Four things, and only four, before the shutter: is there a face, is it the
+ * only one, is there enough light, is it sharp. Nothing here says whether the
+ * face is the right person — that is the server's answer, after the photo.
+ */
+function checklist(guide: FaceGuide | null): CheckRow[] {
+  const checks = guide?.checks ?? null;
+  const count = guide?.face_count ?? 0;
+  const hint = guide?.hint;
+  if (!guide || !checks) {
+    return [
+      { key: "face", label: "Khuôn mặt", state: "pending", fix: null },
+      { key: "single", label: "Một người", state: "pending", fix: null },
+      { key: "light", label: "Ánh sáng", state: "pending", fix: null },
+      { key: "sharp", label: "Độ nét", state: "pending", fix: null },
+    ];
+  }
+  const faceFix = !checks.face
+    ? "Nhìn thẳng vào camera"
+    : hint === "TOO_FAR"
+      ? "Đưa máy lại gần hơn"
+      : hint === "TOO_CLOSE"
+        ? "Lùi ra một chút"
+        : hint === "OFF_CENTRE"
+          ? "Đưa khuôn mặt vào giữa khung"
+          : null;
+  return [
+    { key: "face", label: "Khuôn mặt", state: checks.face && checks.framed ? "ok" : "fail", fix: faceFix },
+    {
+      key: "single",
+      label: "Một người",
+      state: !checks.face ? "pending" : checks.single ? "ok" : "fail",
+      fix: checks.face && !checks.single ? `Có ${count} người trong khung — chỉ một người thôi` : null,
+    },
+    {
+      key: "light",
+      label: "Ánh sáng",
+      state: checks.light ? "ok" : "fail",
+      fix: hint === "TOO_DARK" ? "Hơi tối — ra chỗ sáng hơn" : hint === "TOO_BRIGHT" ? "Quá chói — quay lưng lại nguồn sáng" : null,
+    },
+    {
+      key: "sharp",
+      label: "Độ nét",
+      state: !checks.single ? "pending" : checks.sharp ? "ok" : "fail",
+      fix: checks.single && !checks.sharp ? "Bị nhoè — giữ yên máy" : null,
+    },
+  ];
+}
+
+export function CameraCapture({ captureLabel, labels, onCaptured, phase = "idle", disabled, autoStart = true }: CameraCaptureProps) {
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
-  const timerRef = useRef<number | null>(null);
 
   const [error, setError] = useState<string | null>(null);
   const [denied, setDenied] = useState(false);
   const [starting, setStarting] = useState(false);
   const [streaming, setStreaming] = useState(false);
-  const [countdown, setCountdown] = useState<number | null>(null);
   const [preview, setPreview] = useState<string | null>(null);
   const [flashing, setFlashing] = useState(false);
   const [guide, setGuide] = useState<FaceGuide | null>(null);
@@ -85,14 +129,7 @@ export function CameraCapture({ captureLabel, labels, onCaptured, phase = "idle"
     setStreaming(false);
   }, []);
 
-  useEffect(() => {
-    return () => {
-      if (timerRef.current !== null) {
-        window.clearInterval(timerRef.current);
-      }
-      stopStream();
-    };
-  }, [stopStream]);
+  useEffect(() => stopStream, [stopStream]);
 
   useEffect(() => {
     return () => {
@@ -125,6 +162,7 @@ export function CameraCapture({ captureLabel, labels, onCaptured, phase = "idle"
         await videoRef.current.play();
       }
       setStreaming(true);
+      rememberGranted("camera");
     } catch (cause) {
       const name = cause instanceof DOMException ? cause.name : "";
       setDenied(name === "NotAllowedError" || name === "SecurityError");
@@ -134,28 +172,24 @@ export function CameraCapture({ captureLabel, labels, onCaptured, phase = "idle"
     }
   }, []);
 
-  // Chrome and Edge remember a denial, so getUserMedia never prompts again and
-  // the instructions are the only way forward. Safari has no camera query yet.
+  // Already allowed: open at once, no "Mở camera" to press. Denied: the
+  // browser will not prompt again, so the instructions are the only way out.
   useEffect(() => {
-    const permissions = navigator.permissions;
-    if (!permissions?.query) {
-      return;
-    }
     let cancelled = false;
-    permissions
-      .query({ name: "camera" as PermissionName })
-      .then((status) => {
-        if (!cancelled && status.state === "denied") {
-          setDenied(true);
-          setError(PERMISSION_MESSAGES.NotAllowedError);
-        }
-      })
-      .catch(() => {
-        // Browsers without a "camera" descriptor simply reject; not an error.
-      });
+    void permissionState("camera").then((state) => {
+      if (cancelled) return;
+      if (state === "denied") {
+        setDenied(true);
+        setError(PERMISSION_MESSAGES.NotAllowedError);
+      } else if (state === "granted" && autoStart && !disabled) {
+        void start();
+      }
+    });
     return () => {
       cancelled = true;
     };
+    // Once, on mount.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
@@ -183,9 +217,7 @@ export function CameraCapture({ captureLabel, labels, onCaptured, phase = "idle"
           return;
         }
         context.drawImage(video, 0, 0, canvas.width, canvas.height);
-        const blob = await new Promise<Blob | null>((resolve) =>
-          canvas.toBlob(resolve, "image/jpeg", 0.7),
-        );
+        const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, "image/jpeg", 0.7));
         if (!blob || cancelled) {
           return;
         }
@@ -219,11 +251,9 @@ export function CameraCapture({ captureLabel, labels, onCaptured, phase = "idle"
       setError("Camera chưa sẵn sàng. Vui lòng đợi một chút rồi thử lại.");
       return;
     }
-    
-    // Shutter flash animation & sound
     setFlashing(true);
     playChime("shutter");
-    setTimeout(() => setFlashing(false), 350);
+    setTimeout(() => setFlashing(false), 300);
 
     const scale = CAPTURE_WIDTH / video.videoWidth;
     const canvas = document.createElement("canvas");
@@ -251,140 +281,80 @@ export function CameraCapture({ captureLabel, labels, onCaptured, phase = "idle"
     );
   }, [onCaptured, stopStream]);
 
-  const beginCountdown = useCallback(() => {
-    setError(null);
-    setCountdown(COUNTDOWN_FROM);
-    timerRef.current = window.setInterval(() => {
-      setCountdown((current) => {
-        if (current === null || current <= 1) {
-          if (timerRef.current !== null) {
-            window.clearInterval(timerRef.current);
-            timerRef.current = null;
-          }
-          grabFrame();
-          return null;
-        }
-        return current - 1;
-      });
-    }, 1000);
-  }, [grabFrame]);
-
   function retake() {
-    if (timerRef.current !== null) {
-      window.clearInterval(timerRef.current);
-      timerRef.current = null;
-    }
-    setCountdown(null);
     setPreview(null);
     onCaptured(null);
     void start();
   }
 
-  // While the camera is live and nothing is captured, the label is whatever
-  // the detector wants fixed; the page's own labels take over afterwards.
-  const guiding = streaming && !preview && countdown === null && phase === "idle";
-  const currentLabel =
-    phase === "working"
-      ? labels.working
-      : phase === "done"
-        ? labels.done
-        : phase === "failed"
-          ? labels.failed
-          : countdown !== null
-            ? labels.holding
-            : guiding && guideDown
-              ? "Không kiểm tra được khung hình, bạn vẫn chụp được."
-              : guiding && guide
-                ? HINT_TEXT[guide.hint] ?? labels.framing
-                : guiding
-                  ? "Đang tìm khuôn mặt…"
-                  : labels.framing;
-  const guideTone: "ok" | "warn" | "none" =
-    !guiding || guideDown ? "none" : guide?.ready ? "ok" : guide ? "warn" : "none";
-  // The shutter waits for a usable frame, unless the guide itself is unreachable.
-  const shutterLocked = guiding && !guideDown && !(guide?.ready ?? false);
+  const live = streaming && !preview;
+  const rows = checklist(guide);
+  const allOk = rows.every((row) => row.state === "ok");
+  // The shutter waits for four ticks, unless the guide itself is unreachable.
+  const ready = live && (guideDown || allOk);
+  const busy = phase === "working";
 
   return (
-    <div className="stack">
-      <div className="camera-box">
+    <div className="cam">
+      <div className={`cam__box${live ? " is-live" : ""}${preview ? " has-preview" : ""}`}>
         {preview ? (
-          <img src={preview} alt="Ảnh vừa chụp" className="camera-preview" />
+          <img src={preview} alt="Ảnh vừa chụp" className="cam__media" />
         ) : (
-          <video
-            ref={videoRef}
-            className="camera-video"
-            playsInline
-            muted
-            autoPlay
-            aria-label="Hình ảnh trực tiếp từ camera"
-          />
+          <video ref={videoRef} className="cam__media" playsInline muted autoPlay aria-label="Hình ảnh trực tiếp từ camera" />
         )}
-
-        {/* Shutter flash overlay */}
         <div className={`shutter-flash ${flashing ? "shutter-flash--active" : ""}`} />
 
-        {/* Sci-Fi Biometric HUD Overlay */}
-        <div className="hud-overlay">
-          <div className="hud-header">
-            <span className="hud-badge">
-              <span
+        {/* The oval: where the face should sit. Green once every check passes. */}
+        {live ? (
+          <div className={`cam__oval${ready ? " is-ready" : ""}`} aria-hidden="true">
+            {guide?.box ? (
+              <div
+                className={`cam__face${ready ? " is-ready" : ""}`}
+                // The preview is mirrored like a selfie; the detector's box is not.
                 style={{
-                  width: 8,
-                  height: 8,
-                  borderRadius: "50%",
-                  background: streaming ? "var(--color-success)" : "var(--text-muted)",
-                  boxShadow: streaming ? "0 0 8px var(--color-success)" : "none",
+                  left: `${(1 - guide.box.x - guide.box.w) * 100}%`,
+                  top: `${guide.box.y * 100}%`,
+                  width: `${guide.box.w * 100}%`,
+                  height: `${guide.box.h * 100}%`,
                 }}
               />
-              {streaming ? "Camera đang bật" : preview ? "Đã chụp" : "Camera đang tắt"}
-            </span>
-            <span
-              className={`hud-badge hud-badge--${guideTone}`}
-              role="status"
-              aria-live="polite"
-            >
-              {currentLabel}
-            </span>
+            ) : null}
           </div>
+        ) : null}
 
-          {/* Target Reticle */}
-          <div
-            className={`hud-target ${
-              streaming
-                ? guideTone === "ok"
-                  ? "hud-target--ready"
-                  : guideTone === "warn"
-                    ? "hud-target--warn"
-                    : "hud-target--scanning"
-                : phase === "done"
-                  ? "hud-target--done"
-                  : phase === "failed"
-                    ? "hud-target--failed"
-                    : ""
-            }`}
-          >
-            {streaming && countdown === null ? <div className="hud-scan-line" /> : null}
+        {!streaming && !preview ? (
+          <div className="cam__idle">
+            <p>{starting ? "Đang mở camera…" : "Camera chưa mở"}</p>
           </div>
+        ) : null}
 
-          {/* Where the detector saw the face, so the instruction and the
-              picture agree about what "too far" refers to. */}
-          {guiding && guide?.box ? (
-            <div
-              className={`hud-face ${guide.ready ? "hud-face--ready" : ""}`}
-              style={{
-                left: `${guide.box.x * 100}%`,
-                top: `${guide.box.y * 100}%`,
-                width: `${guide.box.w * 100}%`,
-                height: `${guide.box.h * 100}%`,
-              }}
-              aria-hidden="true"
-            />
-          ) : null}
-
-          {/* Countdown Indicator */}
-          {countdown !== null ? <div className="hud-countdown">{countdown}</div> : null}
-        </div>
+        {busy ? (
+          <div className="cam__working" role="status" aria-live="polite">
+            <span className="spinner" /> {labels.working}
+          </div>
+        ) : null}
       </div>
+
+      {/* Before the photo: the four checks, nothing else. */}
+      {live ? (
+        guideDown ? (
+          <p className="cam__note">Không kiểm tra trước được khung hình — bạn vẫn chụp được.</p>
+        ) : (
+          <ul className="checklist" aria-label="Kiểm tra trước khi chụp">
+            {rows.map((row) => (
+              <li key={row.key} className={`checklist__item is-${row.state}`}>
+                <span className="checklist__mark" aria-hidden="true">
+                  {row.state === "ok" ? "✓" : row.state === "fail" ? "!" : "·"}
+                </span>
+                <span className="checklist__label">{row.label}</span>
+                <span className="checklist__fix">
+                  {row.state === "ok" ? "Đạt" : row.state === "pending" ? (guide ? "—" : "Đang kiểm tra…") : row.fix}
+                </span>
+              </li>
+            ))}
+          </ul>
+        )
+      ) : null}
 
       {error ? (
         <div className="stack stack--tight">
@@ -393,44 +363,28 @@ export function CameraCapture({ captureLabel, labels, onCaptured, phase = "idle"
         </div>
       ) : null}
 
-      <div className="row">
+      <div className="cam__actions">
         {preview ? (
-          <Button variant="secondary" onClick={retake} disabled={disabled} block>
-            Chụp lại
-          </Button>
+          !busy && phase !== "done" ? (
+            <Button variant="secondary" onClick={retake} disabled={disabled} block>
+              Chụp lại
+            </Button>
+          ) : null
         ) : !streaming ? (
-          <Button onClick={() => void start()} loading={starting} disabled={disabled} block>
+          <Button onClick={() => void start()} loading={starting} disabled={disabled} size="lg" block>
             Mở camera
           </Button>
-        ) : countdown !== null ? (
-          <Button
-            variant="secondary"
-            onClick={() => {
-              if (timerRef.current !== null) {
-                window.clearInterval(timerRef.current);
-                timerRef.current = null;
-              }
-              setCountdown(null);
-            }}
-            block
-          >
-            Huỷ đếm ngược
-          </Button>
         ) : (
-          <Button
-            onClick={beginCountdown}
-            disabled={disabled || shutterLocked}
-            title={shutterLocked && guide ? HINT_TEXT[guide.hint] : undefined}
-            icon={
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                <circle cx="12" cy="12" r="10" />
-                <polyline points="12 6 12 12 16 14" />
-              </svg>
-            }
-            block
+          <button
+            type="button"
+            className={`shutter${ready ? " is-ready" : ""}`}
+            onClick={grabFrame}
+            disabled={disabled || !ready}
+            aria-label={captureLabel}
           >
-            {captureLabel}
-          </Button>
+            <span className="shutter__ring" />
+            <span className="shutter__text">{ready ? captureLabel : "Chờ đủ 4 mục"}</span>
+          </button>
         )}
       </div>
     </div>

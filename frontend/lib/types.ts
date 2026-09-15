@@ -83,6 +83,9 @@ export interface FaceGuide {
   box: { x: number; y: number; w: number; h: number } | null;
   brightness?: number | null;
   sharpness?: number | null;
+  face_count?: number;
+  /** Each pre-capture check on its own; null when the frame could not be read. */
+  checks?: { light: boolean; face: boolean; single: boolean; framed: boolean; sharp: boolean } | null;
 }
 
 export interface EnrollmentChallenge {
