@@ -38,6 +38,10 @@ const JPEG_QUALITY = 0.92;
 // because the answer is "move closer", not "who is this".
 const GUIDE_WIDTH = 400;
 const GUIDE_INTERVAL_MS = 700;
+// Once every check passes there is nothing left to fix; a slower beat only
+// confirms nobody walked into the frame. Each frame is ~170 ms of the
+// server's CPU, and a phone left on this screen used to send them forever.
+const GUIDE_IDLE_INTERVAL_MS = 2000;
 // After this many failed guide calls in a row the shutter is unlocked anyway:
 // a slow network must not lock somebody out of clocking in.
 const GUIDE_FAILURES_BEFORE_FALLBACK = 3;
@@ -122,6 +126,8 @@ export function CameraCapture({ captureLabel, labels, onCaptured, phase = "idle"
   const [guideDown, setGuideDown] = useState(false);
   const guideBusy = useRef(false);
   const guideFailures = useRef(0);
+  const latestGuide = useRef<FaceGuide | null>(null);
+  const hiddenWhileLive = useRef(false);
 
   const stopStream = useCallback(() => {
     streamRef.current?.getTracks().forEach((track) => track.stop());
@@ -195,6 +201,7 @@ export function CameraCapture({ captureLabel, labels, onCaptured, phase = "idle"
   useEffect(() => {
     if (!streaming || preview) {
       setGuide(null);
+      latestGuide.current = null;
       setGuideDown(false);
       guideFailures.current = 0;
       return;
@@ -223,6 +230,7 @@ export function CameraCapture({ captureLabel, labels, onCaptured, phase = "idle"
         }
         const result = await api.guideFace(blob);
         if (!cancelled) {
+          latestGuide.current = result;
           setGuide(result);
           setGuideDown(false);
           guideFailures.current = 0;
@@ -237,13 +245,40 @@ export function CameraCapture({ captureLabel, labels, onCaptured, phase = "idle"
       }
     };
 
-    void tick();
-    const timer = window.setInterval(() => void tick(), GUIDE_INTERVAL_MS);
+    let timer: number | null = null;
+    const schedule = () => {
+      const ready = latestGuide.current?.ready ?? false;
+      timer = window.setTimeout(async () => {
+        if (document.visibilityState === "visible") {
+          await tick();
+        }
+        if (!cancelled) schedule();
+      }, ready ? GUIDE_IDLE_INTERVAL_MS : GUIDE_INTERVAL_MS);
+    };
+    void tick().then(() => {
+      if (!cancelled) schedule();
+    });
     return () => {
       cancelled = true;
-      window.clearInterval(timer);
+      if (timer !== null) window.clearTimeout(timer);
     };
   }, [streaming, preview]);
+
+  // A tab in the background keeps the camera light on and the guide loop
+  // running for nobody. Release the camera; it reopens when the person is back.
+  useEffect(() => {
+    function onVisibility() {
+      if (document.visibilityState === "hidden" && streamRef.current && !preview) {
+        stopStream();
+        hiddenWhileLive.current = true;
+      } else if (document.visibilityState === "visible" && hiddenWhileLive.current) {
+        hiddenWhileLive.current = false;
+        void start();
+      }
+    }
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => document.removeEventListener("visibilitychange", onVisibility);
+  }, [preview, start, stopStream]);
 
   const grabFrame = useCallback(() => {
     const video = videoRef.current;

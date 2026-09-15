@@ -66,9 +66,12 @@ services:
         condition: service_healthy
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
-      interval: 10s
+      # 30 s, not 10: each check is a fresh Python process, and five services
+      # polling every few seconds kept the VM's CPU from ever idling.
+      interval: 30s
       timeout: 5s
       retries: 5
+      start_period: 40s
     networks:
       - edge
       - backend
@@ -85,16 +88,22 @@ services:
       FACE_DETECTOR_MODEL_PATH: ${FACE_DETECTOR_MODEL_PATH}
       FACE_EMBEDDING_MODEL_PATH: ${FACE_EMBEDDING_MODEL_PATH}
       FACE_EMBEDDING_DIMENSION: ${FACE_EMBEDDING_DIMENSION}
+      # dlib's HOG and encoder run on one thread; OpenBLAS would otherwise spin
+      # up one worker per vCPU for tiny matrix ops and burn CPU waiting.
+      OMP_NUM_THREADS: "2"
+      OPENBLAS_NUM_THREADS: "2"
     volumes:
       - "D:/face-attendance-models:/models:ro"
+    cpus: 4
+    mem_limit: 1500m
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8001/health')"]
-      interval: 10s
+      interval: 30s
       timeout: 5s
       retries: 5
+      start_period: 60s
     networks:
       - backend
-    # Production AI deployments should set explicit CPU/memory/GPU limits.
 
   postgres:
     image: pgvector/pgvector:pg16
@@ -107,7 +116,8 @@ services:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
-      interval: 5s
+      interval: 30s
+      start_period: 20s
       timeout: 5s
       retries: 10
     networks:
@@ -121,7 +131,8 @@ services:
       - redis_data:/data
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
-      interval: 5s
+      interval: 30s
+      start_period: 10s
       timeout: 3s
       retries: 10
     networks:
@@ -141,7 +152,8 @@ services:
       - minio_data:/data
     healthcheck:
       test: ["CMD", "mc", "ready", "local"]
-      interval: 5s
+      interval: 30s
+      start_period: 20s
       timeout: 5s
       retries: 10
     networks:

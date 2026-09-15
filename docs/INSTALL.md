@@ -35,6 +35,14 @@ autoMemoryReclaim=gradual
 
 Rồi chạy `wsl --shutdown` một lần. Docker Desktop sẽ tự khởi động lại.
 
+**`vmmem` ăn CPU khi máy đang rảnh** thì nhìn ba chỗ, theo thứ tự hay gặp:
+
+1. **Healthcheck**: mỗi lần kiểm là một tiến trình mới (Python, `mc`, `redis-cli`). Đã đặt 30 giây thay vì 5–10 giây; đo trên máy dev, `vmmem` lúc rảnh giảm từ ~30% xuống ~12% của một nhân.
+2. **Vòng dẫn hướng camera**: mỗi khung 400 px tốn ~170 ms CPU của `face-ai`, cứ 0,7 giây một khung khi người dùng đang ở màn camera. Bốn người cùng mở là kín một nhân (dlib chạy một luồng). Đã giảm còn 2 giây khi bốn mục đã đạt, tắt hẳn khi tab ẩn, và `face-ai` bị chặn ở `cpus: 4`.
+3. **`docker compose build`** dùng mọi nhân trong 1–2 phút — bình thường, chỉ xảy ra khi deploy.
+
+Ảnh `vmmem` giữ RAM (3–4 GB) là bộ nhớ đệm của WSL; `autoMemoryReclaim=gradual` ở trên trả dần khi rảnh.
+
 ---
 
 ## 2. Lấy mã nguồn
