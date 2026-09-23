@@ -124,7 +124,7 @@ Tài khoản demo do migration `002_seed_local_demo` tạo ra chỉ dùng cho m�
 - **Xong:** Phase 0–10, cộng các đợt mở rộng sau roadmap: nhận diện bằng OpenCV + face_recognition, phân quyền theo màn hình và hành động, nhóm có mã cho người mới xin vào, duyệt đổi khuôn mặt, mã lỗi tra cứu được, cách ly dữ liệu theo địa điểm, một người một quản lý, một phiên mỗi ngày, và màn hình **Quản lý nhóm** gộp cả duyệt người / địa điểm / chỉnh công / đổi khuôn mặt.
 - **Migration hiện tại:** `028_night_shift`.
 - **Tiếp theo:** xem mục 9 và 10 trong `docs/ARCHITECTURE.md`.
-- **Đã deploy:** https://namnangno.click, chạy từ máy dev qua Cloudflare Tunnel (service `tunnel` trong compose).
+- **Đã deploy:** https://namnangno.click, chạy từ máy dev qua Cloudflare Tunnel (service `tunnel` trong compose). Sau khi restart Windows, tác vụ `FaceAttendance-Autostart` (đăng ký bằng `scripts/install-autostart.ps1`) mở Docker Desktop rồi `docker compose up -d`; nhật ký ở `logs/autostart.log`. Docker Desktop cần phiên đăng nhập Windows — máy nằm ở màn hình khoá thì site vẫn tắt.
 - **Nợ kỹ thuật đã biết:** xem mục "Known issues" trong [README.md](README.md).
 
 ## 11. Những thứ CHƯA có — đừng giả định là đã có

@@ -215,7 +215,30 @@ docker compose down
 docker compose down -v
 ```
 
-Sau khi tắt máy và bật lại, Docker Desktop tự khởi động các container nếu bạn để chế độ mặc định. Kiểm tra bằng `docker compose ps`.
+### Tự khởi động sau khi restart máy
+
+Mọi dịch vụ đã có `restart: unless-stopped`, nên **chỉ cần Docker Desktop chạy là container tự lên**. Vấn đề là Docker Desktop không tự chạy sau khi khởi động Windows (mục *Start Docker Desktop when you log in* mặc định tắt) — máy bật lên nhưng trang web vẫn 530.
+
+Đăng ký một tác vụ chạy lúc đăng nhập Windows, làm hộ cả hai việc:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\install-autostart.ps1
+```
+
+Tác vụ `FaceAttendance-Autostart` chờ 30 giây sau khi đăng nhập rồi chạy [`scripts/autostart.ps1`](../scripts/autostart.ps1): mở Docker Desktop nếu chưa chạy → chờ engine trả lời → `docker compose up -d` (việc này vớt cả trường hợp ai đó đã `docker compose stop` trước khi tắt máy, thứ mà `restart: unless-stopped` không vớt) → chờ trang web trả 200. Nhật ký ghi ở `logs/autostart.log`.
+
+```powershell
+# Chạy thử ngay, không cần đăng xuất
+Start-ScheduledTask -TaskName FaceAttendance-Autostart
+Get-Content logs\autostart.log -Tail 10
+
+# Gỡ tác vụ
+powershell -ExecutionPolicy Bypass -File scripts\install-autostart.ps1 -Remove
+```
+
+Đo trên máy dev: từ lúc engine tắt hẳn tới khi trang trả 200 mất **20 giây**.
+
+> **Giới hạn phải biết:** Docker Desktop (backend WSL2) cần một **phiên đăng nhập Windows** — không chạy được như dịch vụ nền. Máy khởi động lại rồi nằm ở màn hình khoá thì trang web vẫn tắt cho tới khi có người đăng nhập. Muốn chạy không người trực thì chọn một trong hai: bật **tự động đăng nhập Windows** (`netplwiz`, đánh đổi về bảo mật — ai mở máy lên là vào thẳng desktop), hoặc chuyển hẳn sang máy chủ Linux với `docker` + `systemd`.
 
 ---
 

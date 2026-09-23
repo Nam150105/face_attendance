@@ -22,3 +22,6 @@ caddy-root.crt
 backups/
 *.dump
 objects.tar
+
+# Nhật ký của tác vụ tự khởi động (scripts/autostart.ps1)
+logs/
